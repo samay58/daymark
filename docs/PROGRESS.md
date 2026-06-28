@@ -312,3 +312,36 @@ Build the fastest local capture path without weakening the local file guarantees
 ### Status
 
 Milestone 1 stays ready to close. Default is `~/phoenix`. Next session: Milestone 2, Slip and Capture (not started).
+
+## WHERE WE LEFT OFF
+
+### Active Milestone
+
+Milestone 2: Slip and Capture.
+
+### Start Here Next
+
+Begin the Milestone 2 implementation prompt that was copied to the clipboard. The first feature slice should make Slip capture reliable before global hotkey work:
+
+1. Confirm git status is clean enough to proceed.
+2. Re-run `swift build`, `swift test`, and `swift run daymark doctor`.
+3. Build the Slip data model and readable Markdown storage.
+4. Wire in-app Slip capture to save, append to Today, discard, and promote to a Markdown task line.
+5. Add CLI capture for temporary-workspace verification.
+6. Decide whether global hotkey/menu bar/app-bundle work needs an ADR before implementation.
+
+### Current Truths
+
+- Milestone 0 is complete.
+- Milestone 1 is complete and ready to close.
+- The default workspace root is `~/phoenix` again; ADR-005 is reversed.
+- Git has been initialized with an initial commit.
+- Milestone 2 is active but not implemented.
+- Do not add Gmail, Calendar, AI, cloud sync, embeddings, task rollover, Open Loops, dynamic blocks, or Codex execution in this slice.
+
+### Required Checks
+
+- `git status --short`
+- `swift build`
+- `swift test`
+- `swift run daymark doctor`
