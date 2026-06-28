@@ -1,0 +1,8 @@
+[environment]
+name = "daymark"
+description = "Native macOS Daymark scaffold. Start with swift build and swift test."
+
+[commands]
+build = "swift build"
+test = "swift test"
+doctor = "swift run daymark doctor"
