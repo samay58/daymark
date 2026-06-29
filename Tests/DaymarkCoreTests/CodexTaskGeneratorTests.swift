@@ -193,6 +193,21 @@ final class CodexTaskGeneratorTests: XCTestCase {
         XCTAssertEqual(bundle.suggestedFilePath, "artifacts/context-bundles/2026-06-29-original-title-context.md")
     }
 
+    func testContextBundlePreviewUsesCollisionSafeSuggestedPath() {
+        let bundle = CodexContextBundle.from(
+            draft: sampleDraft(),
+            taskRelativePath: "specs/tasks/2026-06-29-original-title.md",
+            date: fixedDate(),
+            existingRelativePaths: [
+                "artifacts/context-bundles/2026-06-29-original-title-context.md",
+                "artifacts/context-bundles/2026-06-29-original-title-context-2.md"
+            ]
+        )
+
+        XCTAssertEqual(bundle.suggestedFilePath, "artifacts/context-bundles/2026-06-29-original-title-context-3.md")
+        XCTAssertTrue(bundle.markdown().contains("`artifacts/context-bundles/2026-06-29-original-title-context-3.md`"))
+    }
+
     func testContextBundleWriterCreatesCollisionSafeMarkdownAndLeavesInputsUnchanged() throws {
         let root = WorkspaceRoot(path: "\(NSTemporaryDirectory())daymark-context-bundle-\(UUID().uuidString)")
         addTeardownBlock { try? FileManager.default.removeItem(atPath: root.expandedPath) }
@@ -218,6 +233,26 @@ final class CodexTaskGeneratorTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: source, encoding: .utf8), "source stays")
         XCTAssertEqual(try String(contentsOf: task, encoding: .utf8), "task stays")
         XCTAssertTrue(try String(contentsOf: first.url, encoding: .utf8).contains("Task: `specs/tasks/2026-06-29-original-title.md`"))
+    }
+
+    func testContextBundleWriterRechecksCollisionsAtApprovalTime() throws {
+        let root = WorkspaceRoot(path: "\(NSTemporaryDirectory())daymark-context-bundle-race-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(atPath: root.expandedPath) }
+        let preview = CodexContextBundle.from(
+            draft: sampleDraft(),
+            taskRelativePath: "specs/tasks/2026-06-29-original-title.md",
+            date: fixedDate(),
+            existingRelativePaths: []
+        )
+        let existing = root.expandedURL.appendingPathComponent("artifacts/context-bundles/2026-06-29-original-title-context.md")
+        try FileManager.default.createDirectory(at: existing.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "already here".write(to: existing, atomically: true, encoding: .utf8)
+
+        let result = try CodexContextBundleWriter().write(preview, root: root)
+
+        XCTAssertEqual(result.relativePath, "artifacts/context-bundles/2026-06-29-original-title-context-2.md")
+        XCTAssertEqual(try String(contentsOf: existing, encoding: .utf8), "already here")
+        XCTAssertTrue(try String(contentsOf: result.url, encoding: .utf8).contains("Bundle File"))
     }
 
     func testContextBundleWriterRejectsBlankBundleAndInvalidPath() {

@@ -272,19 +272,10 @@ public struct CodexTaskFileWriter {
     }
 
     private func collisionSafePath(preferredPath: String, root: WorkspaceRoot) -> String {
-        let existing = existingTaskPaths(root: root)
-        return CodexTaskDraft.collisionSafeRelativePath(
+        CodexTaskDraft.collisionSafeRelativePath(
             preferredPath: preferredPath,
-            existingRelativePaths: existing
+            existingRelativePaths: root.existingMarkdownRelativePaths(under: "specs/tasks", fileManager: fileManager)
         )
-    }
-
-    private func existingTaskPaths(root: WorkspaceRoot) -> Set<String> {
-        let directory = root.expandedURL.appendingPathComponent("specs/tasks", isDirectory: true)
-        guard let files = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
-            return []
-        }
-        return Set(files.filter { $0.pathExtension == "md" }.map { "specs/tasks/\($0.lastPathComponent)" })
     }
 
     private func isTaskPath(_ path: String) -> Bool {

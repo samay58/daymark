@@ -24,6 +24,20 @@ public struct WorkspaceRoot: Equatable, Sendable {
         URL(fileURLWithPath: expandedPath, isDirectory: true)
     }
 
+    /// Relative paths of the Markdown files directly inside `subdirectory` (for example
+    /// "specs/tasks" or "artifacts/context-bundles"), used to pick collision-safe file names
+    /// before writing. Returns an empty set when the directory does not exist yet.
+    public func existingMarkdownRelativePaths(
+        under subdirectory: String,
+        fileManager: FileManager = .default
+    ) -> Set<String> {
+        let directory = expandedURL.appendingPathComponent(subdirectory, isDirectory: true)
+        guard let files = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        return Set(files.filter { $0.pathExtension == "md" }.map { "\(subdirectory)/\($0.lastPathComponent)" })
+    }
+
     public static let environmentOverrideKey = "DAYMARK_WORKSPACE_ROOT"
 
     /// Resolves the workspace root with precedence: explicit override, then the

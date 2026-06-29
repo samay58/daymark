@@ -21,6 +21,16 @@ struct ContextMarginView: View {
                     onCreate: { appState.createCodexTaskFile() },
                     onCancel: { appState.dismissCodexTaskDraft() }
                 )
+                if appState.showsContextBundlePanel {
+                    CodexContextBundlePreviewView(
+                        taskRelativePath: appState.createdCodexTaskRelativePath,
+                        bundle: appState.codexContextBundle,
+                        message: appState.codexContextBundleMessage,
+                        onPreview: { appState.previewCodexContextBundle() },
+                        onCreate: { appState.createCodexContextBundle() },
+                        onCancel: { appState.dismissCodexContextBundle() }
+                    )
+                }
             }
             .padding(.horizontal, 20)
             .padding(.top, 64)

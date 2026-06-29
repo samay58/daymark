@@ -33,8 +33,10 @@ Good ideas that are not part of the current milestone belong here.
 - Open Loops bucket coverage: the read path implements Due today, Overdue, Upcoming, Waiting on others, and No date. The INTERACTION_SPEC buckets "Waiting on me", "Rolled repeatedly", and "Codex tasks" wait on rollover state and Codex, which are later work.
 - Tag and mention extraction is conservative: whitespace-delimited tokens that start with `#` or `@`. Trailing punctuation (`@sarah,`) is kept as part of the token. Tighten only if real notes need it.
 
-## Milestone 4 follow-ups (deferred by first-slice scope)
+## Milestone 4 follow-ups (deferred after closeout)
 
-- Source-note backlink: not built in the first slice because task-file creation is the required write path. Backlinking should be a separate explicit approval and idempotent if added.
-- In-app context bundle export: the core bundle model, writer, and CLI preview/apply path exist. The app still needs a preview and approval surface before it writes bundles.
+- Source-note backlink: not built in Milestone 4 because task files and context bundles already include source path, line or block, and excerpt. Backlinking should be a separate explicit approval and idempotent if real use proves the source note needs a return link.
+- Existing task-file bundle picker: the app can create a bundle after it creates a task file in the composer. It does not yet open an arbitrary existing task file from `specs/tasks/` for bundle creation.
 - Strong duplicate detection: repeated approvals create `-2`, `-3`, and later suffixes instead of overwriting. A future source-indexed duplicate warning can be added after the basic flow is used.
+- Created-task receipt as one value: `AppState` holds `createdCodexTaskDraft` and `createdCodexTaskRelativePath` as a pair that is always set and cleared together. Collapsing them into a single `CreatedCodexTask` value would make the both-or-neither state unrepresentable. Deferred from the closeout consolidation to avoid churning a freshly verified state machine; do it as a small, test-guarded change.
+- CLI test harness survives the dual-`@main` relink: `swift test --filter CommandTests` corrupts the `daymark` binary and every spawned-process test times out, so the only reliable run is `xcrun xctest` against the prebuilt bundle. Options to make the standard `swift test` invocation safe: have `runDaymark` fail fast when the binary is not a working CLI, or restructure so the two executables do not collide on `@main` during the test link.

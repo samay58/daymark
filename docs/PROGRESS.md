@@ -604,17 +604,120 @@ The next Codex handoff slice is started and useful from the CLI. Daymark can now
 - Keep source-note backlinking parked unless separately approved and idempotent.
 - Do a real hands-on app pass before consolidating if this working tree is going to be committed as one slice.
 
+## 2026-06-29 (Milestone 4 in-app context bundle approval)
+
+The next Codex handoff slice is complete in code. After an in-app Codex task file is created, Daymark now offers a compact context bundle preview and requires a second explicit approval before writing the bundle.
+
+### What changed
+
+- `AppState` now records the exact draft and relative path that were approved for task-file creation.
+- Editing the task draft after creation clears the created-task receipt and any bundle preview, so a later bundle cannot drift away from the approved task file.
+- Added in-app context bundle state, preview, approval, cancellation, and error messaging using `CodexContextBundle` plus `CodexContextBundleWriter`.
+- Added a quiet right-margin `Context Bundle` panel that shows the created task path, the read-only target bundle path, and the exact Markdown from `CodexContextBundle.markdown()`.
+- `Create Context Bundle` writes exactly one bundle file per approval under `artifacts/context-bundles/` and leaves both the source note and task file untouched.
+- Added core tests for collision-safe bundle preview paths and writer-side collision rechecks at approval time.
+- Updated README, ROADMAP, PARKING_LOT, and the M4 self-test with the in-app bundle flow.
+
+### Verification
+
+- Baseline before edits: `swift package clean && swift test --skip CommandTests`, 140 tests, 0 failures.
+- Baseline products before edits: `swift build --product daymark`, `swift build --product Daymark`, and read-only `.build/arm64-apple-macosx/debug/daymark doctor` after rebuilding the CLI product.
+- Baseline app launch: `swift run Daymark` started against a temp workspace and was stopped without touching `~/phoenix`.
+- Targeted after edits: `swift test --filter CodexTaskGeneratorTests`, 14 tests, 0 failures.
+- Library suite: `swift package clean && swift test --skip CommandTests`, 142 tests, 0 failures.
+- CLI regression bundle after `swift build --product daymark`: 24 tests, 0 failures (`CodexTaskCommandTests`, `CaptureCommandTests`, `OpenLoopsCommandTests`, `RolloverCommandTests`, `EndOfDayCommandTests`).
+- `swift build --product Daymark`: app target links.
+- Temp-workspace end-to-end: Codex task dry-run wrote nothing, task apply wrote one file, repeat task apply wrote a `-2` suffix, empty heading and invalid line failed, context-bundle dry-run wrote nothing, context-bundle apply wrote one file, repeat bundle apply wrote a `-2` suffix, and both the source note and original task file stayed unchanged.
+- App launch check: `swift run Daymark` launched against a temp workspace and was stopped. I did not complete hands-on keyboard/UI interaction in this environment.
+- `swift build --product daymark` followed by read-only `.build/arm64-apple-macosx/debug/daymark doctor`: passed against `~/phoenix`; today's note, workspace folders, and database were present.
+
+### Remaining in Milestone 4
+
+- Do one real hands-on app pass for the full Command Shift C flow: editable task draft, task approval, bundle preview, bundle approval, and unchanged source note.
+- Decide whether to close Milestone 4 as preview-and-approval handoff or add a separately approved, idempotent source-note backlink slice.
+- Keep Codex execution, backlinking, dynamic blocks, app-bundle work, and global hotkey work parked unless separately approved.
+
+## 2026-06-29 (Milestone 4 closeout gate)
+
+Milestone 4 is ready to close. The closeout pass verified the Codex Handoff loop, found one real stale-state issue, fixed it, and left source-note backlinking parked.
+
+### What changed
+
+- Fixed `AppState.previewCodexTaskFromSelection()` so starting a fresh task preview clears any previous created-task receipt, bundle preview, and bundle message.
+- Reused that same clearing helper when editing or dismissing a task draft, keeping the bundle offer tied to one approved task file.
+- Marked Milestone 4 done in `docs/ROADMAP.md`.
+- Updated `README.md` to describe Codex Handoff as complete.
+- Updated `docs/PARKING_LOT.md` with the recommendation to keep source-note backlinking parked unless real use proves it is needed.
+
+### Closeout review
+
+- Task Markdown has one domain source: `CodexTaskDraft.markdown()`.
+- Bundle Markdown has one domain source: `CodexContextBundle.markdown()`.
+- App bundle preview uses `CodexContextBundle.from(...)`, the same model that `CodexContextBundleWriter` writes.
+- Task and bundle writers both recheck collisions at approval time.
+- Source notes are not written by task creation or bundle creation.
+- Bundle creation does not mutate the task file.
+- Title edits update the suggested task slug from the stored preview date and path basis, without scanning the filesystem on every keystroke.
+- Validation failures stay local and user-facing in the composer messages.
+- No model, network, Codex execution, Gmail, Calendar, dynamic block, app-bundle, or global-hotkey work was added.
+
+### App notes
+
+- Launched `swift run Daymark` against a temp workspace with a sample daily note containing a heading, task line, and paragraph.
+- Triggered Command Shift C in the temp-workspace app and visually confirmed the right-side composer showed editable title, goal, constraints, and acceptance criteria.
+- Visually confirmed source metadata, source excerpt, target path, and Markdown preview were shown as read-only fields.
+- Source-note and task-file unchanged checks for the actual write paths were verified through temp-workspace CLI end-to-end because macOS Accessibility automation could not reliably press the SwiftUI approval buttons in this environment.
+
+### Backlink recommendation
+
+Close Milestone 4 without source-note backlinking. The generated task file and context bundle already carry the source path, line or block, source excerpt, constraints, and acceptance criteria that another agent needs. A backlink would add source-note mutation risk to a handoff flow that is already useful without it. If later use shows that Samay needs a return link inside the source note, build it as a separate explicit, idempotent approval.
+
+### Verification
+
+- Initial closeout suite: `swift package clean && swift test --skip CommandTests`, 142 tests, 0 failures.
+- Initial product checks: `swift build --product daymark`, `swift build --product Daymark`, then rebuilt `daymark` and ran read-only `.build/arm64-apple-macosx/debug/daymark doctor` against `~/phoenix`.
+- App temp-workspace pass: `swift run Daymark` launched against `/tmp/daymark-m4-app3...`; the composer preview was visually verified without mutating `~/phoenix`.
+- Final library suite: `swift package clean && swift test --skip CommandTests`, 142 tests, 0 failures.
+- Final CLI regression bundle after `swift build --product daymark`: 24 tests, 0 failures.
+- Final app product: `swift build --product Daymark` linked.
+- Final temp-workspace end-to-end: task dry-run wrote nothing, task apply wrote one file, repeat task apply wrote `-2`, bad line failed, empty heading failed, bundle dry-run wrote nothing, bundle apply wrote one file, repeat bundle apply wrote `-2`, and the source note plus original task file hashes stayed unchanged.
+- Final read-only doctor after rebuilding `daymark`: `.build/arm64-apple-macosx/debug/daymark doctor` passed against `~/phoenix`.
+- Final text gates: slopcheck reported 0 kill-list hits and 0 warnings for the edited files, the em dash scan found no matches, and `git diff --check` was clean.
+
+## 2026-06-29 (Milestone 4 closeout: adversarial review and consolidation)
+
+An adversarial review of the in-app context bundle slice found no correctness bugs but several real duplications. This pass removed them without changing behavior, then shipped Milestone 4 to `main`.
+
+### What changed
+
+- Added `WorkspaceRoot.existingMarkdownRelativePaths(under:)` and routed all six callers through it. The "scan a workspace subdirectory, keep `.md` files, return relative paths" logic had been copied across `CodexTaskDraft`, `CodexContextBundle`, the CLI (twice), and `AppState` (twice). One source now backs task and bundle collision safety in every module.
+- Extracted the duplicated read-only field box into a shared `ReadOnlyField` view and the duplicated right-margin panel chrome into a `marginPanel()` modifier, both in `Components.swift`. The Codex Task Composer and Context Bundle panels share them.
+- Replaced the three-way nil check that revealed the bundle panel with an `AppState.showsContextBundlePanel` computed property.
+- Added direct `WorkspaceRoot` tests for the new path helper.
+
+### Verification
+
+- `swift build` and `swift build --product daymark` both link.
+- Library suite: `swift test --skip CommandTests`, 144 tests, 0 failures (two new `WorkspaceTests`).
+- Full suite from the prebuilt bundle: `xcrun xctest .build/arm64-apple-macosx/debug/DaymarkPackageTests.xctest`, 166 tests, 0 failures, including all 24 CLI command tests.
+- Temp-workspace end-to-end on the rebuilt binary: task and bundle dry-runs wrote nothing, repeat applies produced `-2` suffixes, an invalid line was rejected, and the source note hash was unchanged.
+- `git diff --check` clean.
+
+### CLI test harness note
+
+`swift test --filter CommandTests` corrupts the `daymark` binary through the documented dual-`@main` relink collision, so every spawned-process test times out. That produces a 10 minute run with 104 failures, which is a harness artifact and not a regression. Run CLI tests from the prebuilt bundle instead: `swift build --product daymark`, then `xcrun xctest -XCTest <ClassName> .build/arm64-apple-macosx/debug/DaymarkPackageTests.xctest`. A durable fix for the harness is parked.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
 
-Milestone 4: Codex Handoff is active.
+Milestone 4: Codex Handoff is closed and on `main`.
 
 ### Start Here Next
 
-1. Do one real hands-on app pass with the editable Codex Task Composer and tighten any field focus, scrolling, or layout roughness found in use.
-2. Wire app preview and approval for context bundles, using the new core writer and CLI behavior as the contract.
-3. Keep source-note backlinking parked unless it is separately approved and idempotent.
+1. Start Milestone 5: Dynamic Blocks.
+2. Keep source-note backlinking, Codex execution, model calls, network calls, app-bundle work, and global hotkey work parked unless separately approved.
+3. Optional cleanup, both parked in `docs/PARKING_LOT.md`: collapse the `createdCodexTaskDraft` and `createdCodexTaskRelativePath` pair into one receipt value, and make the CLI test harness survive the dual-`@main` relink.
 
 ### Current Truths
 
@@ -622,19 +725,22 @@ Milestone 4: Codex Handoff is active.
 - Milestone 1 is complete.
 - Milestone 2 is closed. Capture is implemented and hardened: monthly Slip file, append to Today, promote to task, discard, and a `daymark capture` CLI. The system-global hotkey is deferred behind an app-bundle ADR.
 - Milestone 3 is closed. Tasks are parsed with due and source metadata, projected into a rebuildable `tasks` table, rolled forward through a Markdown-derived dedup marker, and surfaced through CLI plus the in-app Open Loops view.
-- Milestone 4 is active. The first slices are complete: selected text or current Markdown block to a previewed draft, an approved single-file write under `specs/tasks/`, editable in-app preview fields before approval, and CLI context bundle preview/apply under `artifacts/context-bundles/`.
+- Milestone 4 is closed and on `main`. It supports selected text or current Markdown block to a previewed draft, an approved single-file write under `specs/tasks/`, editable in-app preview fields before approval, CLI context bundle preview/apply under `artifacts/context-bundles/`, and in-app context bundle preview/approval after task-file creation.
+- One helper, `WorkspaceRoot.existingMarkdownRelativePaths(under:)`, backs collision-safe naming for tasks and bundles across the writers, the CLI, and `AppState`. The right-margin panels share `ReadOnlyField` and the `marginPanel()` modifier from `Components.swift`.
 - The first slice has been hardened after real testing: empty heading-only sections are rejected, generic goal text was removed, bad CLI line numbers fail, and app icon resources are packaged without SwiftPM warnings.
 - The editable preview slice keeps source metadata read-only, derives the exact Markdown from `CodexTaskDraft.markdown()`, and refreshes the suggested slug path when the title changes while preserving the preview date.
 - Markdown stays the source of truth. Tasks are a projection, rollover dedup is derived from Today's Markdown, and SQLite rollover rows are audit state.
 - Codex task files use `specs/tasks/yyyy-mm-dd-title-slug.md` with numeric suffixes for collisions. Source notes are not modified by the M4 slices so far.
 - Context bundle files use `artifacts/context-bundles/yyyy-mm-dd-title-slug-context.md` with numeric suffixes for collisions. Source notes and task files are not modified by bundle creation.
+- The in-app bundle preview is derived from the exact draft and relative path that were approved for task-file creation. Editing the task draft or starting a fresh task preview clears the bundle offer until another task file is approved.
+- Source-note backlinking remains parked because task files and context bundles already carry source provenance without source-note mutation.
 - The default workspace root is `~/phoenix`; ADR-005 is reversed.
-- Do not add Gmail, Calendar, AI, cloud sync, embeddings, dynamic blocks, Codex execution, app-bundle work, or global hotkey work while finishing Milestone 4.
+- Do not add Gmail, Calendar, AI, cloud sync, embeddings, Codex execution, app-bundle work, or global hotkey work while starting Milestone 5.
 
 ### Required Checks
 
 - `git status --short`
-- `swift test --skip CommandTests` for the library tests, then the CLI tests via the prebuilt bundle (see the build-collision caveat above).
+- `swift test --skip CommandTests` for the library tests. Run the CLI command tests from the prebuilt bundle, not `swift test --filter`: `swift build --product daymark`, then `xcrun xctest .build/arm64-apple-macosx/debug/DaymarkPackageTests.xctest` (see the CLI test harness note above).
 - `swift build --product daymark` and `swift build --product Daymark`.
-- Temp-workspace `daymark codex-task` dry-run, apply, repeat-apply, empty-heading rejection, invalid-line rejection, and source-note unchanged check.
+- Temp-workspace `daymark codex-task` dry-run, apply, repeat-apply, empty-heading rejection, invalid-line rejection, source-note unchanged check, `context-bundle` dry-run, apply, repeat-apply, and unchanged task-file check.
 - `daymark doctor` (read-only).

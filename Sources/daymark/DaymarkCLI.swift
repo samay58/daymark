@@ -400,7 +400,7 @@ struct DaymarkCLI {
         let draft = try PreviewBuilder().codexTaskPreview(
             source: selection,
             date: parsed.date,
-            existingRelativePaths: existingCodexTaskPaths(root: root)
+            existingRelativePaths: root.existingMarkdownRelativePaths(under: "specs/tasks")
         )
 
         if parsed.apply {
@@ -478,14 +478,6 @@ struct DaymarkCLI {
             .count)
     }
 
-    private static func existingCodexTaskPaths(root: WorkspaceRoot) -> Set<String> {
-        let directory = root.expandedURL.appendingPathComponent("specs/tasks", isDirectory: true)
-        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
-            return []
-        }
-        return Set(files.filter { $0.pathExtension == "md" }.map { "specs/tasks/\($0.lastPathComponent)" })
-    }
-
     private static func runContextBundle(arguments: [String], root: WorkspaceRoot) throws {
         let parsed = try parseContextBundleArguments(arguments)
         guard let taskPath = parsed.taskPath else { throw CommandError.missingContextBundleTask }
@@ -499,7 +491,7 @@ struct DaymarkCLI {
             draft: draft,
             taskRelativePath: taskPath,
             date: parsed.date,
-            existingRelativePaths: existingContextBundlePaths(root: root)
+            existingRelativePaths: root.existingMarkdownRelativePaths(under: "artifacts/context-bundles")
         )
 
         if parsed.apply {
@@ -628,14 +620,6 @@ struct DaymarkCLI {
             return value.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return lines.dropFirst().dropLast().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func existingContextBundlePaths(root: WorkspaceRoot) -> Set<String> {
-        let directory = root.expandedURL.appendingPathComponent("artifacts/context-bundles", isDirectory: true)
-        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
-            return []
-        }
-        return Set(files.filter { $0.pathExtension == "md" }.map { "artifacts/context-bundles/\($0.lastPathComponent)" })
     }
 
     /// Runs a local full-text search over the index and prints matching notes.

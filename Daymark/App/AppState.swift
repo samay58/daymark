@@ -19,8 +19,12 @@ final class AppState {
     var editorSelection = SelectionModel()
     var codexTaskDraft: CodexTaskDraft?
     var codexTaskMessage: String?
+    var createdCodexTaskRelativePath: String?
+    var codexContextBundle: CodexContextBundle?
+    var codexContextBundleMessage: String?
     private var codexTaskPathBasis: Set<String> = []
     private var codexTaskDateBasis: Date?
+    private var createdCodexTaskDraft: CodexTaskDraft?
 
     /// Local full-text search results for the current command-palette query.
     var searchResults: [SearchHit] = []
@@ -326,6 +330,14 @@ final class AppState {
 
     // MARK: - Codex task handoff
 
+    // True once a task file has been created, while a bundle is previewed, or when a bundle
+    // message needs to stay on screen. Drives whether the right margin shows the bundle panel.
+    var showsContextBundlePanel: Bool {
+        createdCodexTaskRelativePath != nil
+            || codexContextBundle != nil
+            || codexContextBundleMessage != nil
+    }
+
     func previewCodexTaskFromSelection() {
         do {
             let sourcePath = editorSelection.sourcePath ?? todayRelativePath
@@ -335,10 +347,11 @@ final class AppState {
                 cursorLocation: editorSelection.cursorLocation,
                 sourcePath: sourcePath
             )
-            let existingPaths = existingCodexTaskPaths()
+            let existingPaths = workspaceRoot.existingMarkdownRelativePaths(under: "specs/tasks")
             let previewDate = Date()
             codexTaskPathBasis = existingPaths
             codexTaskDateBasis = previewDate
+            clearCodexContextBundleState()
             codexTaskDraft = try PreviewBuilder().codexTaskPreview(
                 source: selection,
                 date: previewDate,
@@ -348,6 +361,7 @@ final class AppState {
             isContextMarginVisible = true
         } catch {
             codexTaskDraft = nil
+            clearCodexContextBundleState()
             codexTaskMessage = "Select text or place the cursor inside a note block first."
             isContextMarginVisible = true
         }
@@ -409,6 +423,7 @@ final class AppState {
         guard let codexTaskDraft else { return }
         self.codexTaskDraft = edit(codexTaskDraft)
         codexTaskMessage = nil
+        clearCodexContextBundleState()
     }
 
     func createCodexTaskFile() {
@@ -419,7 +434,12 @@ final class AppState {
         do {
             let result = try CodexTaskFileWriter().write(codexTaskDraft, root: workspaceRoot)
             codexTaskPathBasis.insert(result.relativePath)
-            self.codexTaskDraft = codexTaskDraft.withSuggestedFilePath(result.relativePath)
+            let writtenDraft = codexTaskDraft.withSuggestedFilePath(result.relativePath)
+            self.codexTaskDraft = writtenDraft
+            createdCodexTaskDraft = writtenDraft
+            createdCodexTaskRelativePath = result.relativePath
+            codexContextBundle = nil
+            codexContextBundleMessage = nil
             codexTaskMessage = "Created \(result.relativePath)"
         } catch CodexTaskFileWriter.Error.blankDraft {
             codexTaskMessage = "Fill in a title, goal, source, and excerpt before creating the file."
@@ -433,16 +453,55 @@ final class AppState {
     func dismissCodexTaskDraft() {
         codexTaskDraft = nil
         codexTaskMessage = nil
+        clearCodexContextBundleState()
         codexTaskPathBasis = []
         codexTaskDateBasis = nil
     }
 
-    private func existingCodexTaskPaths() -> Set<String> {
-        let directory = workspaceRoot.expandedURL.appendingPathComponent("specs/tasks", isDirectory: true)
-        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
-            return []
+    private func clearCodexContextBundleState() {
+        createdCodexTaskRelativePath = nil
+        createdCodexTaskDraft = nil
+        codexContextBundle = nil
+        codexContextBundleMessage = nil
+    }
+
+    func previewCodexContextBundle() {
+        guard let createdCodexTaskDraft, let createdCodexTaskRelativePath else {
+            codexContextBundle = nil
+            codexContextBundleMessage = "Create a task file before previewing a context bundle."
+            return
         }
-        return Set(files.filter { $0.pathExtension == "md" }.map { "specs/tasks/\($0.lastPathComponent)" })
+        let existingPaths = workspaceRoot.existingMarkdownRelativePaths(under: "artifacts/context-bundles")
+        codexContextBundle = CodexContextBundle.from(
+            draft: createdCodexTaskDraft,
+            taskRelativePath: createdCodexTaskRelativePath,
+            date: Date(),
+            existingRelativePaths: existingPaths
+        )
+        codexContextBundleMessage = nil
+    }
+
+    func createCodexContextBundle() {
+        guard let codexContextBundle else {
+            codexContextBundleMessage = "Preview a context bundle before creating it."
+            return
+        }
+        do {
+            let result = try CodexContextBundleWriter().write(codexContextBundle, root: workspaceRoot)
+            self.codexContextBundle = codexContextBundle.withSuggestedFilePath(result.relativePath)
+            codexContextBundleMessage = "Created \(result.relativePath)"
+        } catch CodexContextBundleWriter.Error.blankBundle {
+            codexContextBundleMessage = "The bundle needs a task, goal, source, and excerpt before writing."
+        } catch CodexContextBundleWriter.Error.invalidPath {
+            codexContextBundleMessage = "The bundle file path must stay under artifacts/context-bundles."
+        } catch {
+            codexContextBundleMessage = "Could not create the context bundle."
+        }
+    }
+
+    func dismissCodexContextBundle() {
+        codexContextBundle = nil
+        codexContextBundleMessage = nil
     }
 
     // MARK: - Capture

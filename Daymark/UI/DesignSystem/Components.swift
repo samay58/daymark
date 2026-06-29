@@ -70,3 +70,49 @@ struct FieldLabel: View {
             .foregroundStyle(DesignTokens.textSecondary)
     }
 }
+
+// A labelled, non-editable value box used in the Codex Task Composer and Context Bundle panels.
+struct ReadOnlyField: View {
+    let label: String
+    let value: String
+    var lines: Int = 1
+    var mono: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            FieldLabel(text: label)
+            Text(value)
+                .font(mono ? .system(size: 12, design: .monospaced) : .system(size: 13))
+                .foregroundStyle(DesignTokens.textPrimary)
+                .frame(maxWidth: .infinity, minHeight: CGFloat(lines) * 17, alignment: .topLeading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.55))
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(DesignTokens.hairline, lineWidth: 1)
+                }
+        }
+    }
+}
+
+// The floating-card chrome shared by the right-margin panels (Codex Task Composer, Context Bundle).
+private struct MarginPanel: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(0.7))
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
+                    .stroke(DesignTokens.hairline, lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.05), radius: 10, y: 4)
+    }
+}
+
+extension View {
+    func marginPanel() -> some View { modifier(MarginPanel()) }
+}

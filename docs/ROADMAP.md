@@ -89,7 +89,7 @@ Build task parser, completion, due dates, recurrence, rollover, Open Loops, and 
 
 Done: the task model and parser (status, tags, mentions, due tokens, source metadata, fenced-code awareness), a rebuildable `tasks` projection in SQLite (migration `003_tasks.sql`), read-only Open Loops through `daymark open-loops`, automatic task rollover with Markdown-derived dedup markers plus `004_rollovers.sql`, read-only `daymark end-of-day`, and an in-app read-only Open Loops surface. Recurrence is parked because it is not in the Milestone 3 acceptance criteria.
 
-## Milestone 4: Codex Handoff (In progress)
+## Milestone 4: Codex Handoff (Done)
 
 Goal: messy notes become crisp implementation specs.
 
@@ -101,8 +101,8 @@ Build:
 - Derive a `CodexTaskDraft` with title, goal, source, constraints, acceptance criteria, and suggested file path.
 - Render the draft in the existing right-side Codex Task Composer as an editable preview.
 - Write exactly one approved Markdown task file under `specs/tasks/`.
-- Include a stable source backlink to the source note path and line or block identity.
-- Optionally add a source-note backlink only after explicit approval.
+- Include stable source provenance with the source note path and line or block identity.
+- Keep source-note backlinking parked unless it is built later as a separate approved, idempotent write.
 - Add a CLI path for dry-run and apply, so the feature can be tested against temp workspaces without launching the app.
 - Add previewed context bundle export after draft generation and file write are solid.
 
@@ -127,7 +127,18 @@ Context bundle CLI slice done:
 - `CodexContextBundle` writes a readable single-file Markdown bundle with task path, goal, source path, source excerpt, constraints, and acceptance criteria.
 - `CodexContextBundleWriter` writes under `artifacts/context-bundles/` with numeric suffixes and does not modify the source note or task file.
 - `daymark context-bundle --task ...` supports dry-run preview and `--apply`.
-- In-app context bundle preview and approval are not wired yet.
+
+In-app context bundle slice done:
+
+- After a task file is created in the Codex Task Composer, Daymark offers a compact context bundle preview.
+- The bundle preview shows the exact Markdown from `CodexContextBundle.markdown()` and the read-only target path.
+- `Create Context Bundle` writes one approved file under `artifacts/context-bundles/` and does not modify the source note or task file.
+
+Closeout done:
+
+- A real app pass confirmed the Codex Task Composer opens with editable draft fields and read-only source metadata. Domain tests cover selected text and current-block extraction.
+- Starting a fresh task preview clears any stale created-task receipt or bundle preview.
+- Source-note backlinking remains parked because task files and context bundles already carry enough source provenance for handoff without mutating notes.
 
 Non-goals:
 
@@ -142,6 +153,7 @@ Acceptance:
 - The preview shows the exact Markdown that will be written.
 - Nothing is written until approval.
 - Approved files land in `specs/tasks/` with collision-safe names.
+- Context bundles land in `artifacts/context-bundles/` with collision-safe names after separate approval.
 - A fresh agent can work from the generated file without hidden app state.
 
 ## Milestone 5: Dynamic Blocks
@@ -205,7 +217,7 @@ Acceptance:
 
 Goal: follow-up tasks can become draft emails with visible sources.
 
-Why this matters: follow-up is high leverage, but unsafe if it becomes invisible automation. Daymark should produce source-grounded drafts that Samay can edit, copy, or approve elsewhere.
+Why this matters: follow-up has high value, but is unsafe if it becomes invisible automation. Daymark should produce source-grounded drafts that Samay can edit, copy, or approve elsewhere.
 
 Build:
 

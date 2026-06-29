@@ -68,6 +68,25 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertEqual(try String(contentsOfFile: userFile, encoding: .utf8), "important")
     }
 
+    func testExistingMarkdownRelativePathsListsOnlyMarkdownWithSubdirectoryPrefix() throws {
+        let root = WorkspaceRoot(path: try makeTempRoot())
+        let fm = FileManager.default
+        let directory = "\(root.expandedPath)/specs/tasks"
+        try fm.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        try "a".write(toFile: "\(directory)/one.md", atomically: true, encoding: .utf8)
+        try "b".write(toFile: "\(directory)/two.md", atomically: true, encoding: .utf8)
+        try "c".write(toFile: "\(directory)/notes.txt", atomically: true, encoding: .utf8)
+
+        let paths = root.existingMarkdownRelativePaths(under: "specs/tasks")
+
+        XCTAssertEqual(paths, ["specs/tasks/one.md", "specs/tasks/two.md"])
+    }
+
+    func testExistingMarkdownRelativePathsReturnsEmptyWhenDirectoryMissing() throws {
+        let root = WorkspaceRoot(path: try makeTempRoot())
+        XCTAssertEqual(root.existingMarkdownRelativePaths(under: "artifacts/context-bundles"), [])
+    }
+
     // Helper: unique temp dir we own and clean up.
     private func makeTempRoot() throws -> String {
         let base = NSTemporaryDirectory()

@@ -94,18 +94,30 @@ Use this to test the first Codex Handoff slice without touching your real `~/pho
 
 2. Use a safe workspace in Settings if you do not want to test against `~/phoenix`.
 
-3. Put the cursor inside a note block with real text, or select text in Today. Empty section headings should not create task files.
+3. Select a few lines of real note text in Today.
 
 4. Press Command Shift C.
 
 5. The right-side Codex Task Composer should show editable fields for title, goal, constraints, and acceptance criteria.
 
-6. Change the title or goal. The Markdown preview should update. If you change the title, the target file name should update too.
+6. Cancel the preview, place the cursor inside a useful Markdown block with no selection, and press Command Shift C again. Empty section headings should not create task files.
 
-7. Confirm the source path, source excerpt, target file path, and Markdown preview are visible before writing.
+7. Change the title or goal. The Markdown preview should update. If you change the title, the target file name should update too.
 
-8. Click `Create Task File`.
+8. Confirm the source path, source excerpt, target file path, and Markdown preview are visible before writing.
 
-9. Check the generated file under `specs/tasks/`.
+9. Click `Create Task File`.
 
-10. Confirm the source note still has the same text.
+10. Check the generated file under `specs/tasks/`.
+
+11. A `Context Bundle` panel should appear in the right margin with the created task path.
+
+12. Click `Preview Context Bundle`.
+
+13. Confirm the bundle target path is under `artifacts/context-bundles/` and the Markdown preview includes the task path, source path, source excerpt, constraints, and acceptance criteria.
+
+14. Click `Create Context Bundle`.
+
+15. Check the generated file under `artifacts/context-bundles/`.
+
+16. Confirm the source note and task file still have the same text.

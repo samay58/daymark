@@ -52,15 +52,7 @@ struct CodexTaskComposerView: View {
                     .frame(maxWidth: .infinity)
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.7))
-        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
-                .stroke(DesignTokens.hairline, lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.05), radius: 10, y: 4)
+        .marginPanel()
     }
 
     private var emptyState: some View {
@@ -96,6 +88,72 @@ struct CodexTaskComposerView: View {
             draft.sourceBlock ?? "",
             draft.sourceExcerpt
         ].joined(separator: "|")
+    }
+}
+
+struct CodexContextBundlePreviewView: View {
+    let taskRelativePath: String?
+    let bundle: CodexContextBundle?
+    let message: String?
+    var onPreview: () -> Void
+    var onCreate: () -> Void
+    var onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Context Bundle")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(DesignTokens.textPrimary)
+
+            Rectangle().fill(DesignTokens.hairline).frame(height: 1)
+
+            if let bundle {
+                ReadOnlyField(label: "Task", value: bundle.taskRelativePath, mono: true)
+                ReadOnlyField(label: "File", value: bundle.suggestedFilePath, mono: true)
+                ReadOnlyField(label: "Markdown", value: bundle.markdown(), lines: 10, mono: true)
+            } else if let taskRelativePath {
+                ReadOnlyField(label: "Task", value: taskRelativePath, mono: true)
+            }
+
+            if let message {
+                Text(message)
+                    .font(DesignType.metadata)
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Rectangle().fill(DesignTokens.hairline).frame(height: 1)
+
+            if bundle == nil {
+                Button("Preview Context Bundle", action: onPreview)
+                    .buttonStyle(SecondaryButtonStyle())
+                    .frame(maxWidth: .infinity)
+                    .disabled(taskRelativePath == nil)
+                    .opacity(taskRelativePath == nil ? 0.55 : 1)
+            } else {
+                VStack(spacing: 8) {
+                    Button("Create Context Bundle", action: onCreate)
+                        .buttonStyle(PrimaryButtonStyle())
+                        .frame(maxWidth: .infinity)
+                        .disabled(!canCreate(bundle))
+                        .opacity(canCreate(bundle) ? 1 : 0.55)
+                    Button("Cancel", action: onCancel)
+                        .buttonStyle(QuietButtonStyle())
+                        .frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .marginPanel()
+    }
+
+    private func canCreate(_ bundle: CodexContextBundle?) -> Bool {
+        guard let bundle else { return false }
+        do {
+            try CodexContextBundleWriter().validate(bundle)
+            return true
+        } catch {
+            return false
+        }
     }
 }
 
@@ -139,10 +197,10 @@ private struct EditableCodexTaskDraftView: View {
             lines: 5,
             onChange: onAcceptanceCriteriaChange
         )
-        readOnlyField("Source", value: sourceLabel(for: draft), mono: true)
-        readOnlyField("Excerpt", value: draft.sourceExcerpt, lines: 4, mono: true)
-        readOnlyField("File", value: draft.suggestedFilePath, mono: true)
-        readOnlyField("Markdown", value: draft.markdown(), lines: 8, mono: true)
+        ReadOnlyField(label: "Source", value: sourceLabel(for: draft), mono: true)
+        ReadOnlyField(label: "Excerpt", value: draft.sourceExcerpt, lines: 4, mono: true)
+        ReadOnlyField(label: "File", value: draft.suggestedFilePath, mono: true)
+        ReadOnlyField(label: "Markdown", value: draft.markdown(), lines: 8, mono: true)
     }
 
     private func editableTextField(
@@ -205,24 +263,6 @@ private struct EditableCodexTaskDraftView: View {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .stroke(DesignTokens.hairline, lineWidth: 1)
             }
-        }
-    }
-
-    private func readOnlyField(_ label: String, value: String, lines: Int = 1, mono: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            FieldLabel(text: label)
-            Text(value)
-                .font(mono ? .system(size: 12, design: .monospaced) : .system(size: 13))
-                .foregroundStyle(DesignTokens.textPrimary)
-                .frame(maxWidth: .infinity, minHeight: CGFloat(lines) * 17, alignment: .topLeading)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(Color.white.opacity(0.55))
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(DesignTokens.hairline, lineWidth: 1)
-                }
         }
     }
 

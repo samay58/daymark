@@ -232,16 +232,8 @@ public struct CodexContextBundleWriter {
     private func collisionSafePath(preferredPath: String, root: WorkspaceRoot) -> String {
         CodexTaskDraft.collisionSafeRelativePath(
             preferredPath: preferredPath,
-            existingRelativePaths: existingBundlePaths(root: root)
+            existingRelativePaths: root.existingMarkdownRelativePaths(under: "artifacts/context-bundles", fileManager: fileManager)
         )
-    }
-
-    private func existingBundlePaths(root: WorkspaceRoot) -> Set<String> {
-        let directory = root.expandedURL.appendingPathComponent("artifacts/context-bundles", isDirectory: true)
-        guard let files = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
-            return []
-        }
-        return Set(files.filter { $0.pathExtension == "md" }.map { "artifacts/context-bundles/\($0.lastPathComponent)" })
     }
 
     private func isBundlePath(_ path: String) -> Bool {
