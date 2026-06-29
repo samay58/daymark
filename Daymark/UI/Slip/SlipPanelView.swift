@@ -2,8 +2,8 @@ import SwiftUI
 
 struct SlipPanelView: View {
     @Binding var isPresented: Bool
+    @Environment(AppState.self) private var appState
     @State private var text = ""
-    @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack(spacing: 0) {
@@ -17,17 +17,12 @@ struct SlipPanelView: View {
     private var panel: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Capture")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(DesignTokens.textPrimary)
-                    Text("Quickly save what matters.")
-                        .font(DesignType.metadata)
-                        .foregroundStyle(DesignTokens.textSecondary)
-                }
+                Text("Capture")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(DesignTokens.textPrimary)
                 Spacer()
                 Button {
-                    isPresented = false
+                    handleDiscard()
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .medium))
@@ -45,14 +40,14 @@ struct SlipPanelView: View {
                         .padding(.vertical, 10)
                         .allowsHitTesting(false)
                 }
-                TextEditor(text: $text)
-                    .font(DesignType.body)
-                    .foregroundStyle(DesignTokens.textPrimary)
-                    .scrollContentBackground(.hidden)
-                    .focused($isFocused)
+                CaptureTextView(
+                    text: $text,
+                    onSave: { _ in withTrimmedText(appState.saveCapture) },
+                    onAppendToday: { _ in withTrimmedText(appState.appendCaptureToToday) },
+                    onPromoteTask: { _ in withTrimmedText(appState.promoteCaptureToTask) },
+                    onCancel: { handleDiscard() }
+                )
                     .frame(height: 132)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
             }
             .background(Color.white.opacity(0.55))
             .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cardRadius, style: .continuous))
@@ -62,9 +57,9 @@ struct SlipPanelView: View {
             }
 
             HStack(spacing: 8) {
-                Button("Append to Today") {}
+                Button("Append to Today") { handleAppendToday() }
                     .buttonStyle(SecondaryButtonStyle())
-                Button("Task") {}
+                Button("Task") { handlePromoteTask() }
                     .buttonStyle(SecondaryButtonStyle())
                 Spacer()
                 Text("⏎ saves")
@@ -81,7 +76,27 @@ struct SlipPanelView: View {
                 .stroke(DesignTokens.hairline.opacity(0.6), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
-        .onAppear { isFocused = true }
-        .onExitCommand { isPresented = false }
+        .onExitCommand { handleDiscard() }
+    }
+
+    private func withTrimmedText(_ handler: (String) -> Void) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        handler(trimmed)
+        text = ""
+        isPresented = false
+    }
+
+    private func handleAppendToday() {
+        withTrimmedText(appState.appendCaptureToToday)
+    }
+
+    private func handlePromoteTask() {
+        withTrimmedText(appState.promoteCaptureToTask)
+    }
+
+    private func handleDiscard() {
+        text = ""
+        isPresented = false
     }
 }

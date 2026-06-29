@@ -56,4 +56,46 @@ final class DailyNoteStoreTests: XCTestCase {
         let url = store.todayFileURL(date: fixedDate())
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "# only this")
     }
+
+    func testAppendCaptureCreatesNoteAndAddsUnderCapture() throws {
+        let store = DailyNoteStore(root: makeRoot(), calendar: cal)
+        let url = try store.appendCapture("a quick thought", date: fixedDate())
+
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(contents.contains("## Capture"))
+        XCTAssertTrue(contents.contains("- 12:00 a quick thought"))
+        XCTAssertTrue(contents.contains("## Decisions"), "template sections are preserved")
+    }
+
+    func testAppendCapturePreservesExistingContentAndHeadings() throws {
+        let store = DailyNoteStore(root: makeRoot(), calendar: cal)
+        _ = try store.ensureTodayNote(date: fixedDate())
+        try store.appendCapture("first", date: fixedDate())
+        let url = try store.appendCapture("second", date: fixedDate())
+
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertEqual(contents.components(separatedBy: "## Capture").count - 1, 1, "no duplicate Capture heading")
+        XCTAssertTrue(contents.contains("first"))
+        XCTAssertTrue(contents.contains("second"))
+        XCTAssertTrue(contents.contains("## End of day"), "later sections survive repeated appends")
+    }
+
+    func testAppendTaskWritesOpenMarkdownTaskLine() throws {
+        let store = DailyNoteStore(root: makeRoot(), calendar: cal)
+        let url = try store.appendTask("write the spec", date: fixedDate())
+
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(contents.contains("- [ ] write the spec"))
+        // The task line must parse back as an open task.
+        let tasks = TaskParser().parse(markdown: contents)
+        XCTAssertTrue(tasks.contains { $0.title == "write the spec" && $0.status == .open })
+    }
+
+    func testAppendEmptyCaptureThrowsAndDoesNotCreateNote() {
+        let store = DailyNoteStore(root: makeRoot(), calendar: cal)
+        XCTAssertThrowsError(try store.appendCapture("   ", date: fixedDate())) { error in
+            XCTAssertEqual(error as? CaptureError, .empty)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.todayFileURL(date: fixedDate()).path))
+    }
 }

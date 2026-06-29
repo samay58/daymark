@@ -313,35 +313,70 @@ Build the fastest local capture path without weakening the local file guarantees
 
 Milestone 1 stays ready to close. Default is `~/phoenix`. Next session: Milestone 2, Slip and Capture (not started).
 
+## 2026-06-28 (Milestone 2: Slip and Capture implemented)
+
+### What Changed
+
+Capture from inside Daymark is real, and there is a scriptable capture-from-anywhere path. This slice was built jointly: the DaymarkCore capture foundation and its tests on one track, the CLI command layer and Slip panel wiring on a parallel Codex companion bound to the same session, converging on the same APIs.
+
+- New `DaymarkCore/Slip/` module:
+  - `MarkdownSection.appendingEntry(_:under:to:)` appends a block under a named heading without duplicating the heading and without disturbing other sections. It is a pure string function, so the same logic runs on the in-memory editor buffer and on files.
+  - `CaptureFormatter` formats captures as readable Markdown: timestamped bullets (`- HH:mm text`), day headings (`## YYYY-MM-DD`), and open task lines (`- [ ] text`), with multiline captures kept as one item via indented continuations.
+  - `SlipStore` appends captures to the monthly file `slip/YYYY-MM.md` (titled `# Slip <Month Year>`, grouped by day heading). Writes are atomic. Blank captures throw `CaptureError.empty` and write nothing.
+- `DailyNoteStore` gained `appendCapture` and `appendTask`, which append under today's `## Capture` section, creating the note from the template first when missing and preserving existing content.
+- `AppState` gained `saveCapture`, `appendCaptureToToday`, and `promoteCaptureToTask`. Slip-file saves run off the main actor. Today-targeting captures transform the in-memory buffer and persist through the existing debounced autosave and self-write-hash machinery, so typing never waits on capture and the buffer stays consistent with disk.
+- `CaptureTextView` is an AppKit-backed capture field (consistent with ADR-001). Return saves to Slip, Shift+Return inserts a newline, Command+Return appends to Today, Command+Shift+T promotes to a task, and Escape cancels. `SlipPanelView` is wired to these actions and the placeholder copy stays plain (`Capture to Daymark`).
+- `daymark capture` CLI: appends to the monthly Slip file by default, `--today` appends under today's `## Capture`, `--task` writes an open task line, and text can be piped on stdin. Unknown flags, conflicting `--today/--task`, and missing text fail with a clear message and usage. Capture does no database work, so it is fast and the index stays rebuildable from files.
+- New `DaymarkCLITests` target runs the built binary against temporary workspaces end to end.
+
+### Why It Moves Toward The Spec
+
+Capture from anywhere is the Milestone 2 goal. In-app Slip now captures to readable Markdown without blocking Today, and the CLI gives a scriptable capture path that can be bound to a system shortcut today. Markdown stays the source of truth: every capture is a plain-text Markdown write, SQLite is never on the capture path, and the index stays a rebuildable projection of the files.
+
+### Tests/Checks Run
+
+- `swift build`: clean.
+- `swift test`: 86 tests, 0 failures (after `swift package clean`, per the known relink note).
+- `daymark doctor`: read-only, works on the default `~/phoenix` and on a temp workspace.
+- Manual `daymark capture` against a temporary workspace only: slip save, `--today`, `--task`, multiline via stdin, and the empty-capture failure that writes nothing. The real `~/phoenix` was never written during testing.
+
+### Acceptance Criteria
+
+Met: git baseline clean; build, test, and doctor pass; in-app Slip captures without blocking Today; capture to a readable monthly Slip file, to today's `## Capture`, and as a task line; discard and empty captures write nothing; tests use temp workspaces only; no out-of-scope surfaces added.
+
+### Global Hotkey / App-Bundle Decision
+
+Not done in this slice, by design. A true system-global Option+Space (capture when Daymark is not frontmost) needs a signed app bundle and accessibility or Carbon hotkey registration, which is more than this slice should take on. In-app Option+Space already opens Slip when the app is focused (menu shortcut), and the `daymark capture` CLI is the capture-from-anywhere step for now (bindable via Shortcuts, Raycast, or a key remapper). The real global hotkey should be its own Milestone 2 slice, gated by an app-bundle ADR before implementation. No ADR was added because no app-bundle work was done.
+
+### Deviations
+
+A Codex companion bound to this session worked the same files in parallel. The two tracks converged compatibly on the same APIs. At the contention point the user chose to let Codex finish the implementation while this track verified and documented. For future sessions, prefer a single owner per file or per-worktree branches to avoid clobbering.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
 
-Milestone 2: Slip and Capture.
+Milestone 2: Slip and Capture. In-app and CLI capture are implemented and green. The open question is the global hotkey.
 
 ### Start Here Next
 
-Begin the Milestone 2 implementation prompt that was copied to the clipboard. The first feature slice should make Slip capture reliable before global hotkey work:
-
-1. Confirm git status is clean enough to proceed.
-2. Re-run `swift build`, `swift test`, and `swift run daymark doctor`.
-3. Build the Slip data model and readable Markdown storage.
-4. Wire in-app Slip capture to save, append to Today, discard, and promote to a Markdown task line.
-5. Add CLI capture for temporary-workspace verification.
-6. Decide whether global hotkey/menu bar/app-bundle work needs an ADR before implementation.
+1. Decide the global hotkey path: write an app-bundle ADR and implement system-global Option+Space as its own slice, or accept the `daymark capture` CLI as the capture-from-anywhere mechanism and close Milestone 2.
+2. Optional polish: review the Slip panel copy for any remaining non-plain phrasing.
+3. When ready, move toward the next milestone.
 
 ### Current Truths
 
 - Milestone 0 is complete.
 - Milestone 1 is complete and ready to close.
-- The default workspace root is `~/phoenix` again; ADR-005 is reversed.
-- Git has been initialized with an initial commit.
-- Milestone 2 is active but not implemented.
-- Do not add Gmail, Calendar, AI, cloud sync, embeddings, task rollover, Open Loops, dynamic blocks, or Codex execution in this slice.
+- Milestone 2 capture is implemented: monthly Slip file, append to Today, promote to task, discard, and a `daymark capture` CLI. 86 tests pass.
+- Capture writes only Markdown. SQLite is never on the capture path and stays a rebuildable projection.
+- The default workspace root is `~/phoenix`; ADR-005 is reversed.
+- The true system-global hotkey and any menu-bar or app-bundle work are not built and need an ADR first.
+- Do not add Gmail, Calendar, AI, cloud sync, embeddings, task rollover, Open Loops, dynamic blocks, or Codex execution.
 
 ### Required Checks
 
 - `git status --short`
+- `swift package clean && swift test`
 - `swift build`
-- `swift test`
 - `swift run daymark doctor`

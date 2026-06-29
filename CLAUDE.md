@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A high-craft, local-first native macOS workspace centered on today's Markdown note. Markdown files in `~/phoenix` are the human-readable source of truth; SQLite at `~/phoenix/.daymark/daymark.db` is a rebuildable local index and projection. The app opens to Today, captures fast, and turns notes into tasks, open loops, dynamic blocks, and Codex-ready specs.
 
-The repo is at the **governance and scaffold** stage. Most modules are intentional placeholders (for example `DaymarkStore/Database.swift` is a stub with no SQLite library wired in yet). The next milestone is Milestone 0, the taste prototype. Check `docs/PROGRESS.md` and `docs/ROADMAP.md` for current state before assuming a feature exists.
+The repo has a working local substrate: an AppKit-backed editor, file watcher, FTS search, settings, a `Database` actor over the system SQLite3 C API (no third-party SQLite dependency), migrations, repositories, and an event log. Beyond that substrate, many product surfaces are still placeholders.
+
+**This paragraph cannot tell you the current state, so do not trust it for that.** The active milestone, what is done, and what is in progress live in `docs/PROGRESS.md` (read the `## WHERE WE LEFT OFF` block at the end) and `docs/ROADMAP.md`. Read those first, and verify a feature actually exists in the code before assuming it.
 
 ## Commands
 
@@ -16,9 +18,14 @@ swift test                  # run the SwiftPM test suite
 swift test --filter TaskParserTests          # one test class
 swift test --filter DaymarkCoreTests.TaskParserTests/testParsesOpenAndCompletedTasks  # one method
 swift run Daymark           # launch the SwiftUI app shell
-swift run daymark doctor    # check local scaffold health (workspace dirs, db, index plan)
-swift run daymark today     # print sample Today markdown
+swift run daymark doctor    # read-only workspace + index health check
+swift run daymark today     # print today's note from disk (or the template it would use)
+swift run daymark init      # create workspace dirs and today's note (additive only)
+swift run daymark index     # project today's note into the index database
+swift run daymark search <q># full-text search the index
 ```
+
+CLI subcommands live in `Sources/daymark/DaymarkCLI.swift`; run `swift run daymark` with no args for the full list.
 
 The `scripts/*.sh` wrappers (`build.sh`, `test.sh`, `build_and_run.sh`, `doctor.sh`) just call the commands above.
 
@@ -38,7 +45,7 @@ Two executables: `Daymark` (app shell) and `daymark` (CLI, source in `Sources/da
 ## Module boundaries (enforce the dependency direction)
 
 ```
-DaymarkCore      no dependencies. Domain model: Notes, Blocks, Tasks, DynamicBlocks, CodexTasks, Workspace
+DaymarkCore      no dependencies. Domain model + readable-Markdown stores: Notes, Blocks, Tasks, DynamicBlocks, CodexTasks, Workspace, Slip (capture), Support (AtomicFileWriter, ContentHasher)
 DaymarkStore     depends on Core. SQLite connection, Migrations, Repositories, FTS, EventLog
 DaymarkIndexer   depends on Core + Store. FileWatcher, MarkdownParser, BlockHasher, WorkspaceIndexer
 DaymarkAgents    depends on Core. SourceSelector, PreviewBuilder, AgentRunStore

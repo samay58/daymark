@@ -253,6 +253,49 @@ final class AppState {
         searchResults = []
     }
 
+    // MARK: - Capture
+
+    /// Saves a capture to this month's Slip file off the main actor. Independent of the Today
+    /// buffer, so it never disturbs the editor. Blank captures are ignored.
+    func saveCapture(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let root = workspaceRoot
+        let calendar = calendar
+        Task.detached(priority: .utility) {
+            try? SlipStore(root: root, calendar: calendar).save(trimmed)
+        }
+    }
+
+    /// Appends a capture under today's `## Capture` section. The transform runs on the
+    /// in-memory buffer so it stays consistent with any unsaved edits, then the existing
+    /// autosave persists it atomically and reprojects the index. Blank captures are ignored.
+    func appendCaptureToToday(_ text: String) {
+        appendCapture({ trimmed in
+            CaptureFormatter.timestampedBullet(trimmed, at: Date(), calendar: calendar)
+        }, text)
+    }
+
+    /// Promotes a capture to an open Markdown task line under today's `## Capture` section.
+    /// Same buffer-first persistence as `appendCaptureToToday`. Blank captures are ignored.
+    func promoteCaptureToTask(_ text: String) {
+        appendCapture({ trimmed in
+            CaptureFormatter.taskLine(trimmed)
+        }, text)
+    }
+
+    private func appendCapture(_ formatter: (String) -> String, _ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let entry = formatter(trimmed)
+        todayText = MarkdownSection.appendingEntry(
+            entry,
+            under: DailyNoteStore.captureSectionHeading,
+            to: todayText
+        )
+        handleTodayTextChange()
+    }
+
     // MARK: - Helpers
 
     static func databasePath(for root: WorkspaceRoot) -> String {

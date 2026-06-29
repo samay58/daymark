@@ -13,3 +13,6 @@ DerivedData/
 
 # Build wrappers
 *.app
+
+# Session transcripts (local only)
+.specstory/

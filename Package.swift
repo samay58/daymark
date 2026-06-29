@@ -47,7 +47,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "DaymarkCLI",
-            dependencies: ["DaymarkCore", "DaymarkStore", "DaymarkIndexer", "DaymarkAgents"],
+            dependencies: ["DaymarkCore", "DaymarkStore", "DaymarkIndexer"],
             path: "Sources/daymark"
         ),
         .testTarget(
@@ -64,6 +64,10 @@ let package = Package(
             name: "DaymarkIndexerTests",
             dependencies: ["DaymarkIndexer", "DaymarkCore", "DaymarkStore"],
             path: "Tests/DaymarkIndexerTests"
+        ),
+        .testTarget(
+            name: "DaymarkCLITests",
+            path: "Tests/DaymarkCLITests"
         )
     ]
 )
