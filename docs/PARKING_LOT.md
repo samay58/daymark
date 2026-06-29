@@ -28,6 +28,7 @@ Good ideas that are not part of the current milestone belong here.
 
 ## Milestone 3 follow-ups (deferred simplifications)
 
+- Recurrence: not built in Milestone 3 because the acceptance criteria are rollover, completed-task exclusion, duplicate prevention, and clean Markdown. Add conservative recurrence tokens later only after real repeated-task examples justify it.
 - Note-relative due resolution: `due:today` and `due:tomorrow` are stored and bucketed as literal tokens, not resolved against the note's own date. A `due:today` from a past note still reads as Due today. Resolving it correctly is natural-language date logic; revisit when rollover re-stamps dates on the rolled-forward reference.
 - Open Loops bucket coverage: the read path implements Due today, Overdue, Upcoming, Waiting on others, and No date. The INTERACTION_SPEC buckets "Waiting on me", "Rolled repeatedly", and "Codex tasks" wait on rollover state and Codex, which are later work.
 - Tag and mention extraction is conservative: whitespace-delimited tokens that start with `#` or `@`. Trailing punctuation (`@sarah,`) is kept as part of the token. Tighten only if real notes need it.

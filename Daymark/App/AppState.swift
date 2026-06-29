@@ -18,6 +18,12 @@ final class AppState {
 
     /// Local full-text search results for the current command-palette query.
     var searchResults: [SearchHit] = []
+    var openLoopGroups: [OpenLoopGroup] = []
+    var isRefreshingOpenLoops = false
+
+    var openLoopCount: Int {
+        openLoopGroups.reduce(0) { $0 + $1.tasks.count }
+    }
 
     /// True when today's note changed on disk while the editor held unsaved edits.
     /// The only case where Daymark must ask the user which version wins.
@@ -115,6 +121,27 @@ final class AppState {
         let indexer = WorkspaceIndexer(root: root, database: database, calendar: calendar)
         self.indexer = indexer
         try? await indexer.indexToday()
+        await runRolloverIfSafe(root: root, database: database, calendar: calendar)
+        await refreshOpenLoops()
+    }
+
+    private func runRolloverIfSafe(root: WorkspaceRoot, database: Database, calendar: Calendar) async {
+        guard didLoadToday else { return }
+        let baseline = lastSavedText
+        let result = try? await TaskRolloverEngine(root: root, database: database, calendar: calendar).run(apply: true)
+        guard result?.applied == true,
+              let disk = try? DailyNoteStore(root: root, calendar: calendar).loadToday() else {
+            return
+        }
+
+        if todayText == baseline {
+            recordSelfWrite(disk)
+            todayText = disk
+            lastSavedText = disk
+        } else {
+            externalDiskVersion = disk
+            hasExternalConflict = true
+        }
     }
 
     /// Switches the active workspace root, persists the choice, and reloads Today from the
@@ -272,6 +299,19 @@ final class AppState {
     func clearSearch() {
         searchTask?.cancel()
         searchResults = []
+    }
+
+    // MARK: - Open Loops
+
+    func refreshOpenLoops() async {
+        guard let database else {
+            openLoopGroups = []
+            return
+        }
+        isRefreshingOpenLoops = true
+        let tasks = (try? await database.openTasks()) ?? []
+        openLoopGroups = OpenLoops.grouped(tasks: tasks, on: Date(), calendar: calendar)
+        isRefreshingOpenLoops = false
     }
 
     // MARK: - Capture

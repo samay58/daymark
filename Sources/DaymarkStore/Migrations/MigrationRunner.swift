@@ -16,11 +16,12 @@ public struct MigrationRunner {
     public init() {}
 
     /// Ordered migrations. Milestone 1 introduces notes, blocks, and a full-text index;
-    /// Milestone 3 adds the tasks projection.
+    /// Milestone 3 adds task and rollover projections.
     public static let all: [Migration] = [
         Migration(version: 1, name: "001_initial_schema.sql", sql: initialSchema),
         Migration(version: 2, name: "002_note_search.sql", sql: noteSearch),
-        Migration(version: 3, name: "003_tasks.sql", sql: tasks)
+        Migration(version: 3, name: "003_tasks.sql", sql: tasks),
+        Migration(version: 4, name: "004_rollovers.sql", sql: rollovers)
     ]
 
     public func allMigrations() -> [Migration] { Self.all }
@@ -92,5 +93,22 @@ public struct MigrationRunner {
     CREATE INDEX IF NOT EXISTS idx_tasks_note_id ON tasks(note_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_source_key ON tasks(source_key);
+    """
+
+    private static let rollovers = """
+    CREATE TABLE IF NOT EXISTS rollovers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_key TEXT NOT NULL,
+        source_note_path TEXT NOT NULL,
+        source_line_number INTEGER NOT NULL,
+        source_title TEXT NOT NULL,
+        target_note_path TEXT NOT NULL,
+        marker TEXT NOT NULL,
+        rolled_at TEXT NOT NULL,
+        UNIQUE(source_key, target_note_path)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_rollovers_target_note_path ON rollovers(target_note_path);
+    CREATE INDEX IF NOT EXISTS idx_rollovers_marker ON rollovers(marker);
     """
 }

@@ -33,6 +33,10 @@ struct DaymarkCLI {
                 try await runRebuild(root: root)
             case "capture":
                 try runCapture(arguments: options, root: root)
+            case "rollover":
+                try await runRollover(arguments: options, root: root)
+            case "end-of-day":
+                try await runEndOfDay(arguments: options, root: root)
             case "open-loops":
                 try await runOpenLoops(root: root)
             case "search":
@@ -207,6 +211,110 @@ struct DaymarkCLI {
         return ParsedCaptureArguments(target: target, text: text)
     }
 
+    private struct ParsedRolloverArguments {
+        var date: Date
+        var apply: Bool
+    }
+
+    /// Rolls open tasks from prior daily notes into Today's Brief. Dry-run by default; pass
+    /// `--apply` to write Today's Markdown and record rollover rows.
+    private static func runRollover(arguments: [String], root: WorkspaceRoot) async throws {
+        let parsed = try parseRolloverArguments(arguments)
+        let database = Database(configuration: DatabaseConfiguration(path: databaseURL(for: root).path))
+        try await database.open()
+        _ = try await database.migrate()
+        let result = try await TaskRolloverEngine(root: root, database: database).run(
+            date: parsed.date,
+            apply: parsed.apply
+        )
+        await database.close()
+
+        if result.entries.isEmpty {
+            print("No tasks to roll over.")
+            return
+        }
+
+        let action = result.applied ? "Rolled over" : "Would roll over"
+        print("\(action) \(result.entries.count) task\(result.entries.count == 1 ? "" : "s") into \(result.targetNotePath)")
+        for entry in result.entries {
+            print("  \(entry.task.title)  (\(entry.task.notePath):\(entry.task.lineNumber))")
+        }
+        if !result.applied {
+            print("Run again with --apply to update Today's note.")
+        }
+    }
+
+    private static func parseRolloverArguments(_ arguments: [String]) throws -> ParsedRolloverArguments {
+        var date = Date()
+        var apply = false
+        var index = 0
+
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--apply":
+                apply = true
+                index += 1
+            case "--date":
+                guard index + 1 < arguments.count else { throw CommandError.missingDateValue }
+                date = try parseISODate(arguments[index + 1])
+                index += 2
+            case let flag where flag.hasPrefix("--"):
+                throw CommandError.unknownRolloverFlag(flag)
+            default:
+                throw CommandError.unknownRolloverFlag(arguments[index])
+            }
+        }
+
+        return ParsedRolloverArguments(date: date, apply: apply)
+    }
+
+    /// Read-only review of today's still-open tasks. It rebuilds the local projection from
+    /// Markdown first, then filters to the requested daily note.
+    private static func runEndOfDay(arguments: [String], root: WorkspaceRoot) async throws {
+        let date = try parseDatedReadArguments(arguments, usageError: CommandError.unknownEndOfDayFlag)
+        let database = Database(configuration: DatabaseConfiguration(path: databaseURL(for: root).path))
+        try await database.open()
+        _ = try await database.migrate()
+        _ = try await WorkspaceIndexer(root: root, database: database).rebuild()
+        let targetPath = DailyNote.relativePath(for: date)
+        let tasks = try await database.openTasks().filter { $0.notePath == targetPath }
+        await database.close()
+
+        let label = (targetPath as NSString).lastPathComponent.replacingOccurrences(of: ".md", with: "")
+        guard !tasks.isEmpty else {
+            print("No still-open tasks for \(label).")
+            return
+        }
+
+        print("Still open for \(label) (\(tasks.count) task\(tasks.count == 1 ? "" : "s"))")
+        for task in tasks {
+            print("  \(task.title)  (\(task.notePath):\(task.lineNumber))")
+        }
+    }
+
+    private static func parseDatedReadArguments(
+        _ arguments: [String],
+        usageError: (String) -> CommandError
+    ) throws -> Date {
+        var date = Date()
+        var index = 0
+
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--date":
+                guard index + 1 < arguments.count else { throw CommandError.missingDateValue }
+                date = try parseISODate(arguments[index + 1])
+                index += 2
+            case let flag where flag.hasPrefix("--"):
+                throw usageError(flag)
+            default:
+                throw usageError(arguments[index])
+            }
+        }
+
+        return date
+    }
+
     /// Read-only. Lists open tasks from the index, grouped into Open Loops buckets. It never
     /// writes Markdown or rolls tasks forward; run `daymark rebuild` first to refresh the index.
     private static func runOpenLoops(root: WorkspaceRoot) async throws {
@@ -294,6 +402,8 @@ struct DaymarkCLI {
           index       Project today's note into the index database
           rebuild     Rebuild the index from every daily Markdown file
           capture     Capture text to the monthly Slip file, or to today's note
+          rollover    Roll open prior tasks into Today's Brief
+          end-of-day  List today's still-open tasks
           open-loops  List open tasks grouped into buckets (read-only)
           search      Search notes locally with full-text search
           today       Print today's note (or the template it would use)
@@ -339,6 +449,28 @@ struct DaymarkCLI {
         return (command, optionsWithoutRoot, WorkspaceRoot.resolve(override: rootOverride))
     }
 
+    private static func parseISODate(_ value: String) throws -> Date {
+        let parts = value.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let year = Int(parts[0]),
+              let month = Int(parts[1]),
+              let day = Int(parts[2]) else {
+            throw CommandError.invalidDate(value)
+        }
+
+        var components = DateComponents()
+        components.calendar = Calendar.current
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = 12
+        guard let date = components.date,
+              DailyNote.relativePath(for: date) == String(format: "daily/%04d/%02d/%04d-%02d-%02d.md", year, month, year, month, day) else {
+            throw CommandError.invalidDate(value)
+        }
+        return date
+    }
+
     private static var isStandardInputTerminal: Bool {
         isatty(STDIN_FILENO) == 1
     }
@@ -368,6 +500,10 @@ struct DaymarkCLI {
         case missingCaptureText
         case unknownCaptureFlag(String)
         case captureOptionsConflict([String])
+        case unknownRolloverFlag(String)
+        case unknownEndOfDayFlag(String)
+        case missingDateValue
+        case invalidDate(String)
         case missingSearchQuery
         case missingRootValue
 
@@ -377,8 +513,15 @@ struct DaymarkCLI {
                  .unknownCaptureFlag,
                  .captureOptionsConflict:
                 return "Usage: daymark capture [--today | --task] <text>   (or pipe text on stdin)"
+            case .unknownRolloverFlag:
+                return "Usage: daymark rollover [--date yyyy-MM-dd] [--apply]"
+            case .missingDateValue,
+                 .invalidDate:
+                return "Usage: daymark <rollover|end-of-day> [--date yyyy-MM-dd]"
+            case .unknownEndOfDayFlag:
+                return "Usage: daymark end-of-day [--date yyyy-MM-dd]"
             case .unknownCommand:
-                return "Usage: daymark <doctor|init|index|rebuild|capture|open-loops|search|today>"
+                return "Usage: daymark <doctor|init|index|rebuild|capture|rollover|end-of-day|open-loops|search|today>"
             case .missingSearchQuery:
                 return "Usage: daymark search <query>"
             case .missingRootValue:
@@ -396,6 +539,14 @@ struct DaymarkCLI {
                 return "unknown flag: \(flag)"
             case .captureOptionsConflict(let flags):
                 return "conflicting capture flags: \(flags.joined(separator: " and ")) are mutually exclusive"
+            case .unknownRolloverFlag(let flag):
+                return "unknown rollover flag: \(flag)"
+            case .unknownEndOfDayFlag(let flag):
+                return "unknown end-of-day flag: \(flag)"
+            case .missingDateValue:
+                return "--date requires a yyyy-MM-dd value"
+            case .invalidDate(let value):
+                return "invalid date: \(value)"
             case .missingSearchQuery:
                 return "search query is required"
             case .missingRootValue:

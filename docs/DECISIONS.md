@@ -111,3 +111,34 @@ The user's `~/phoenix` is a large existing knowledge vault (01-active through 04
 ### Reversal
 
 The user reversed this: the default workspace root is `~/phoenix`, because operating directly on the vault is the point of the product. `WorkspaceRoot.defaultWorkspace` is `~/phoenix`. Bootstrap remains additive, so it only adds the Daymark directories it does not already find and never removes or overwrites existing vault content. Resolution precedence is unchanged: an explicit override and `DAYMARK_WORKSPACE_ROOT` still win, and Settings can point the workspace at any folder. The spec's `~/phoenix` default stands.
+
+## ADR-006: Rollover Dedup Marker in Markdown
+
+Status: Accepted
+Date: 2026-06-28
+
+### Context
+
+Milestone 3 needs automatic rollover of incomplete tasks from prior daily notes into Today. SQLite is rebuildable, so duplicate prevention cannot rely only on a database row. If `daymark.db` is deleted and rebuilt from Markdown, running rollover again must not add a second copy of the same source task.
+
+### Decision
+
+Each rolled task is written as a normal Brief bullet with a hidden HTML comment marker:
+
+```md
+- Rolled over: Send Sarah updated model assumptions (from daily/2026/06/2026-06-27.md:5) <!-- daymark-rollover:<sha256> -->
+```
+
+The hash is SHA-256 of the task source key: source note path, source line number, and original Markdown task line. Rollover checks Today's Markdown for that marker before writing. SQLite also records the rollover in a `rollovers` table, but that row is an audit and fast lookup record, not the source of truth.
+
+### Why
+
+The visible line stays readable in any Markdown editor. The marker is hidden in rendered Markdown and durable in source Markdown, so idempotency survives a full database rebuild.
+
+### Risks
+
+If a user manually deletes the marker but leaves the rolled bullet, Daymark can no longer prove the source task has already rolled forward and may add it again.
+
+### Mitigation
+
+Keep the marker on the same line as the rolled bullet so manual edits are less likely to separate it from the readable text. The `rollovers` table still records normal app-driven rollovers for auditability.

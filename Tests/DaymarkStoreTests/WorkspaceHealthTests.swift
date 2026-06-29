@@ -17,7 +17,7 @@ final class WorkspaceHealthTests: XCTestCase {
         XCTAssertEqual(health.missingDirectoryCount, WorkspaceBootstrapper.requiredRelativeDirectories.count)
         XCTAssertFalse(health.todayNoteExists)
         XCTAssertFalse(health.databaseExists)
-        XCTAssertEqual(health.declaredMigrations, ["001_initial_schema.sql", "002_note_search.sql", "003_tasks.sql"])
+        XCTAssertEqual(health.declaredMigrations, ["001_initial_schema.sql", "002_note_search.sql", "003_tasks.sql", "004_rollovers.sql"])
 
         // Inspection must be read-only.
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.expandedPath),

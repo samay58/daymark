@@ -5,7 +5,7 @@ final class MigrationTests: XCTestCase {
     func testDeclaredMigrationsAreOrdered() {
         XCTAssertEqual(
             MigrationRunner().pendingMigrationNames(),
-            ["001_initial_schema.sql", "002_note_search.sql", "003_tasks.sql"]
+            ["001_initial_schema.sql", "002_note_search.sql", "003_tasks.sql", "004_rollovers.sql"]
         )
     }
 

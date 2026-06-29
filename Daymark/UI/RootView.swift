@@ -11,7 +11,7 @@ struct RootView: View {
                 SidebarView()
                     .frame(width: DesignMetrics.sidebarWidth)
 
-                TodayView(text: $appState.todayText)
+                content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if appState.isContextMarginVisible {
@@ -39,6 +39,23 @@ struct RootView: View {
         .task { await appState.prepareWorkspace() }
         .onChange(of: appState.todayText) { _, _ in
             appState.handleTodayTextChange()
+        }
+        .onChange(of: appState.selectedSidebarItem) { _, item in
+            if item == .openLoops {
+                Task { await appState.refreshOpenLoops() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        @Bindable var appState = appState
+
+        switch appState.selectedSidebarItem {
+        case .openLoops:
+            OpenLoopsView()
+        default:
+            TodayView(text: $appState.todayText)
         }
     }
 }

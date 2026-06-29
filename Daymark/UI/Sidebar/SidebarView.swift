@@ -12,7 +12,7 @@ struct SidebarView: View {
 
             VStack(spacing: 3) {
                 ForEach(SampleData.primaryRows) { row in
-                    SidebarRowView(row: row, isSelected: appState.selectedSidebarItem == row.item) {
+                    SidebarRowView(row: row, count: count(for: row), isSelected: appState.selectedSidebarItem == row.item) {
                         appState.selectedSidebarItem = row.item
                     }
                 }
@@ -26,7 +26,7 @@ struct SidebarView: View {
 
             VStack(spacing: 3) {
                 ForEach(SampleData.secondaryRows) { row in
-                    SidebarRowView(row: row, isSelected: appState.selectedSidebarItem == row.item) {
+                    SidebarRowView(row: row, count: count(for: row), isSelected: appState.selectedSidebarItem == row.item) {
                         appState.selectedSidebarItem = row.item
                     }
                 }
@@ -84,10 +84,18 @@ struct SidebarView: View {
                 .stroke(DesignTokens.hairline.opacity(0.7), lineWidth: 1)
         }
     }
+
+    private func count(for row: SampleData.SidebarRow) -> Int? {
+        if row.item == .openLoops {
+            return appState.openLoopCount > 0 ? appState.openLoopCount : nil
+        }
+        return row.count
+    }
 }
 
 private struct SidebarRowView: View {
     let row: SampleData.SidebarRow
+    let count: Int?
     let isSelected: Bool
     let action: () -> Void
 
@@ -104,7 +112,7 @@ private struct SidebarRowView: View {
                     .font(DesignType.sidebar)
                     .foregroundStyle(isSelected ? DesignTokens.textPrimary : DesignTokens.textSecondary)
                 Spacer(minLength: 0)
-                if let count = row.count {
+                if let count {
                     Text("\(count)")
                         .font(.system(size: 12))
                         .foregroundStyle(DesignTokens.textTertiary)

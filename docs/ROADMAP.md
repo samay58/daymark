@@ -81,13 +81,13 @@ Goal: capture from anywhere faster than Apple Notes.
 
 Done: floating Slip panel, temporary captures to a monthly Slip file, append to Today, discard, promote to task, an in-app Option+Space (focused), and a `daymark capture` CLI as the scriptable capture-from-anywhere path. Deferred: the true system-global hotkey and menu bar helper, which need a signed app bundle (gated by an ADR). Selected-text capture is not built.
 
-## Milestone 3: Tasks and Open Loops (In progress)
+## Milestone 3: Tasks and Open Loops (Ready to close)
 
 Goal: Daymark reliably tracks unfinished commitments.
 
 Build task parser, completion, due dates, recurrence, rollover, Open Loops, and end-of-day review.
 
-Done: the task model and parser (status, tags, mentions, due tokens, source metadata, fenced-code awareness), a rebuildable `tasks` projection in SQLite (migration `003_tasks.sql`), and a read-only Open Loops query surfaced through `daymark open-loops`. Next: task rollover as its own slice, then recurrence, end-of-day review, and an in-app Open Loops surface.
+Done: the task model and parser (status, tags, mentions, due tokens, source metadata, fenced-code awareness), a rebuildable `tasks` projection in SQLite (migration `003_tasks.sql`), read-only Open Loops through `daymark open-loops`, automatic task rollover with Markdown-derived dedup markers plus `004_rollovers.sql`, read-only `daymark end-of-day`, and an in-app read-only Open Loops surface. Recurrence is parked because it is not in the Milestone 3 acceptance criteria.
 
 ## Milestone 4: Codex Handoff
 

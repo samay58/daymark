@@ -51,6 +51,31 @@ public struct SearchHit: Equatable, Sendable {
     }
 }
 
+public struct RolloverRecord: Equatable, Sendable {
+    public var sourceKey: String
+    public var sourceNotePath: String
+    public var sourceLineNumber: Int
+    public var sourceTitle: String
+    public var targetNotePath: String
+    public var marker: String
+
+    public init(
+        sourceKey: String,
+        sourceNotePath: String,
+        sourceLineNumber: Int,
+        sourceTitle: String,
+        targetNotePath: String,
+        marker: String
+    ) {
+        self.sourceKey = sourceKey
+        self.sourceNotePath = sourceNotePath
+        self.sourceLineNumber = sourceLineNumber
+        self.sourceTitle = sourceTitle
+        self.targetNotePath = targetNotePath
+        self.marker = marker
+    }
+}
+
 public actor Database {
     public nonisolated let configuration: DatabaseConfiguration
     private var handle: OpaquePointer?
@@ -336,6 +361,34 @@ public actor Database {
 
     public func taskCount() throws -> Int {
         try queryInts("SELECT COUNT(*) FROM tasks;").first ?? 0
+    }
+
+    /// Records that a source task was rolled into a target note. The Markdown marker remains
+    /// the rebuildable dedup source; this row is an audit record and a fast store check.
+    @discardableResult
+    public func recordRollover(_ record: RolloverRecord) throws -> Bool {
+        let connection = try requireHandle()
+        let statement = try prepare("""
+        INSERT OR IGNORE INTO rollovers
+            (source_key, source_note_path, source_line_number, source_title, target_note_path, marker, rolled_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?);
+        """)
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, record.sourceKey, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 2, record.sourceNotePath, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_int(statement, 3, Int32(record.sourceLineNumber))
+        sqlite3_bind_text(statement, 4, record.sourceTitle, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 5, record.targetNotePath, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 6, record.marker, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 7, Self.timestamp(), -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw StoreError.sql(String(cString: sqlite3_errmsg(connection)))
+        }
+        return sqlite3_changes(connection) > 0
+    }
+
+    public func rolloverCount() throws -> Int {
+        try queryInts("SELECT COUNT(*) FROM rollovers;").first ?? 0
     }
 
     public func noteCount() throws -> Int {

@@ -407,31 +407,66 @@ The `Daymark` app and `daymark` CLI products share one path on the case-insensit
 
 ### Remaining in Milestone 3
 
-- Task rollover: carry incomplete tasks from prior daily notes into Today as clean Markdown, preserve the original task, prevent duplicate rollovers, and record rollover events. This is the next slice; it needs a `rollovers` table and event-log integration and must respect the preview/approval invariant.
+- Task rollover: carry incomplete tasks from prior daily notes into Today as clean Markdown, preserve the original task, prevent duplicate rollovers, and record rollover events.
 - Recurrence and end-of-day review.
 - An in-app Open Loops surface (the CLI is the read path for now).
 - Note-relative resolution of `due:today` / `due:tomorrow` once rollover re-stamps dates.
+
+## 2026-06-28 (Milestone 3 completion: rollover, end-of-day, app Open Loops)
+
+Milestone 3 is ready to close against `docs/ACCEPTANCE_CRITERIA.md`. Rollover is automatic in the app after Today loads, available from the CLI with `daymark rollover --apply`, and idempotent even after deleting and rebuilding SQLite.
+
+### What changed
+
+- Rollover domain: added `TaskRollover`, `RolloverEntry`, and `RolloverPlan` in `DaymarkCore`. The pure planner filters to open tasks from prior daily notes, excludes completed tasks, ignores tasks already present in Today, and appends readable `Rolled over:` bullets under `## Brief`.
+- Rollover dedup scheme: each rolled bullet carries a hidden Markdown marker, `<!-- daymark-rollover:<sha256> -->`, where the hash is derived from the source task key. Today Markdown is the authoritative dedup source, so deleting `.daymark/daymark.db`, rebuilding, and running rollover again adds nothing. ADR-006 records the convention.
+- Store record: migration `004_rollovers.sql` adds a `rollovers` table with a unique `(source_key, target_note_path)` constraint. `Database.recordRollover` records app-driven rollovers as audit state, while Markdown remains the source of truth.
+- Rollover execution: `TaskRolloverEngine` rebuilds the task projection from Markdown, plans rollover, writes only Today's note when applying, records rollover rows, and reprojects Today. The original source note is never modified.
+- CLI: added `daymark rollover [--date yyyy-MM-dd] [--apply]`. It dry-runs by default and writes only with `--apply`. Added `daymark end-of-day [--date yyyy-MM-dd]`, a read-only list of today's still-open tasks.
+- App launch: after Today loads and the index opens, Daymark runs rollover off the initial load path. If the user has unsaved local edits by the time rollover finishes, the disk version is treated like an external edit and routed through the existing conflict path instead of clobbering the buffer.
+- App Open Loops: the sidebar Open Loops item now shows a read-only SwiftUI surface backed by `OpenLoops.grouped`, with quiet source metadata and no mutation controls. The sidebar count comes from the real read model rather than the old fake count.
+- Docs: README and ROADMAP now list `rollover`, `end-of-day`, and the Milestone 3 close state. PARKING_LOT parks recurrence and keeps the unbuilt Open Loops buckets explicit.
+
+### Acceptance criteria status
+
+- Incomplete tasks from yesterday roll forward: pass.
+- Completed tasks do not appear in Open Loops: pass.
+- Duplicate rollovers are prevented: pass, including after database deletion and rebuild.
+- Daily note remains clean Markdown: pass. Rolled tasks are normal Markdown bullets with a hidden HTML marker on the same line.
+
+### Tests/Checks run
+
+- `swift package clean && swift test --skip CommandTests`: 116 library tests, 0 failures.
+- CLI tests via prebuilt bundle after `swift build --product daymark`: 17 tests, 0 failures (`CaptureCommandTests`, `OpenLoopsCommandTests`, `RolloverCommandTests`, `EndOfDayCommandTests`).
+- `swift build --product Daymark`: app target links with the in-app Open Loops surface.
+
+### Remaining
+
+- Recurrence is parked; it is not part of the Milestone 3 acceptance criteria.
+- Note-relative due resolution remains parked.
+- Open Loops mutation actions such as mark done, defer, create Codex task, and recurring are later work.
 
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
 
-Milestone 3: Tasks and Open Loops. The task parser, the SQLite tasks projection, and a read-only Open Loops query and CLI command are implemented and green. Rollover mutation is not built yet.
+Milestone 3: Tasks and Open Loops is ready to close. The next milestone is Milestone 4: Codex Handoff.
 
 ### Start Here Next
 
-1. Implement task rollover as its own slice: find incomplete tasks from prior daily notes, exclude completed and already-rolled tasks, add clean Markdown references to Today, preserve the original task, and record a rollover event in SQLite so rollover is idempotent (never duplicated for the same source task). Add a `rollovers` table and tests for idempotency.
-2. Then recurrence, end-of-day review, and an in-app Open Loops surface.
+1. Audit the Milestone 3 diff and acceptance criteria one final time.
+2. If accepted, mark Milestone 3 closed and start Milestone 4: Codex Handoff.
+3. Milestone 4 should begin with selected-text or current-block extraction into a previewed Codex task draft, not automatic Codex execution.
 
 ### Current Truths
 
 - Milestone 0 is complete.
-- Milestone 1 is complete and ready to close.
+- Milestone 1 is complete.
 - Milestone 2 is closed. Capture is implemented and hardened: monthly Slip file, append to Today, promote to task, discard, and a `daymark capture` CLI. The system-global hotkey is deferred behind an app-bundle ADR.
-- Milestone 3 is in progress. Tasks are parsed with due and source metadata, projected into a rebuildable `tasks` table (migration `003_tasks.sql`), and surfaced read-only through `daymark open-loops`. Completed tasks are excluded. 123 tests pass.
-- Markdown stays the source of truth. Tasks are a projection: reprojecting a note replaces its task rows, and the index rebuilds from files. `open-loops` is read-only.
+- Milestone 3 is ready to close. Tasks are parsed with due and source metadata, projected into a rebuildable `tasks` table, rolled forward through a Markdown-derived dedup marker, and surfaced through CLI plus the in-app Open Loops view.
+- Markdown stays the source of truth. Tasks are a projection, rollover dedup is derived from Today's Markdown, and SQLite rollover rows are audit state.
 - The default workspace root is `~/phoenix`; ADR-005 is reversed.
-- Do not add Gmail, Calendar, AI, cloud sync, embeddings, dynamic blocks, Codex execution, app-bundle work, or global hotkey work. Rollover is in scope for Milestone 3 but was deferred to its own slice.
+- Do not add Gmail, Calendar, AI, cloud sync, embeddings, dynamic blocks, Codex execution, app-bundle work, or global hotkey work while closing Milestone 3.
 
 ### Required Checks
 
