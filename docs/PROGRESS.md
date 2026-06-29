@@ -446,27 +446,55 @@ Milestone 3 is ready to close against `docs/ACCEPTANCE_CRITERIA.md`. Rollover is
 - Note-relative due resolution remains parked.
 - Open Loops mutation actions such as mark done, defer, create Codex task, and recurring are later work.
 
+## 2026-06-29 (Stocktake, quality review, and later-milestone sharpening)
+
+Milestone 3 is accepted as complete. `main` is aligned with `origin/main` at `cb2ee4b`, and the working tree was clean before this stocktake.
+
+### Quality assessment
+
+- The strongest choice so far is architectural: Markdown is still the source of truth, SQLite remains rebuildable, and every mutating workflow writes readable files. That is the product's trust foundation.
+- The most useful surface today is now the local task loop: capture, task parsing, rollover, Open Loops, and end-of-day review form a real daily workflow rather than a demo.
+- The app remains appropriately quiet. The Open Loops surface is read-only and restrained, and no AI, network, Gmail, Calendar, cloud sync, app-bundle, or global-hotkey work leaked into the first four completed milestones.
+- Test posture is strong for the current stage: rollover idempotency, rebuild behavior, CLI behavior, parser behavior, and store projections are covered. The known app/CLI product-name collision is documented and worked around in verification.
+
+### Usefulness assessment
+
+- Milestone 0 proved taste and gave the project a visual north star, but it was intentionally fake data.
+- Milestone 1 made the app safe enough to point at the real `~/phoenix` workspace and survive external edits.
+- Milestone 2 made capture useful through the in-app Slip and `daymark capture`, even though the true system-global hotkey is still deferred behind app-bundle work.
+- Milestone 3 made Daymark meaningfully useful for daily commitments. The biggest remaining usefulness gap is mutation from Open Loops: mark done, defer, create Codex task, and recurring are still later work.
+- Milestone 4 should now focus on turning messy note text into executable task files. That is the natural next usefulness jump because it connects Today's context to agent work without adding unsafe automation.
+
+### Adjustments made
+
+- Marked Milestone 3 as done in `README.md` and `docs/ROADMAP.md`.
+- Marked Milestone 4 as the next milestone.
+- Expanded Milestones 4 through 8 in `docs/ROADMAP.md` with build scope, non-goals, and acceptance anchors.
+- Expanded `docs/ACCEPTANCE_CRITERIA.md` for Milestones 4 through 8, since the later milestones were previously too sparse to guide future sessions.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
 
-Milestone 3: Tasks and Open Loops is ready to close. The next milestone is Milestone 4: Codex Handoff.
+Milestone 4: Codex Handoff is the active next milestone.
 
 ### Start Here Next
 
-1. Audit the Milestone 3 diff and acceptance criteria one final time.
-2. If accepted, mark Milestone 3 closed and start Milestone 4: Codex Handoff.
-3. Milestone 4 should begin with selected-text or current-block extraction into a previewed Codex task draft, not automatic Codex execution.
+1. Start with selected-text or current-block extraction into a previewed Codex task draft.
+2. Extend the existing `CodexTaskDraft`, `PreviewBuilder`, `SourceSelector`, and mocked `CodexTaskComposerView` foundations rather than creating a parallel system.
+3. Write the approved task file under `specs/tasks/` only after preview and approval.
+4. Do not build context bundle export until draft generation, preview, and single-file write are green.
 
 ### Current Truths
 
 - Milestone 0 is complete.
 - Milestone 1 is complete.
 - Milestone 2 is closed. Capture is implemented and hardened: monthly Slip file, append to Today, promote to task, discard, and a `daymark capture` CLI. The system-global hotkey is deferred behind an app-bundle ADR.
-- Milestone 3 is ready to close. Tasks are parsed with due and source metadata, projected into a rebuildable `tasks` table, rolled forward through a Markdown-derived dedup marker, and surfaced through CLI plus the in-app Open Loops view.
+- Milestone 3 is closed. Tasks are parsed with due and source metadata, projected into a rebuildable `tasks` table, rolled forward through a Markdown-derived dedup marker, and surfaced through CLI plus the in-app Open Loops view.
+- Milestone 4 is next. The first slice is Codex task draft generation and preview from selected text or the current Markdown block.
 - Markdown stays the source of truth. Tasks are a projection, rollover dedup is derived from Today's Markdown, and SQLite rollover rows are audit state.
 - The default workspace root is `~/phoenix`; ADR-005 is reversed.
-- Do not add Gmail, Calendar, AI, cloud sync, embeddings, dynamic blocks, Codex execution, app-bundle work, or global hotkey work while closing Milestone 3.
+- Do not add Gmail, Calendar, AI, cloud sync, embeddings, dynamic blocks, Codex execution, app-bundle work, or global hotkey work while building the first Milestone 4 slice.
 
 ### Required Checks
 

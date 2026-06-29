@@ -4,7 +4,7 @@ Daymark is a high-craft, local-first macOS workspace centered on today's Markdow
 
 ## Status
 
-Milestones 0 (taste prototype), 1 (local workspace), and 2 (Slip and capture) are complete. Milestone 3 (Tasks and Open Loops) is ready to close: tasks are parsed and projected into a rebuildable SQLite index, incomplete prior-day tasks roll forward into Today without duplicates, `daymark open-loops` and the in-app Open Loops view list open tasks read-only, and `daymark end-of-day` lists today's still-open tasks. See `docs/PROGRESS.md` for the current state and `docs/ROADMAP.md` for the plan.
+Milestones 0 (taste prototype), 1 (local workspace), 2 (Slip and capture), and 3 (Tasks and Open Loops) are complete. Tasks are parsed and projected into a rebuildable SQLite index, incomplete prior-day tasks roll forward into Today without duplicates, `daymark open-loops` and the in-app Open Loops view list open tasks read-only, and `daymark end-of-day` lists today's still-open tasks. Milestone 4 (Codex Handoff) is next. See `docs/PROGRESS.md` for the current state and `docs/ROADMAP.md` for the plan.
 
 ## Build and run
 

@@ -81,7 +81,7 @@ Goal: capture from anywhere faster than Apple Notes.
 
 Done: floating Slip panel, temporary captures to a monthly Slip file, append to Today, discard, promote to task, an in-app Option+Space (focused), and a `daymark capture` CLI as the scriptable capture-from-anywhere path. Deferred: the true system-global hotkey and menu bar helper, which need a signed app bundle (gated by an ADR). Selected-text capture is not built.
 
-## Milestone 3: Tasks and Open Loops (Ready to close)
+## Milestone 3: Tasks and Open Loops (Done)
 
 Goal: Daymark reliably tracks unfinished commitments.
 
@@ -89,32 +89,147 @@ Build task parser, completion, due dates, recurrence, rollover, Open Loops, and 
 
 Done: the task model and parser (status, tags, mentions, due tokens, source metadata, fenced-code awareness), a rebuildable `tasks` projection in SQLite (migration `003_tasks.sql`), read-only Open Loops through `daymark open-loops`, automatic task rollover with Markdown-derived dedup markers plus `004_rollovers.sql`, read-only `daymark end-of-day`, and an in-app read-only Open Loops surface. Recurrence is parked because it is not in the Milestone 3 acceptance criteria.
 
-## Milestone 4: Codex Handoff
+## Milestone 4: Codex Handoff (Next)
 
 Goal: messy notes become crisp implementation specs.
 
-Build selection to Codex task, preview composer, spec template, acceptance criteria generator, source backlink, context bundle export, and CLI commands.
+Why this matters: Daymark should turn daily-note fragments into work another agent can execute without Samay re-explaining the context. This milestone is about precise handoff files, not running Codex.
+
+Build:
+
+- Select current highlighted text or, when no selection exists, the current Markdown block.
+- Derive a `CodexTaskDraft` with title, goal, source, constraints, acceptance criteria, and suggested file path.
+- Render the draft in the existing right-side Codex Task Composer as an editable preview.
+- Write exactly one approved Markdown task file under `specs/tasks/`.
+- Include a stable source backlink to the source note path and line or block identity.
+- Optionally add a source-note backlink only after explicit approval.
+- Add a CLI path for dry-run and apply, so the feature can be tested against temp workspaces without launching the app.
+- Keep context bundle export as a later slice inside this milestone, after draft generation and file write are solid.
+
+Non-goals:
+
+- No automatic Codex execution.
+- No network or model call.
+- No multi-file writes without preview.
+- No Gmail, Calendar, dynamic blocks, app bundle, or global hotkey work.
+
+Acceptance:
+
+- Selected text or current block can generate a readable task draft.
+- The preview shows the exact Markdown that will be written.
+- Nothing is written until approval.
+- Approved files land in `specs/tasks/` with collision-safe names.
+- A fresh agent can work from the generated file without hidden app state.
 
 ## Milestone 5: Dynamic Blocks
 
 Goal: notes become dynamic without becoming dashboards.
 
-Build fixed local blocks for open loops, today calendar, source list, and Codex context.
+Why this matters: useful computed context should sit beside the source Markdown without replacing it. Dynamic blocks are local views, not a dashboard layer.
+
+Build:
+
+- Parse `/daymark ...` block commands from Markdown.
+- Support conservative local commands first: `open-loops`, `source-list`, `codex-context`, and `weekly-review`.
+- Cache rendered output in `.daymark` as rebuildable state.
+- Show patch previews before writing rendered output back into notes.
+- Keep the source command visible and readable.
+- Add a CLI refresh command before adding automatic app refresh.
+
+Non-goals:
+
+- No hidden live widgets that only make sense inside Daymark.
+- No destructive overwrite of surrounding user text.
+- No AI-generated summaries in this milestone.
+- No Calendar or Gmail backed blocks until their own milestones.
+
+Acceptance:
+
+- Blocks render deterministic local output.
+- Refresh can be repeated without duplicate generated content.
+- User edits outside the generated region are preserved.
+- Deleting `.daymark` and rebuilding does not destroy note meaning.
 
 ## Milestone 6: Calendar and Meeting Prep
 
 Goal: Daymark helps prep meetings using local notes plus calendar metadata.
 
-Do this only after local workspace, tasks, and Codex handoff are trustworthy.
+Why this matters: meeting prep should reduce context switching by connecting a calendar event to relevant notes, people, prior decisions, and open loops. It must stay permissioned and local-first.
+
+Build:
+
+- Add a calendar metadata adapter behind explicit setup.
+- In v0, prefer local calendar reads or imported event snapshots over account-server coupling.
+- Link events to notes by date, attendees, project tags, and meeting-note paths.
+- Generate a read-only prep view with relevant notes, tasks, and unresolved questions.
+- Add a clean Markdown export under `meetings/` only after preview.
+- Keep Today editable before and during prep loading.
+
+Non-goals:
+
+- No background network reads by default.
+- No automatic meeting notes without approval.
+- No joining calls, recording calls, or transcribing audio.
+
+Acceptance:
+
+- A meeting can be selected and matched to local context.
+- Prep output cites the source files it used.
+- Exported prep is readable Markdown.
+- Failure to read calendar data never blocks Today or typing.
 
 ## Milestone 7: Gmail Draft Preview
 
 Goal: follow-up tasks can become draft emails with visible sources.
 
-Nothing sends automatically.
+Why this matters: follow-up is high leverage, but unsafe if it becomes invisible automation. Daymark should produce source-grounded drafts that Samay can edit, copy, or approve elsewhere.
+
+Build:
+
+- Start from a task, note selection, or meeting prep artifact.
+- Gather only explicit local context and approved message metadata.
+- Generate a draft preview with cited source snippets and editable fields.
+- Keep generated text out of the source note unless explicitly inserted.
+- Provide a copy/export path before any mail-client write path.
+
+Non-goals:
+
+- No sending.
+- No auto-archiving, labeling, or modifying mailbox state.
+- No credential storage in `~/phoenix`.
+- No relationship or tone inference beyond the provided sources.
+
+Acceptance:
+
+- A follow-up task can produce an editable draft preview.
+- Every substantive claim in the draft points back to a source.
+- The user can copy or discard the draft without side effects.
+- Any future mail-client write requires a separate explicit approval step.
 
 ## Milestone 8: iOS Capture Companion
 
 Goal: capture and review on iPhone.
 
-Do not start here. Mac quality comes first.
+Why this matters: capture has to follow the user away from the Mac, but the phone app should be a companion, not a second workspace.
+
+Build:
+
+- Fast capture into the same plain Markdown workspace.
+- Review recent captures and today's open loops.
+- Resolve conflicts without losing text.
+- Keep the phone surface small: capture, review, and send-to-Today.
+- Reuse Swift domain logic where possible.
+
+Non-goals:
+
+- No full mobile clone of the Mac app.
+- No chat UI.
+- No proprietary sync format.
+- No starting this before the Mac workflow is genuinely useful.
+
+Acceptance:
+
+- Phone capture arrives as readable Markdown.
+- Offline captures are queued and reconciled safely.
+- The Mac remains the primary authoring and planning surface.
+- The iOS companion can be removed without corrupting the workspace.
