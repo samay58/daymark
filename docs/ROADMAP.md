@@ -89,7 +89,7 @@ Build task parser, completion, due dates, recurrence, rollover, Open Loops, and 
 
 Done: the task model and parser (status, tags, mentions, due tokens, source metadata, fenced-code awareness), a rebuildable `tasks` projection in SQLite (migration `003_tasks.sql`), read-only Open Loops through `daymark open-loops`, automatic task rollover with Markdown-derived dedup markers plus `004_rollovers.sql`, read-only `daymark end-of-day`, and an in-app read-only Open Loops surface. Recurrence is parked because it is not in the Milestone 3 acceptance criteria.
 
-## Milestone 4: Codex Handoff (Next)
+## Milestone 4: Codex Handoff (In progress)
 
 Goal: messy notes become crisp implementation specs.
 
@@ -99,12 +99,21 @@ Build:
 
 - Select current highlighted text or, when no selection exists, the current Markdown block.
 - Derive a `CodexTaskDraft` with title, goal, source, constraints, acceptance criteria, and suggested file path.
-- Render the draft in the existing right-side Codex Task Composer as an editable preview.
+- Render the draft in the existing right-side Codex Task Composer as a preview. The first slice is read-only plus approval.
 - Write exactly one approved Markdown task file under `specs/tasks/`.
 - Include a stable source backlink to the source note path and line or block identity.
 - Optionally add a source-note backlink only after explicit approval.
 - Add a CLI path for dry-run and apply, so the feature can be tested against temp workspaces without launching the app.
 - Keep context bundle export as a later slice inside this milestone, after draft generation and file write are solid.
+
+First slice done:
+
+- `CodexTaskDraft` now writes plain Markdown with source path, line or block, excerpt, constraints, acceptance criteria, and suggested file path.
+- `SourceSelector` extracts selected text or the current Markdown block with line metadata, and rejects empty heading-only sections.
+- `PreviewBuilder` creates deterministic drafts and collision-safe suggested paths.
+- `CodexTaskFileWriter` writes one approved file under `specs/tasks/` without modifying the source note.
+- `daymark codex-task` supports dry-run preview and `--apply`.
+- Command Shift C in the app opens a real preview in the Codex Task Composer, and `Create Task File` writes only after approval.
 
 Non-goals:
 

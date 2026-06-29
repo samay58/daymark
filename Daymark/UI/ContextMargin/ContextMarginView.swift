@@ -7,11 +7,16 @@ struct ContextMarginView: View {
         ScrollView {
             VStack(spacing: 16) {
                 SuggestionCardView(
-                    prompt: "Draft follow-up from meeting notes?",
-                    onPreview: { appState.isContextMarginVisible = true },
+                    prompt: "Create a Codex task from this note?",
+                    onPreview: { appState.previewCodexTaskFromSelection() },
                     onDismiss: {}
                 )
-                CodexTaskComposerView()
+                CodexTaskComposerView(
+                    draft: appState.codexTaskDraft,
+                    message: appState.codexTaskMessage,
+                    onCreate: { appState.createCodexTaskFile() },
+                    onCancel: { appState.dismissCodexTaskDraft() }
+                )
             }
             .padding(.horizontal, 20)
             .padding(.top, 64)

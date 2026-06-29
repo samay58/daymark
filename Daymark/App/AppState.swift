@@ -5,6 +5,7 @@ import Observation
 import DaymarkCore
 import DaymarkStore
 import DaymarkIndexer
+import DaymarkAgents
 
 @MainActor
 @Observable
@@ -15,6 +16,9 @@ final class AppState {
     var isContextMarginVisible = true
     var isCommandPalettePresented = false
     var isSlipPresented = false
+    var editorSelection = SelectionModel()
+    var codexTaskDraft: CodexTaskDraft?
+    var codexTaskMessage: String?
 
     /// Local full-text search results for the current command-palette query.
     var searchResults: [SearchHit] = []
@@ -23,6 +27,10 @@ final class AppState {
 
     var openLoopCount: Int {
         openLoopGroups.reduce(0) { $0 + $1.tasks.count }
+    }
+
+    var todayRelativePath: String {
+        DailyNote.relativePath(for: Date(), calendar: calendar)
     }
 
     /// True when today's note changed on disk while the editor held unsaved edits.
@@ -312,6 +320,58 @@ final class AppState {
         let tasks = (try? await database.openTasks()) ?? []
         openLoopGroups = OpenLoops.grouped(tasks: tasks, on: Date(), calendar: calendar)
         isRefreshingOpenLoops = false
+    }
+
+    // MARK: - Codex task handoff
+
+    func previewCodexTaskFromSelection() {
+        do {
+            let sourcePath = editorSelection.sourcePath ?? todayRelativePath
+            let selection = try SourceSelector().select(
+                text: todayText,
+                selectedRange: editorSelection.selectedRange,
+                cursorLocation: editorSelection.cursorLocation,
+                sourcePath: sourcePath
+            )
+            codexTaskDraft = try PreviewBuilder().codexTaskPreview(
+                source: selection,
+                date: Date(),
+                existingRelativePaths: existingCodexTaskPaths()
+            )
+            codexTaskMessage = nil
+            isContextMarginVisible = true
+        } catch {
+            codexTaskDraft = nil
+            codexTaskMessage = "Select text or place the cursor inside a note block first."
+            isContextMarginVisible = true
+        }
+    }
+
+    func createCodexTaskFile() {
+        guard let codexTaskDraft else {
+            codexTaskMessage = "Create a preview before writing a task file."
+            return
+        }
+        do {
+            let result = try CodexTaskFileWriter().write(codexTaskDraft, root: workspaceRoot)
+            self.codexTaskDraft = codexTaskDraft.withSuggestedFilePath(result.relativePath)
+            codexTaskMessage = "Created \(result.relativePath)"
+        } catch {
+            codexTaskMessage = "Could not create the task file."
+        }
+    }
+
+    func dismissCodexTaskDraft() {
+        codexTaskDraft = nil
+        codexTaskMessage = nil
+    }
+
+    private func existingCodexTaskPaths() -> Set<String> {
+        let directory = workspaceRoot.expandedURL.appendingPathComponent("specs/tasks", isDirectory: true)
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        return Set(files.filter { $0.pathExtension == "md" }.map { "specs/tasks/\($0.lastPathComponent)" })
     }
 
     // MARK: - Capture

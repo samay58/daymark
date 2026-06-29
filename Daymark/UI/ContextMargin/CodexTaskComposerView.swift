@@ -1,7 +1,12 @@
 import SwiftUI
+import DaymarkCore
 
-// A preview-before-write Codex task composer. Mocked for Milestone 0: nothing is generated or saved.
 struct CodexTaskComposerView: View {
+    let draft: CodexTaskDraft?
+    let message: String?
+    var onCreate: () -> Void
+    var onCancel: () -> Void
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Create Codex Task")
@@ -10,43 +15,29 @@ struct CodexTaskComposerView: View {
 
             Rectangle().fill(DesignTokens.hairline).frame(height: 1)
 
-            field("Title", value: "Make task rollover deterministic")
-            field("Goal", value: "Prevent duplicate rolled-over tasks when prior notes are edited.", lines: 2)
-            field("Source", value: "daily/2026/06/2026-06-22.md", mono: true)
-
-            VStack(alignment: .leading, spacing: 8) {
-                FieldLabel(text: "Acceptance Criteria")
-                VStack(alignment: .leading, spacing: 7) {
-                    criterion("Rollover uses stable source identifiers")
-                    criterion("Duplicate rollovers are prevented")
-                    criterion("Tests cover source hash changes")
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(DesignTokens.surface.opacity(0.6))
-                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cardRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: DesignTokens.cardRadius, style: .continuous)
-                        .stroke(DesignTokens.hairline, lineWidth: 1)
-                }
+            if let draft {
+                preview(for: draft)
+            } else {
+                emptyState
             }
 
-            field("File", value: "specs/tasks/2026-06-22-deterministic-rollover.md", mono: true)
+            if let message {
+                Text(message)
+                    .font(DesignType.metadata)
+                    .foregroundStyle(DesignTokens.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Rectangle().fill(DesignTokens.hairline).frame(height: 1)
 
             VStack(spacing: 8) {
-                Button("Create Task File") {}
+                Button("Create Task File", action: onCreate)
                     .buttonStyle(PrimaryButtonStyle())
                     .frame(maxWidth: .infinity)
-                HStack(spacing: 8) {
-                    Button("Edit") {}
-                        .buttonStyle(SecondaryButtonStyle())
-                        .frame(maxWidth: .infinity)
-                    Button("Cancel") {}
-                        .buttonStyle(QuietButtonStyle())
-                        .frame(maxWidth: .infinity)
-                }
+                    .disabled(draft == nil)
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(QuietButtonStyle())
+                    .frame(maxWidth: .infinity)
             }
         }
         .padding(16)
@@ -58,6 +49,49 @@ struct CodexTaskComposerView: View {
                 .stroke(DesignTokens.hairline, lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.05), radius: 10, y: 4)
+    }
+
+    @ViewBuilder
+    private func preview(for draft: CodexTaskDraft) -> some View {
+        field("Title", value: draft.title)
+        field("Goal", value: draft.goal, lines: 2)
+        field("Source", value: sourceLabel(for: draft), mono: true)
+        field("Excerpt", value: draft.sourceExcerpt, lines: 4, mono: true)
+
+        VStack(alignment: .leading, spacing: 8) {
+            FieldLabel(text: "Acceptance Criteria")
+            VStack(alignment: .leading, spacing: 7) {
+                ForEach(displayCriteria(for: draft), id: \.self) { item in
+                    criterion(item)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(DesignTokens.surface.opacity(0.6))
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cardRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: DesignTokens.cardRadius, style: .continuous)
+                    .stroke(DesignTokens.hairline, lineWidth: 1)
+            }
+        }
+
+        field("File", value: draft.suggestedFilePath, mono: true)
+        field("Markdown", value: draft.markdown(), lines: 8, mono: true)
+    }
+
+    private var emptyState: some View {
+        Text("No task preview yet.")
+            .font(.system(size: 13))
+            .foregroundStyle(DesignTokens.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(DesignTokens.surface.opacity(0.55))
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cardRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: DesignTokens.cardRadius, style: .continuous)
+                    .stroke(DesignTokens.hairline, lineWidth: 1)
+            }
     }
 
     private func field(_ label: String, value: String, lines: Int = 1, mono: Bool = false) -> some View {
@@ -89,5 +123,22 @@ struct CodexTaskComposerView: View {
                 .foregroundStyle(DesignTokens.textSecondary)
             Spacer(minLength: 0)
         }
+    }
+
+    private func sourceLabel(for draft: CodexTaskDraft) -> String {
+        if let line = draft.sourceLine {
+            if let endLine = draft.sourceEndLine, endLine > line {
+                return "\(draft.sourcePath):\(line)-\(endLine)"
+            }
+            return "\(draft.sourcePath):\(line)"
+        }
+        return draft.sourcePath
+    }
+
+    private func displayCriteria(for draft: CodexTaskDraft) -> [String] {
+        let markdown = draft.markdown()
+        return markdown.components(separatedBy: "\n")
+            .filter { $0.hasPrefix("- [ ] ") }
+            .map { String($0.dropFirst(6)) }
     }
 }

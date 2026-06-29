@@ -472,18 +472,80 @@ Milestone 3 is accepted as complete. `main` is aligned with `origin/main` at `cb
 - Expanded Milestones 4 through 8 in `docs/ROADMAP.md` with build scope, non-goals, and acceptance anchors.
 - Expanded `docs/ACCEPTANCE_CRITERIA.md` for Milestones 4 through 8, since the later milestones were previously too sparse to guide future sessions.
 
+## 2026-06-29 (Milestone 4 first slice: Codex task file handoff)
+
+Milestone 4 is active, and the first useful slice is complete: Daymark can turn selected text or the current Markdown block into a previewed Codex task draft, then write one approved Markdown task file under `specs/tasks/`.
+
+### What changed
+
+- `CodexTaskDraft` now carries source path, line range, block heading, source excerpt, constraints, acceptance criteria, and a suggested file path. Its Markdown output is plain enough for another agent to use without Daymark internals.
+- `CodexTaskFileWriter` validates drafts, writes atomically under `specs/tasks/`, creates the directory when missing, and uses `-2`, `-3`, and later suffixes instead of overwriting existing task files.
+- `SourceSelector` extracts selected text first, and otherwise selects the current Markdown block around the cursor. It handles paragraphs, list items with continuations, fenced code blocks, heading boundaries, blank-line cursor positions, and CRLF line numbers.
+- `PreviewBuilder` now generates deterministic drafts without model calls. It derives a title from the first meaningful source line, creates a date-prefixed slug path, preserves the excerpt, and adds conservative default constraints and acceptance criteria.
+- `daymark codex-task` adds a dry-run preview path and an `--apply` write path. Dry-run prints the exact Markdown and target path. Apply writes one file and prints the created path.
+- The app editor now tracks selected text and cursor range. Command Shift C generates a real preview in the existing Codex Task Composer, and `Create Task File` writes only after approval.
+- `docs/SELF_TEST_M4_CODEX_HANDOFF.md` gives Samay a safe manual test path using a temp workspace.
+
+### Durable convention
+
+ADR-007 records Codex task file naming: `specs/tasks/yyyy-mm-dd-title-slug.md`, with numeric suffixes for collisions. The generated task file carries the source note path and line metadata. The source note is not modified by this slice.
+
+### Current verification
+
+- Baseline before edits: `swift package clean && swift test --skip CommandTests`, 116 tests, 0 failures.
+- Final library pass: `swift package clean && swift test --skip CommandTests`, 131 tests, 0 failures.
+- CLI tests via prebuilt bundle after `swift build --product daymark`: 21 tests, 0 failures (`CodexTaskCommandTests`, `CaptureCommandTests`, `OpenLoopsCommandTests`, `RolloverCommandTests`, `EndOfDayCommandTests`).
+- `swift build --product daymark` and `swift build --product Daymark` both link.
+- Temp-workspace end-to-end pass: dry-run wrote nothing, apply wrote one task file, repeat apply created `-2`, the generated file included source and excerpt, and the source note was unchanged.
+- `daymark doctor` against `~/phoenix` was read-only. It reported today's note missing for 2026-06-29 and advised `daymark init`; no mutation was performed.
+- Slopcheck passed on every authored or edited source, test, and doc file in this slice.
+
+### Remaining in Milestone 4
+
+- Editable in-app preview fields are not built. The current app preview is read-only plus approval.
+- Source-note backlinking is not built. It should stay separately approved and idempotent if added.
+- Context bundle export is not built. Build it only after the task-file handoff has been used and tightened.
+- Strong duplicate warnings are not built. Repeated approvals create visible, non-destructive suffix files.
+
+## 2026-06-29 (Milestone 4 adversarial quality pass)
+
+The first Codex handoff slice was reviewed against real use before consolidating. The main finding was concrete: placing the cursor on an empty section heading could generate a low-value task file from the heading text alone. That violated the intent of the feature, which is to hand off real note context, not section labels.
+
+### What changed
+
+- Hardened `SourceSelector` so headings act as anchors to the first real content block beneath them. Empty heading-only sections now throw `emptySource` instead of creating a draft.
+- Added regression coverage for cursor-on-heading behavior, empty heading rejection, and heading-to-first-content selection.
+- Removed the generic preview goal phrase and now derive the draft goal from the selected source paragraph. The source text is still preserved verbatim in the `Source Excerpt` section.
+- Added a CLI guard so `daymark codex-task --line` fails when the requested line is beyond the source file instead of silently selecting the nearest block.
+- Folded in the app icon resource packaging cleanly: SwiftPM copies `AppIcon.icns` and excludes source iconset assets from compilation warnings.
+- Deleted the real-world placeholder task files that had been created during manual testing in `~/phoenix/specs/tasks/`, and restored the 2026-06-29 daily note to clean empty sections.
+
+### Verification
+
+- `swift test --filter SourceSelectorTests`: 10 tests, 0 failures.
+- `swift test --filter DaymarkAgentsTests && swift test --filter CodexTaskGeneratorTests`: 18 tests, 0 failures.
+- `python3 ~/.claude/scripts/slopcheck.py <changed text files>`: clean.
+- `swift package clean && swift test --skip CommandTests`: 133 library tests, 0 failures.
+- CLI tests via prebuilt bundle after `swift build --product daymark`: 22 tests, 0 failures (`CodexTaskCommandTests`, `CaptureCommandTests`, `OpenLoopsCommandTests`, `RolloverCommandTests`, `EndOfDayCommandTests`).
+- `swift build --product daymark` and `swift build --product Daymark`: both link. The app target copies `AppIcon.icns` without the prior unhandled-resource warnings.
+- Temp-workspace end-to-end: dry-run wrote nothing, apply wrote one task file, repeat apply wrote a `-2` suffix, empty heading selection failed, invalid line selection failed, and the source note stayed unchanged.
+- `daymark doctor` against `~/phoenix`: read-only, today's note present, workspace directories present, database present.
+
+### Status
+
+Ready to consolidate and push to `main`.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
 
-Milestone 4: Codex Handoff is the active next milestone.
+Milestone 4: Codex Handoff is active.
 
 ### Start Here Next
 
-1. Start with selected-text or current-block extraction into a previewed Codex task draft.
-2. Extend the existing `CodexTaskDraft`, `PreviewBuilder`, `SourceSelector`, and mocked `CodexTaskComposerView` foundations rather than creating a parallel system.
-3. Write the approved task file under `specs/tasks/` only after preview and approval.
-4. Do not build context bundle export until draft generation, preview, and single-file write are green.
+1. Build the next concrete M4 slice: editable in-app preview fields, still writing exactly one approved Markdown task file.
+2. Add optional source-note backlinking only if it is separately approved and idempotent.
+3. Keep context bundle export parked until the editable preview path is green.
 
 ### Current Truths
 
@@ -491,14 +553,17 @@ Milestone 4: Codex Handoff is the active next milestone.
 - Milestone 1 is complete.
 - Milestone 2 is closed. Capture is implemented and hardened: monthly Slip file, append to Today, promote to task, discard, and a `daymark capture` CLI. The system-global hotkey is deferred behind an app-bundle ADR.
 - Milestone 3 is closed. Tasks are parsed with due and source metadata, projected into a rebuildable `tasks` table, rolled forward through a Markdown-derived dedup marker, and surfaced through CLI plus the in-app Open Loops view.
-- Milestone 4 is next. The first slice is Codex task draft generation and preview from selected text or the current Markdown block.
+- Milestone 4 is active. The first slice is complete: selected text or current Markdown block to a previewed draft, with an approved single-file write under `specs/tasks/`.
+- The first slice has been hardened after real testing: empty heading-only sections are rejected, generic goal text was removed, bad CLI line numbers fail, and app icon resources are packaged without SwiftPM warnings.
 - Markdown stays the source of truth. Tasks are a projection, rollover dedup is derived from Today's Markdown, and SQLite rollover rows are audit state.
+- Codex task files use `specs/tasks/yyyy-mm-dd-title-slug.md` with numeric suffixes for collisions. Source notes are not modified by the first M4 slice.
 - The default workspace root is `~/phoenix`; ADR-005 is reversed.
-- Do not add Gmail, Calendar, AI, cloud sync, embeddings, dynamic blocks, Codex execution, app-bundle work, or global hotkey work while building the first Milestone 4 slice.
+- Do not add Gmail, Calendar, AI, cloud sync, embeddings, dynamic blocks, Codex execution, app-bundle work, or global hotkey work while finishing Milestone 4.
 
 ### Required Checks
 
 - `git status --short`
 - `swift test --skip CommandTests` for the library tests, then the CLI tests via the prebuilt bundle (see the build-collision caveat above).
 - `swift build --product daymark` and `swift build --product Daymark`.
+- Temp-workspace `daymark codex-task` dry-run, apply, repeat-apply, empty-heading rejection, invalid-line rejection, and source-note unchanged check.
 - `daymark doctor` (read-only).

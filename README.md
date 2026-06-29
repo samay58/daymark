@@ -4,7 +4,7 @@ Daymark is a high-craft, local-first macOS workspace centered on today's Markdow
 
 ## Status
 
-Milestones 0 (taste prototype), 1 (local workspace), 2 (Slip and capture), and 3 (Tasks and Open Loops) are complete. Tasks are parsed and projected into a rebuildable SQLite index, incomplete prior-day tasks roll forward into Today without duplicates, `daymark open-loops` and the in-app Open Loops view list open tasks read-only, and `daymark end-of-day` lists today's still-open tasks. Milestone 4 (Codex Handoff) is next. See `docs/PROGRESS.md` for the current state and `docs/ROADMAP.md` for the plan.
+Milestones 0 (taste prototype), 1 (local workspace), 2 (Slip and capture), and 3 (Tasks and Open Loops) are complete. Tasks are parsed and projected into a rebuildable SQLite index, incomplete prior-day tasks roll forward into Today without duplicates, `daymark open-loops` and the in-app Open Loops view list open tasks read-only, and `daymark end-of-day` lists today's still-open tasks. Milestone 4 (Codex Handoff) is in progress with the first task-file handoff slice built. See `docs/PROGRESS.md` for the current state and `docs/ROADMAP.md` for the plan.
 
 ## Build and run
 
@@ -28,13 +28,15 @@ echo "piped text" | daymark capture         # read from stdin
 
 ## CLI commands
 
-`doctor`, `init`, `index`, `rebuild`, `capture`, `rollover`, `end-of-day`, `open-loops`, `search`, `today`. Run `swift run daymark` for full usage. Pass `--root <path>` or set `DAYMARK_WORKSPACE_ROOT` to point at a workspace other than `~/phoenix`.
+`doctor`, `init`, `index`, `rebuild`, `capture`, `rollover`, `end-of-day`, `open-loops`, `codex-task`, `search`, `today`. Run `swift run daymark` for full usage. Pass `--root <path>` or set `DAYMARK_WORKSPACE_ROOT` to point at a workspace other than `~/phoenix`.
 
 ```bash
 daymark rebuild                    # project every daily note into the index
 daymark rollover --apply           # roll prior open tasks into Today's Brief
 daymark end-of-day                 # list today's still-open tasks, read-only
 daymark open-loops                 # list open tasks, grouped, read-only
+daymark codex-task --source daily/2026/06/2026-06-29.md --line 12
+daymark codex-task --source daily/2026/06/2026-06-29.md --line 12 --apply
 ```
 
 ## Layout

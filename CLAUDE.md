@@ -22,10 +22,16 @@ swift run daymark doctor    # read-only workspace + index health check
 swift run daymark today     # print today's note from disk (or the template it would use)
 swift run daymark init      # create workspace dirs and today's note (additive only)
 swift run daymark index     # project today's note into the index database
-swift run daymark search <q># full-text search the index
+swift run daymark rebuild   # rebuild the index from every daily Markdown file
+swift run daymark capture <text>   # append to this month's slip (or --today / --task)
+swift run daymark rollover  # roll open prior tasks into Today's Brief (--apply to write)
+swift run daymark end-of-day       # list today's still-open tasks
+swift run daymark open-loops       # list open tasks grouped into buckets (read-only)
+swift run daymark codex-task --source <path> --line <n>  # preview a Codex task draft
+swift run daymark search <q>       # full-text search the index
 ```
 
-CLI subcommands live in `Sources/daymark/DaymarkCLI.swift`; run `swift run daymark` with no args for the full list.
+CLI subcommands live in `Sources/daymark/DaymarkCLI.swift`; run `swift run daymark` with no args for the full list. Each subcommand has a test in `Tests/DaymarkCLITests/`.
 
 The `scripts/*.sh` wrappers (`build.sh`, `test.sh`, `build_and_run.sh`, `doctor.sh`) just call the commands above.
 
@@ -50,7 +56,7 @@ DaymarkStore     depends on Core. SQLite connection, Migrations, Repositories, F
 DaymarkIndexer   depends on Core + Store. FileWatcher, MarkdownParser, BlockHasher, WorkspaceIndexer
 DaymarkAgents    depends on Core. SourceSelector, PreviewBuilder, AgentRunStore
 DaymarkAppShell  depends on all four libraries
-DaymarkCLI       depends on all four libraries
+DaymarkCLI       depends on Core + Store + Indexer + Agents
 ```
 
 Keep `DaymarkCore` dependency-free. Do not introduce upward or sideways dependencies between libraries (for example Store must not import Indexer).

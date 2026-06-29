@@ -21,6 +21,11 @@ struct MenuCommands: Commands {
             }
             .keyboardShortcut("k", modifiers: [.command])
 
+            Button("Create Codex Task from Selection") {
+                appState.previewCodexTaskFromSelection()
+            }
+            .keyboardShortcut("c", modifiers: [.command, .shift])
+
             Divider()
 
             Button(appState.isContextMarginVisible ? "Hide Context Margin" : "Show Context Margin") {

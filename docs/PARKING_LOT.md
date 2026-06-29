@@ -32,3 +32,10 @@ Good ideas that are not part of the current milestone belong here.
 - Note-relative due resolution: `due:today` and `due:tomorrow` are stored and bucketed as literal tokens, not resolved against the note's own date. A `due:today` from a past note still reads as Due today. Resolving it correctly is natural-language date logic; revisit when rollover re-stamps dates on the rolled-forward reference.
 - Open Loops bucket coverage: the read path implements Due today, Overdue, Upcoming, Waiting on others, and No date. The INTERACTION_SPEC buckets "Waiting on me", "Rolled repeatedly", and "Codex tasks" wait on rollover state and Codex, which are later work.
 - Tag and mention extraction is conservative: whitespace-delimited tokens that start with `#` or `@`. Trailing punctuation (`@sarah,`) is kept as part of the token. Tighten only if real notes need it.
+
+## Milestone 4 follow-ups (deferred by first-slice scope)
+
+- Editable Codex task preview: the first slice shows the exact Markdown and writes after approval, but it does not yet support editing fields inside the app.
+- Source-note backlink: not built in the first slice because task-file creation is the required write path. Backlinking should be a separate explicit approval and idempotent if added.
+- Context bundle export: parked until task draft generation, preview, and single-file write have real use.
+- Strong duplicate detection: repeated approvals create `-2`, `-3`, and later suffixes instead of overwriting. A future source-indexed duplicate warning can be added after the basic flow is used.

@@ -32,10 +32,18 @@ struct DaymarkApp: App {
 
 // Running from SwiftPM (no app bundle) leaves the process without a regular activation
 // policy, so the window can launch unfocused or behind other apps. Promote it on launch
-// so `swift run Daymark` opens a focused Today window. The real bundle arrives with Milestone 1.
+// so `swift run Daymark` opens a focused Today window until a real app bundle exists.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        applyAppIcon()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // Until the app ships as a real bundle, set the Dock/window icon from the bundled AppIcon.icns.
+    private func applyAppIcon() {
+        guard let url = Bundle.module.url(forResource: "AppIcon", withExtension: "icns"),
+              let icon = NSImage(contentsOf: url) else { return }
+        NSApp.applicationIconImage = icon
     }
 }

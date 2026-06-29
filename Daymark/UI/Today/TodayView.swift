@@ -47,7 +47,12 @@ struct TodayView: View {
     private var documentBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            DaymarkEditorView(text: $text)
+            @Bindable var appState = appState
+            DaymarkEditorView(
+                text: $text,
+                selection: $appState.editorSelection,
+                sourcePath: appState.todayRelativePath
+            )
                 .padding(.top, 14)
         }
         .frame(maxWidth: DesignMetrics.editorMaxWidth, alignment: .leading)

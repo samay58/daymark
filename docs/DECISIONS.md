@@ -142,3 +142,35 @@ If a user manually deletes the marker but leaves the rolled bullet, Daymark can 
 ### Mitigation
 
 Keep the marker on the same line as the rolled bullet so manual edits are less likely to separate it from the readable text. The `rollovers` table still records normal app-driven rollovers for auditability.
+
+## ADR-007: Codex Task File Naming and Source Links
+
+Status: Accepted
+Date: 2026-06-29
+
+### Context
+
+Milestone 4 writes handoff files that another agent can execute. These files must be readable outside Daymark, must not rely on SQLite, and must never overwrite an existing task file.
+
+### Decision
+
+Approved Codex task files are written under `specs/tasks/` with a date prefix and a slug derived from the draft title:
+
+```txt
+specs/tasks/2026-06-29-make-rollover-deterministic.md
+specs/tasks/2026-06-29-make-rollover-deterministic-2.md
+```
+
+The generated Markdown includes the source note path, source line or line range when known, the source block heading when known, and the selected excerpt. Heading-only selections and empty sections are rejected rather than turned into task files. The source note is not modified by this slice.
+
+### Why
+
+The path is stable, readable, and sortable. The numeric suffix prevents overwrites while still making repeated attempts easy to inspect. Keeping the source link in the task file preserves provenance without adding hidden app state or source-note mutations.
+
+### Risks
+
+Two repeated approvals can create two task files for the same note excerpt.
+
+### Mitigation
+
+The suffix makes the duplicate visible and non-destructive. Future backlinking or task indexes can add stronger duplicate detection after the basic preview and approval flow has real usage.

@@ -24,7 +24,13 @@ let package = Package(
                 "DaymarkIndexer",
                 "DaymarkAgents"
             ],
-            path: "Daymark"
+            path: "Daymark",
+            exclude: [
+                "Resources/AppIcon.iconset"
+            ],
+            resources: [
+                .copy("Resources/AppIcon.icns")
+            ]
         ),
         .target(
             name: "DaymarkCore",
@@ -47,13 +53,18 @@ let package = Package(
         ),
         .executableTarget(
             name: "DaymarkCLI",
-            dependencies: ["DaymarkCore", "DaymarkStore", "DaymarkIndexer"],
+            dependencies: ["DaymarkCore", "DaymarkStore", "DaymarkIndexer", "DaymarkAgents"],
             path: "Sources/daymark"
         ),
         .testTarget(
             name: "DaymarkCoreTests",
             dependencies: ["DaymarkCore"],
             path: "Tests/DaymarkCoreTests"
+        ),
+        .testTarget(
+            name: "DaymarkAgentsTests",
+            dependencies: ["DaymarkAgents", "DaymarkCore"],
+            path: "Tests/DaymarkAgentsTests"
         ),
         .testTarget(
             name: "DaymarkStoreTests",

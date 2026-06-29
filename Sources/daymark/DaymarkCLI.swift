@@ -7,6 +7,7 @@ import Glibc
 import DaymarkCore
 import DaymarkStore
 import DaymarkIndexer
+import DaymarkAgents
 
 @main
 struct DaymarkCLI {
@@ -39,6 +40,8 @@ struct DaymarkCLI {
                 try await runEndOfDay(arguments: options, root: root)
             case "open-loops":
                 try await runOpenLoops(root: root)
+            case "codex-task":
+                try runCodexTask(arguments: options, root: root)
             case "search":
                 try await runSearch(arguments: options, root: root)
             case "today":
@@ -341,6 +344,140 @@ struct DaymarkCLI {
         }
     }
 
+    private struct ParsedCodexTaskArguments {
+        var sourcePath: String?
+        var line: Int?
+        var selectionFile: String?
+        var date: Date = Date()
+        var apply = false
+    }
+
+    /// Creates a previewed Codex task draft from a source note line or explicit selection
+    /// file. Dry-run prints the exact Markdown; `--apply` writes one file under specs/tasks.
+    private static func runCodexTask(arguments: [String], root: WorkspaceRoot) throws {
+        let parsed = try parseCodexTaskArguments(arguments)
+        guard let sourcePath = parsed.sourcePath else { throw CommandError.missingCodexTaskSource }
+
+        let sourceURL = resolveWorkspaceFile(sourcePath, root: root)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            throw CommandError.sourceNotFound(sourcePath)
+        }
+        let sourceMarkdown = try String(contentsOf: sourceURL, encoding: .utf8)
+        if let line = parsed.line, line > lineCount(in: sourceMarkdown) {
+            throw CommandError.invalidLineValue("\(line)")
+        }
+
+        let selection: SourceSelection
+        if let selectionFile = parsed.selectionFile {
+            let selectedText = try String(contentsOfFile: selectionFile, encoding: .utf8)
+            let sourceLine = parsed.line
+            selection = SourceSelection(
+                excerpt: selectedText,
+                sourcePath: sourcePath,
+                startLine: sourceLine,
+                endLine: sourceLine,
+                heading: nil
+            )
+        } else {
+            guard let line = parsed.line else { throw CommandError.missingCodexTaskLine }
+            let cursor = cursorLocation(forLine: line, in: sourceMarkdown)
+            selection = try SourceSelector().select(
+                text: sourceMarkdown,
+                selectedRange: NSRange(location: cursor, length: 0),
+                cursorLocation: cursor,
+                sourcePath: sourcePath
+            )
+        }
+
+        let draft = try PreviewBuilder().codexTaskPreview(
+            source: selection,
+            date: parsed.date,
+            existingRelativePaths: existingCodexTaskPaths(root: root)
+        )
+
+        if parsed.apply {
+            let result = try CodexTaskFileWriter().write(draft, root: root)
+            print("Created: \(result.relativePath)")
+        } else {
+            print("Target: \(draft.suggestedFilePath)")
+            print("")
+            print(draft.markdown(), terminator: "")
+        }
+    }
+
+    private static func parseCodexTaskArguments(_ arguments: [String]) throws -> ParsedCodexTaskArguments {
+        var parsed = ParsedCodexTaskArguments()
+        var index = 0
+
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--source":
+                guard index + 1 < arguments.count else { throw CommandError.missingCodexTaskSource }
+                parsed.sourcePath = arguments[index + 1]
+                index += 2
+            case "--line":
+                guard index + 1 < arguments.count, let line = Int(arguments[index + 1]), line > 0 else {
+                    throw CommandError.invalidLineValue(arguments[safe: index + 1] ?? "")
+                }
+                parsed.line = line
+                index += 2
+            case "--selection-file":
+                guard index + 1 < arguments.count else { throw CommandError.missingSelectionFile }
+                parsed.selectionFile = arguments[index + 1]
+                index += 2
+            case "--date":
+                guard index + 1 < arguments.count else { throw CommandError.missingDateValue }
+                parsed.date = try parseISODate(arguments[index + 1])
+                index += 2
+            case "--apply":
+                parsed.apply = true
+                index += 1
+            case let flag where flag.hasPrefix("--"):
+                throw CommandError.unknownCodexTaskFlag(flag)
+            default:
+                throw CommandError.unknownCodexTaskFlag(arguments[index])
+            }
+        }
+
+        return parsed
+    }
+
+    private static func resolveWorkspaceFile(_ path: String, root: WorkspaceRoot) -> URL {
+        if path.hasPrefix("/") {
+            return URL(fileURLWithPath: path)
+        }
+        return root.expandedURL.appendingPathComponent(path)
+    }
+
+    private static func cursorLocation(forLine lineNumber: Int, in text: String) -> Int {
+        guard lineNumber > 1 else { return 0 }
+        var currentLine = 1
+        var location = 0
+        for scalar in text.unicodeScalars {
+            if currentLine == lineNumber { break }
+            location += String(scalar).utf16.count
+            if scalar == "\n" {
+                currentLine += 1
+            }
+        }
+        return min(location, (text as NSString).length)
+    }
+
+    private static func lineCount(in text: String) -> Int {
+        max(1, text.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
+            .count)
+    }
+
+    private static func existingCodexTaskPaths(root: WorkspaceRoot) -> Set<String> {
+        let directory = root.expandedURL.appendingPathComponent("specs/tasks", isDirectory: true)
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        return Set(files.filter { $0.pathExtension == "md" }.map { "specs/tasks/\($0.lastPathComponent)" })
+    }
+
     /// Runs a local full-text search over the index and prints matching notes.
     private static func runSearch(arguments: [String], root: WorkspaceRoot) async throws {
         var terms: [String] = []
@@ -405,6 +542,7 @@ struct DaymarkCLI {
           rollover    Roll open prior tasks into Today's Brief
           end-of-day  List today's still-open tasks
           open-loops  List open tasks grouped into buckets (read-only)
+          codex-task  Preview or write one Codex task file from note text
           search      Search notes locally with full-text search
           today       Print today's note (or the template it would use)
 
@@ -413,6 +551,10 @@ struct DaymarkCLI {
           daymark capture --today <text>    Append under today's ## Capture
           daymark capture --task <text>     Append as an open task under ## Capture
           (text may also be piped on stdin)
+
+        Codex task:
+          daymark codex-task --source <path> --line <n>
+          daymark codex-task --source <path> --selection-file <path> --apply
 
         Options:
           --root <path>   Workspace root (default: $DAYMARK_WORKSPACE_ROOT or ~/phoenix)
@@ -502,8 +644,14 @@ struct DaymarkCLI {
         case captureOptionsConflict([String])
         case unknownRolloverFlag(String)
         case unknownEndOfDayFlag(String)
+        case unknownCodexTaskFlag(String)
         case missingDateValue
         case invalidDate(String)
+        case missingCodexTaskSource
+        case missingCodexTaskLine
+        case missingSelectionFile
+        case invalidLineValue(String)
+        case sourceNotFound(String)
         case missingSearchQuery
         case missingRootValue
 
@@ -520,8 +668,15 @@ struct DaymarkCLI {
                 return "Usage: daymark <rollover|end-of-day> [--date yyyy-MM-dd]"
             case .unknownEndOfDayFlag:
                 return "Usage: daymark end-of-day [--date yyyy-MM-dd]"
+            case .missingCodexTaskSource,
+                 .missingCodexTaskLine,
+                 .missingSelectionFile,
+                 .invalidLineValue,
+                 .sourceNotFound,
+                 .unknownCodexTaskFlag:
+                return "Usage: daymark codex-task --source <path> (--line <n> | --selection-file <path>) [--date yyyy-MM-dd] [--apply]"
             case .unknownCommand:
-                return "Usage: daymark <doctor|init|index|rebuild|capture|rollover|end-of-day|open-loops|search|today>"
+                return "Usage: daymark <doctor|init|index|rebuild|capture|rollover|end-of-day|open-loops|codex-task|search|today>"
             case .missingSearchQuery:
                 return "Usage: daymark search <query>"
             case .missingRootValue:
@@ -543,15 +698,33 @@ struct DaymarkCLI {
                 return "unknown rollover flag: \(flag)"
             case .unknownEndOfDayFlag(let flag):
                 return "unknown end-of-day flag: \(flag)"
+            case .unknownCodexTaskFlag(let flag):
+                return "unknown codex-task flag: \(flag)"
             case .missingDateValue:
                 return "--date requires a yyyy-MM-dd value"
             case .invalidDate(let value):
                 return "invalid date: \(value)"
+            case .missingCodexTaskSource:
+                return "--source is required"
+            case .missingCodexTaskLine:
+                return "--line is required when --selection-file is not provided"
+            case .missingSelectionFile:
+                return "--selection-file requires a path"
+            case .invalidLineValue(let value):
+                return "invalid line: \(value)"
+            case .sourceNotFound(let path):
+                return "source not found: \(path)"
             case .missingSearchQuery:
                 return "search query is required"
             case .missingRootValue:
                 return "--root requires a value"
             }
         }
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
