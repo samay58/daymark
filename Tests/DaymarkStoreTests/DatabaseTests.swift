@@ -23,9 +23,9 @@ final class DatabaseTests: XCTestCase {
         let db = makeDatabase()
         try await db.open()
         let applied = try await db.migrate()
-        XCTAssertEqual(applied, ["001_initial_schema.sql", "002_note_search.sql"])
+        XCTAssertEqual(applied, ["001_initial_schema.sql", "002_note_search.sql", "003_tasks.sql"])
         let names = try await db.appliedMigrationNames()
-        XCTAssertEqual(names, ["001_initial_schema.sql", "002_note_search.sql"])
+        XCTAssertEqual(names, ["001_initial_schema.sql", "002_note_search.sql", "003_tasks.sql"])
         await db.close()
     }
 

@@ -10,6 +10,7 @@ public struct WorkspaceIndexer {
     public let database: Database
     public let calendar: Calendar
     private let parser = MarkdownParser()
+    private let taskParser = TaskParser()
 
     public init(root: WorkspaceRoot, database: Database, calendar: Calendar = .current) {
         self.root = root
@@ -34,7 +35,8 @@ public struct WorkspaceIndexer {
             title: parser.title(from: content),
             content: content,
             modifiedAt: modifiedAt,
-            blocks: parser.blocks(from: content)
+            blocks: parser.blocks(from: content),
+            tasks: taskParser.parse(markdown: content, notePath: relativePath)
         )
         return true
     }

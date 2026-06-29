@@ -376,31 +376,66 @@ Two independent adversarial reviews of the capture paths (core logic and app wir
 - Multiline captures normalize per-line indentation.
 - The `Daymark` app and `daymark` CLI product names collide on case-insensitive filesystems; resolved by the app-bundle milestone.
 
+## 2026-06-28 (Milestone 2 closed, Milestone 3 first slice: tasks index and read-only Open Loops)
+
+Milestone 2 is closed. The system-global hotkey stays deferred behind a future app-bundle ADR (PARKING_LOT), and the `daymark capture` CLI remains the capture-from-anywhere path. This session opened Milestone 3 with the first safe slice: a hardened task model and parser, a rebuildable tasks projection in SQLite, and a read-only Open Loops query and CLI command. No rollover mutation was written.
+
+### What changed
+
+- Task model: `TaskItem` now carries due metadata and source metadata. A `Due` enum captures `due:today`, `due:tomorrow`, and ISO dates (`due:2026-06-29`) as tokens without resolving them against a calendar. New fields are `due`, `notePath`, `lineNumber`, `originalLine`, and `sectionHeading`, plus a derived `sourceKey` (note path, line, normalized text) for rollover identity later. The init keeps defaults so existing call sites are unaffected.
+- Parser: `TaskParser` is fence-aware (checkbox lines inside ``` or ~~~ are ignored), tracks the current ATX section heading, records 1-based line numbers and the verbatim source line, normalizes CRLF, and parses `- [ ]`, `- [x]`, and `- [X]`. Tags, mentions, and due tokens are extracted as metadata but stay in the title, so the line round-trips to the same Markdown. Natural-language dates are not parsed.
+- SQLite projection: migration `003_tasks.sql` adds a `tasks` table keyed by note with `source_key`, line, title, status, tags, mentions, due, section heading, and original line. `Database.replaceTasks` mirrors `replaceBlocks`: reprojecting a note replaces its task rows rather than appending, so the table is a rebuildable projection. `Database.openTasks` returns open tasks joined to their note path, ordered by path then line. `NoteRepository.projectNote` and `WorkspaceIndexer` now project tasks alongside blocks, so `daymark index` and `daymark rebuild` populate the table.
+- Open Loops: `OpenLoops.grouped(tasks:on:)` is a pure function that excludes completed tasks and sorts open ones into buckets. Dated tasks go to Due today, Overdue, or Upcoming by comparing the ISO date to a reference date; the relative tokens are taken at face value (today to Due today, tomorrow to Upcoming). Undated tasks split into Waiting on others (an `@mention` or a `waiting:` marker) and No date. Each task lands in exactly one bucket and empty buckets are omitted.
+- CLI: `daymark open-loops` reads the index, groups open tasks, and prints them scannable with `path:line` source locations. It is read-only: it never writes Markdown or rolls tasks forward. It honors `--root` and `DAYMARK_WORKSPACE_ROOT`.
+
+### Design notes
+
+- Due resolution is token-literal for this slice. A `due:today` written three days ago still reads as Due today, because resolving it against the note's own date is natural-language date logic, which this milestone defers. Overdue and Upcoming buckets were added beyond the three the prompt named so that dated tasks (tomorrow, future, past) are never silently dropped from the output.
+- The "Waiting on me", "Rolled repeatedly", and "Codex tasks" buckets from INTERACTION_SPEC are not built; they need rollover state and Codex, which are out of scope here.
+
+### Tests/Checks run
+
+- `swift test --skip CommandTests`: 110 library tests, 0 failures (Core, Store, Indexer).
+- CLI tests via the built bundle: 13 tests, 0 failures (10 capture, 3 open-loops). Total 123, 0 failures.
+- `swift build --product daymark` and `--product Daymark`: both link cleanly on their own.
+- `daymark doctor` against the default `~/phoenix`: read-only, reports `003_tasks.sql` declared, creates nothing.
+- Manual end-to-end on a temp workspace (never `~/phoenix`): wrote two daily notes with open and completed tasks, ran `rebuild`, ran `open-loops`. Tasks bucketed correctly across Due today, Overdue, Upcoming, Waiting on others, and No date, and the completed tasks did not appear.
+
+### Verification caveat (build collision)
+
+The `Daymark` app and `daymark` CLI products share one path on the case-insensitive filesystem, so a single `swift test` relinks both and whichever wins corrupts the other. When the app wins, the CLI tests launch the app and time out. The library tests are unaffected. To verify the CLI tests, build `--product daymark` to put the CLI at the shared path, then run the prebuilt test bundle with `xctest` so nothing relinks. This is the known collision tracked in PARKING_LOT; the app-bundle milestone resolves it.
+
+### Remaining in Milestone 3
+
+- Task rollover: carry incomplete tasks from prior daily notes into Today as clean Markdown, preserve the original task, prevent duplicate rollovers, and record rollover events. This is the next slice; it needs a `rollovers` table and event-log integration and must respect the preview/approval invariant.
+- Recurrence and end-of-day review.
+- An in-app Open Loops surface (the CLI is the read path for now).
+- Note-relative resolution of `due:today` / `due:tomorrow` once rollover re-stamps dates.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
 
-Milestone 2: Slip and Capture. In-app and CLI capture are implemented, hardened, and green. The open question is the global hotkey.
+Milestone 3: Tasks and Open Loops. The task parser, the SQLite tasks projection, and a read-only Open Loops query and CLI command are implemented and green. Rollover mutation is not built yet.
 
 ### Start Here Next
 
-1. Decide the global hotkey path: write an app-bundle ADR and implement system-global Option+Space as its own slice, or accept the `daymark capture` CLI as the capture-from-anywhere mechanism and close Milestone 2.
-2. When ready, move toward the next milestone.
+1. Implement task rollover as its own slice: find incomplete tasks from prior daily notes, exclude completed and already-rolled tasks, add clean Markdown references to Today, preserve the original task, and record a rollover event in SQLite so rollover is idempotent (never duplicated for the same source task). Add a `rollovers` table and tests for idempotency.
+2. Then recurrence, end-of-day review, and an in-app Open Loops surface.
 
 ### Current Truths
 
 - Milestone 0 is complete.
 - Milestone 1 is complete and ready to close.
-- Milestone 2 capture is implemented and hardened: monthly Slip file, append to Today, promote to task, discard, and a `daymark capture` CLI. 95 tests pass, including adversarial edge-case coverage of the capture paths.
-- A two-agent data-safety review fixed a critical clobber bug and several corruption and silent-loss bugs; remaining limitations are documented in PARKING_LOT.
-- Capture writes only Markdown. SQLite is never on the capture path and stays a rebuildable projection.
+- Milestone 2 is closed. Capture is implemented and hardened: monthly Slip file, append to Today, promote to task, discard, and a `daymark capture` CLI. The system-global hotkey is deferred behind an app-bundle ADR.
+- Milestone 3 is in progress. Tasks are parsed with due and source metadata, projected into a rebuildable `tasks` table (migration `003_tasks.sql`), and surfaced read-only through `daymark open-loops`. Completed tasks are excluded. 123 tests pass.
+- Markdown stays the source of truth. Tasks are a projection: reprojecting a note replaces its task rows, and the index rebuilds from files. `open-loops` is read-only.
 - The default workspace root is `~/phoenix`; ADR-005 is reversed.
-- The true system-global hotkey and any menu-bar or app-bundle work are not built and need an ADR first.
-- Do not add Gmail, Calendar, AI, cloud sync, embeddings, task rollover, Open Loops, dynamic blocks, or Codex execution.
+- Do not add Gmail, Calendar, AI, cloud sync, embeddings, dynamic blocks, Codex execution, app-bundle work, or global hotkey work. Rollover is in scope for Milestone 3 but was deferred to its own slice.
 
 ### Required Checks
 
 - `git status --short`
-- `swift package clean && swift test`
-- `swift build`
-- `swift run daymark doctor`
+- `swift test --skip CommandTests` for the library tests, then the CLI tests via the prebuilt bundle (see the build-collision caveat above).
+- `swift build --product daymark` and `swift build --product Daymark`.
+- `daymark doctor` (read-only).

@@ -58,6 +58,33 @@ final class WorkspaceIndexerTests: XCTestCase {
         await db.close()
     }
 
+    func testIndexProjectsTasksFromTheNote() async throws {
+        let root = try makeBootstrappedWorkspace()
+        let today = try fixedToday()
+        let relativePath = DailyNote.relativePath(for: today, calendar: calendar)
+        let url = root.expandedURL.appendingPathComponent(relativePath)
+        try AtomicFileWriter().write("""
+        # Today
+
+        ## Capture
+
+        - [ ] open task @sarah
+        - [x] closed task
+        """, to: url)
+
+        let db = makeDatabase(in: root)
+        try await db.open()
+        _ = try await db.migrate()
+        try await WorkspaceIndexer(root: root, database: db, calendar: calendar).indexToday(date: today)
+
+        let open = try await db.openTasks()
+        XCTAssertEqual(open.count, 1, "only the open task is surfaced")
+        XCTAssertEqual(open[0].title, "open task @sarah")
+        XCTAssertEqual(open[0].notePath, relativePath, "tasks are stamped with their source note path")
+        XCTAssertEqual(open[0].sectionHeading, "Capture")
+        await db.close()
+    }
+
     func testRebuildReprojectsAllDailyNotesFromDisk() async throws {
         let root = try makeBootstrappedWorkspace()
         let store = DailyNoteStore(root: root, calendar: calendar)

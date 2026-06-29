@@ -15,7 +15,8 @@ public struct NoteRepository {
         title: String?,
         content: String,
         modifiedAt: Date?,
-        blocks: [Block]
+        blocks: [Block],
+        tasks: [TaskItem] = []
     ) async throws {
         let id = try await database.upsertNote(
             relativePath: relativePath,
@@ -24,6 +25,7 @@ public struct NoteRepository {
             modifiedAt: modifiedAt
         )
         try await database.replaceBlocks(noteID: id, blocks: blocks)
+        try await database.replaceTasks(noteID: id, tasks: tasks)
     }
 
     public func removeNote(relativePath: String) async throws {

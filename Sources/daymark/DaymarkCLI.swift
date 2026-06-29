@@ -33,6 +33,8 @@ struct DaymarkCLI {
                 try await runRebuild(root: root)
             case "capture":
                 try runCapture(arguments: options, root: root)
+            case "open-loops":
+                try await runOpenLoops(root: root)
             case "search":
                 try await runSearch(arguments: options, root: root)
             case "today":
@@ -205,6 +207,32 @@ struct DaymarkCLI {
         return ParsedCaptureArguments(target: target, text: text)
     }
 
+    /// Read-only. Lists open tasks from the index, grouped into Open Loops buckets. It never
+    /// writes Markdown or rolls tasks forward; run `daymark rebuild` first to refresh the index.
+    private static func runOpenLoops(root: WorkspaceRoot) async throws {
+        let database = Database(configuration: DatabaseConfiguration(path: databaseURL(for: root).path))
+        try await database.open()
+        _ = try await database.migrate()
+        let tasks = try await database.openTasks()
+        await database.close()
+
+        let groups = OpenLoops.grouped(tasks: tasks, on: Date())
+        let total = groups.reduce(0) { $0 + $1.tasks.count }
+        guard total > 0 else {
+            print("No open tasks. Run `daymark rebuild` to index your notes, then capture some with `daymark capture --task`.")
+            return
+        }
+
+        print("Open Loops (\(total) open task\(total == 1 ? "" : "s"))")
+        for group in groups {
+            print("")
+            print(group.bucket.title)
+            for task in group.tasks {
+                print("  \(task.title)  (\(task.notePath):\(task.lineNumber))")
+            }
+        }
+    }
+
     /// Runs a local full-text search over the index and prints matching notes.
     private static func runSearch(arguments: [String], root: WorkspaceRoot) async throws {
         var terms: [String] = []
@@ -261,13 +289,14 @@ struct DaymarkCLI {
         daymark
 
         Commands:
-          doctor    Read-only workspace and index health check
-          init      Create workspace directories and today's note
-          index     Project today's note into the index database
-          rebuild   Rebuild the index from every daily Markdown file
-          capture   Capture text to the monthly Slip file, or to today's note
-          search    Search notes locally with full-text search
-          today     Print today's note (or the template it would use)
+          doctor      Read-only workspace and index health check
+          init        Create workspace directories and today's note
+          index       Project today's note into the index database
+          rebuild     Rebuild the index from every daily Markdown file
+          capture     Capture text to the monthly Slip file, or to today's note
+          open-loops  List open tasks grouped into buckets (read-only)
+          search      Search notes locally with full-text search
+          today       Print today's note (or the template it would use)
 
         Capture:
           daymark capture <text>            Append to this month's slip/YYYY-MM.md
@@ -349,7 +378,7 @@ struct DaymarkCLI {
                  .captureOptionsConflict:
                 return "Usage: daymark capture [--today | --task] <text>   (or pipe text on stdin)"
             case .unknownCommand:
-                return "Usage: daymark <doctor|init|index|rebuild|capture|search|today>"
+                return "Usage: daymark <doctor|init|index|rebuild|capture|open-loops|search|today>"
             case .missingSearchQuery:
                 return "Usage: daymark search <query>"
             case .missingRootValue:

@@ -15,10 +15,12 @@ public struct Migration: Equatable, Sendable {
 public struct MigrationRunner {
     public init() {}
 
-    /// Ordered migrations. Milestone 1 introduces notes, blocks, and a full-text index.
+    /// Ordered migrations. Milestone 1 introduces notes, blocks, and a full-text index;
+    /// Milestone 3 adds the tasks projection.
     public static let all: [Migration] = [
         Migration(version: 1, name: "001_initial_schema.sql", sql: initialSchema),
-        Migration(version: 2, name: "002_note_search.sql", sql: noteSearch)
+        Migration(version: 2, name: "002_note_search.sql", sql: noteSearch),
+        Migration(version: 3, name: "003_tasks.sql", sql: tasks)
     ]
 
     public func allMigrations() -> [Migration] { Self.all }
@@ -66,5 +68,29 @@ public struct MigrationRunner {
         body,
         tokenize = 'unicode61'
     );
+    """
+
+    // Tasks projected from Markdown checkbox lines. Like blocks, task rows are replaced on
+    // every reprojection, so the table is a rebuildable projection of the files on disk.
+    // `source_key` is a deterministic identity (note path + line + text) for rollover later.
+    private static let tasks = """
+    CREATE TABLE IF NOT EXISTS tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+        source_key TEXT NOT NULL,
+        line_number INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        tags TEXT NOT NULL DEFAULT '',
+        mentions TEXT NOT NULL DEFAULT '',
+        due TEXT,
+        section_heading TEXT,
+        original_line TEXT NOT NULL,
+        indexed_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tasks_note_id ON tasks(note_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_tasks_source_key ON tasks(source_key);
     """
 }

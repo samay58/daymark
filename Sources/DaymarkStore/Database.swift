@@ -268,6 +268,76 @@ public actor Database {
         }
     }
 
+    /// Replaces all task rows for a note. Like `replaceBlocks`, reprojecting a note never
+    /// appends, so the tasks table stays a rebuildable projection of the Markdown.
+    public func replaceTasks(noteID: Int64, tasks: [TaskItem]) throws {
+        let connection = try requireHandle()
+        let delete = try prepare("DELETE FROM tasks WHERE note_id = ?;")
+        sqlite3_bind_int64(delete, 1, noteID)
+        let deleted = sqlite3_step(delete)
+        sqlite3_finalize(delete)
+        guard deleted == SQLITE_DONE else {
+            throw StoreError.sql(String(cString: sqlite3_errmsg(connection)))
+        }
+
+        let indexedAt = Self.timestamp()
+        for task in tasks {
+            let insert = try prepare("""
+            INSERT INTO tasks
+                (note_id, source_key, line_number, title, status, tags, mentions, due, section_heading, original_line, indexed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """)
+            defer { sqlite3_finalize(insert) }
+            sqlite3_bind_int64(insert, 1, noteID)
+            sqlite3_bind_text(insert, 2, task.sourceKey, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_int(insert, 3, Int32(task.lineNumber))
+            sqlite3_bind_text(insert, 4, task.title, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(insert, 5, task.status.rawValue, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(insert, 6, task.tags.joined(separator: " "), -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(insert, 7, task.mentions.joined(separator: " "), -1, SQLITE_TRANSIENT)
+            bindOptionalText(insert, 8, task.due?.token)
+            bindOptionalText(insert, 9, task.sectionHeading)
+            sqlite3_bind_text(insert, 10, task.originalLine, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_text(insert, 11, indexedAt, -1, SQLITE_TRANSIENT)
+            guard sqlite3_step(insert) == SQLITE_DONE else {
+                throw StoreError.sql(String(cString: sqlite3_errmsg(connection)))
+            }
+        }
+    }
+
+    /// Open tasks across all notes, joined to their source note path and ordered by path then
+    /// line. Completed tasks are excluded here so callers cannot accidentally surface them.
+    public func openTasks() throws -> [TaskItem] {
+        let statement = try prepare("""
+        SELECT n.rel_path, t.line_number, t.title, t.status, t.tags, t.mentions, t.due, t.section_heading, t.original_line
+        FROM tasks t
+        JOIN notes n ON t.note_id = n.id
+        WHERE t.status = 'open'
+        ORDER BY n.rel_path, t.line_number;
+        """)
+        defer { sqlite3_finalize(statement) }
+
+        var items: [TaskItem] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            items.append(TaskItem(
+                title: columnText(statement, 2) ?? "",
+                status: TaskItem.Status(rawValue: columnText(statement, 3) ?? "open") ?? .open,
+                tags: Self.splitList(columnText(statement, 4)),
+                mentions: Self.splitList(columnText(statement, 5)),
+                due: columnText(statement, 6).flatMap(TaskItem.Due.init(token:)),
+                notePath: columnText(statement, 0) ?? "",
+                lineNumber: Int(sqlite3_column_int(statement, 1)),
+                originalLine: columnText(statement, 8) ?? "",
+                sectionHeading: columnText(statement, 7)
+            ))
+        }
+        return items
+    }
+
+    public func taskCount() throws -> Int {
+        try queryInts("SELECT COUNT(*) FROM tasks;").first ?? 0
+    }
+
     public func noteCount() throws -> Int {
         try queryInts("SELECT COUNT(*) FROM notes;").first ?? 0
     }
@@ -388,6 +458,12 @@ public actor Database {
     private func columnText(_ statement: OpaquePointer, _ index: Int32) -> String? {
         guard let cString = sqlite3_column_text(statement, index) else { return nil }
         return String(cString: cString)
+    }
+
+    /// Reconstructs a space-joined token list (tags, mentions) stored in a single column.
+    private static func splitList(_ value: String?) -> [String] {
+        guard let value, !value.isEmpty else { return [] }
+        return value.split(separator: " ").map(String.init)
     }
 
     private static func timestamp(from date: Date = Date()) -> String {

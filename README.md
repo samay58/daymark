@@ -4,7 +4,7 @@ Daymark is a high-craft, local-first macOS workspace centered on today's Markdow
 
 ## Status
 
-Milestones 0 (taste prototype), 1 (local workspace), and 2 (Slip and capture) are complete. The next milestone is 3 (Tasks and Open Loops). See `docs/PROGRESS.md` for the current state and `docs/ROADMAP.md` for the plan.
+Milestones 0 (taste prototype), 1 (local workspace), and 2 (Slip and capture) are complete. Milestone 3 (Tasks and Open Loops) is in progress: tasks are parsed and projected into a rebuildable SQLite index, and `daymark open-loops` lists open tasks read-only. Task rollover is the next slice. See `docs/PROGRESS.md` for the current state and `docs/ROADMAP.md` for the plan.
 
 ## Build and run
 
@@ -28,7 +28,12 @@ echo "piped text" | daymark capture         # read from stdin
 
 ## CLI commands
 
-`doctor`, `init`, `index`, `rebuild`, `capture`, `search`, `today`. Run `swift run daymark` for full usage. Pass `--root <path>` or set `DAYMARK_WORKSPACE_ROOT` to point at a workspace other than `~/phoenix`.
+`doctor`, `init`, `index`, `rebuild`, `capture`, `open-loops`, `search`, `today`. Run `swift run daymark` for full usage. Pass `--root <path>` or set `DAYMARK_WORKSPACE_ROOT` to point at a workspace other than `~/phoenix`.
+
+```bash
+daymark rebuild      # project every daily note into the index
+daymark open-loops   # list open tasks, grouped, read-only
+```
 
 ## Layout
 
