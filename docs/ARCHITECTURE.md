@@ -17,9 +17,9 @@ Build native Mac first:
 
 ## Package Shape
 
-This scaffold starts package-first for reproducible build and test commands.
+The project is package-first for reproducible build and test commands.
 
-Future Milestone 0 work should add an app-bundle Xcode project or generated Xcode project if needed for signing, app lifecycle, UI tests, menu bar helpers, and global hotkeys.
+A future milestone should add an app-bundle Xcode project (or a generated one) when signing, app lifecycle, UI tests, the menu bar helper, and the system-global hotkey require it. See ADR-002.
 
 ## Modules
 
@@ -36,6 +36,8 @@ DaymarkCore
   Notes
   Blocks
   Tasks
+  Slip and capture
+  Support (atomic writes, hashing)
   Rollover engine
   Dynamic block engine
   Codex task drafting
@@ -62,7 +64,7 @@ DaymarkAgents
   Agent run storage
 
 daymark
-  Future CLI commands
+  CLI commands: doctor, init, index, rebuild, capture, search, today
 ```
 
 ## Data Flow: Typing

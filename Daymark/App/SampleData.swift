@@ -22,7 +22,7 @@ enum SampleData {
     Exploring lightweight link previews that don't break flow. See [[link previews]] for ideas.
 
     > Clarity is not just about what you remove, but what you make obvious.
-    > — John Maeda
+    > John Maeda
 
     #product #daily
     """

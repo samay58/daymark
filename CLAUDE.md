@@ -80,5 +80,5 @@ Scope control rules:
 
 - Tests currently use **XCTest** (for example `Tests/DaymarkCoreTests/TaskParserTests.swift`). Match the existing style when adding to a test target. Add tests for markdown parsing, task parsing, rollover idempotency, SQLite migrations, file watcher behavior, and Codex task file generation.
 - Shared concurrency state uses `actor` (for example `Database`); model types crossing module boundaries are `public`, `Sendable`, and usually `Equatable`.
-- UI design lives in `Daymark/UI/DesignSystem/DesignTokens.swift`: light-mode default, warm off-white canvas, 8px card radius / 12px panel radius, fast easeOut motion (80–160ms). No red badges, AI sparkle motifs, chatbot bubbles, or decorative animation on command palette / capture.
+- UI design lives in `Daymark/UI/DesignSystem/DesignTokens.swift`: light-mode default, warm off-white canvas, 8px card radius / 12px panel radius, fast easeOut motion (80-160ms). No red badges, AI sparkle motifs, chatbot bubbles, or decorative animation on command palette / capture.
 - The default workspace root is `~/phoenix` (`WorkspaceRoot.defaultWorkspace`); the index lives in `~/phoenix/.daymark/`.

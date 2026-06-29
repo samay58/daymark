@@ -1,6 +1,8 @@
 # Roadmap
 
-## Governance and Scaffold
+Status markers reflect what is built. `docs/PROGRESS.md` holds the detailed log.
+
+## Governance and Scaffold (Done)
 
 Goal: create durable instructions, docs, module boundaries, tests, and a native Swift structure before product features begin.
 
@@ -9,10 +11,10 @@ Build:
 - `AGENTS.md`
 - Governance docs
 - Swift package scaffold
-- SwiftUI app shell placeholder
-- AppKit editor wrapper placeholder
+- SwiftUI app shell
+- AppKit editor wrapper
 - Local-first core/store/indexer module boundaries
-- Future CLI target named `daymark`
+- CLI target named `daymark`
 - Starter tests and scripts
 
 Acceptance:
@@ -22,7 +24,7 @@ Acceptance:
 - The docs explain the north star, milestones, stack, non-goals, and review gates.
 - Product mockups and craft references are saved in the repo.
 
-## Milestone 0: Taste Prototype
+## Milestone 0: Taste Prototype (Done)
 
 Goal: prove the app feels gorgeous before building intelligence.
 
@@ -57,7 +59,7 @@ Non-goals:
 - No cloud
 - No embeddings
 
-## Milestone 1: Local Workspace
+## Milestone 1: Local Workspace (Done)
 
 Goal: Daymark can be used as a real daily note app for one full day.
 
@@ -73,13 +75,13 @@ Build:
 - Basic FTS search
 - Settings for workspace root
 
-## Milestone 2: Slip and Capture
+## Milestone 2: Slip and Capture (Done; system-global hotkey deferred)
 
 Goal: capture from anywhere faster than Apple Notes.
 
-Build global hotkey, menu bar helper, floating Slip panel, temporary captures, append to Today, discard, promote to task, and selected-text capture where possible.
+Done: floating Slip panel, temporary captures to a monthly Slip file, append to Today, discard, promote to task, an in-app Option+Space (focused), and a `daymark capture` CLI as the scriptable capture-from-anywhere path. Deferred: the true system-global hotkey and menu bar helper, which need a signed app bundle (gated by an ADR). Selected-text capture is not built.
 
-## Milestone 3: Tasks and Open Loops
+## Milestone 3: Tasks and Open Loops (Next)
 
 Goal: Daymark reliably tracks unfinished commitments.
 
