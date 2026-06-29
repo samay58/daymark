@@ -98,4 +98,16 @@ final class DailyNoteStoreTests: XCTestCase {
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.todayFileURL(date: fixedDate()).path))
     }
+
+    func testAppendCaptureAddsHeadingWhenNoteHasNoCaptureSection() throws {
+        let store = DailyNoteStore(root: makeRoot(), calendar: cal)
+        // A note the user wrote with no Capture section at all.
+        try store.save("# Custom note\n\nJust prose, no sections.\n", date: fixedDate())
+
+        let url = try store.appendCapture("a thought", date: fixedDate())
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(contents.contains("Just prose, no sections."), "existing content is preserved")
+        XCTAssertTrue(contents.contains("## Capture"), "a Capture heading is added")
+        XCTAssertTrue(contents.contains("a thought"))
+    }
 }

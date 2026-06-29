@@ -352,23 +352,47 @@ Not done in this slice, by design. A true system-global Option+Space (capture wh
 
 A Codex companion bound to this session worked the same files in parallel. The two tracks converged compatibly on the same APIs. At the contention point the user chose to let Codex finish the implementation while this track verified and documented. For future sessions, prefer a single owner per file or per-worktree branches to avoid clobbering.
 
+## 2026-06-28 (Milestone 2 hardening: data-safety review)
+
+Two independent adversarial reviews of the capture paths (core logic and app wiring) found real data-safety bugs, since fixed and covered by tests. 95 tests, 0 failures.
+
+### Bugs fixed
+
+- Critical: capturing to Today (or editing) before the real note finished loading could write the SampleData placeholder over the real daily note, silently. The persistence gate was on `hasLoaded`, which is set before the load completes. Split out `didLoadToday`; persistence and Today captures gate on it, and a pre-load Today capture is routed to the Slip file so nothing is lost or clobbered.
+- Critical: `SlipStore.save` read the existing month with `try?`, so an unreadable file (bad UTF-8, I/O error) silently became a fresh document and overwrote a month of captures. It now reads with `try` and only starts fresh when the file is genuinely absent or empty.
+- High: `MarkdownSection` treated `#` lines inside fenced code blocks as headings, corrupting a code block in the Capture section or matching a `## Capture` that lived only inside a fence. Heading detection now skips fenced regions.
+- High: CRLF documents were not matched (a trailing carriage return defeated the heading comparison), so a duplicate `## Capture` was appended. Input is normalized to LF.
+- High: the Slip save (the Return path) swallowed write errors and dismissed the panel, losing the capture silently. The save is now synchronous and returns success; the panel dismisses only on a confirmed write and otherwise stays open with the text intact.
+- Medium: no flush on quit left a capture in the autosave debounce window vulnerable to Cmd+Q. A termination observer now flushes any pending Today write synchronously.
+- Low: IME composition (CJK, accents) confirmed with Return fired a capture; `keyDown` now defers to the input context while text is marked.
+
+### Checks run
+
+- `swift build`, `swift test` (95 tests, 0 failures), `daymark doctor`, manual `daymark capture` against a temp workspace, and an app launch smoke test (boots clean with the new wiring). The real `~/phoenix` was never written.
+
+### Known limitations (documented in PARKING_LOT, deferred by scope)
+
+- Capture's read-modify-write is not transactional against concurrent external writes.
+- Multiline captures normalize per-line indentation.
+- The `Daymark` app and `daymark` CLI product names collide on case-insensitive filesystems; resolved by the app-bundle milestone.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
 
-Milestone 2: Slip and Capture. In-app and CLI capture are implemented and green. The open question is the global hotkey.
+Milestone 2: Slip and Capture. In-app and CLI capture are implemented, hardened, and green. The open question is the global hotkey.
 
 ### Start Here Next
 
 1. Decide the global hotkey path: write an app-bundle ADR and implement system-global Option+Space as its own slice, or accept the `daymark capture` CLI as the capture-from-anywhere mechanism and close Milestone 2.
-2. Optional polish: review the Slip panel copy for any remaining non-plain phrasing.
-3. When ready, move toward the next milestone.
+2. When ready, move toward the next milestone.
 
 ### Current Truths
 
 - Milestone 0 is complete.
 - Milestone 1 is complete and ready to close.
-- Milestone 2 capture is implemented: monthly Slip file, append to Today, promote to task, discard, and a `daymark capture` CLI. 86 tests pass.
+- Milestone 2 capture is implemented and hardened: monthly Slip file, append to Today, promote to task, discard, and a `daymark capture` CLI. 95 tests pass, including adversarial edge-case coverage of the capture paths.
+- A two-agent data-safety review fixed a critical clobber bug and several corruption and silent-loss bugs; remaining limitations are documented in PARKING_LOT.
 - Capture writes only Markdown. SQLite is never on the capture path and stays a rebuildable projection.
 - The default workspace root is `~/phoenix`; ADR-005 is reversed.
 - The true system-global hotkey and any menu-bar or app-bundle work are not built and need an ADR first.

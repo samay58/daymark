@@ -81,6 +81,13 @@ final class CaptureNSTextView: NSTextView {
     weak var coordinator: CaptureTextView.Coordinator?
 
     override func keyDown(with event: NSEvent) {
+        // While an input method has marked (composing) text, let the input context handle the
+        // key so Return confirms the composition instead of firing a capture.
+        if hasMarkedText() {
+            super.keyDown(with: event)
+            return
+        }
+
         let isReturn = event.keyCode == 36 || event.keyCode == 76
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let command = modifiers.contains(.command)

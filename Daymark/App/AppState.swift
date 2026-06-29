@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import Observation
 import DaymarkCore
 import DaymarkStore
@@ -24,7 +25,12 @@ final class AppState {
 
     private let calendar: Calendar
     private var lastSavedText: String
+    /// Reentrancy guard for `prepareWorkspace`. Set true before the load starts.
     private var hasLoaded = false
+    /// True only once today's real note is in the buffer. Persistence is gated on this so the
+    /// initial `SampleData` placeholder (or a failed load) can never be written over the real
+    /// daily note on disk.
+    private var didLoadToday = false
     private var autosaveTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
 
@@ -49,6 +55,19 @@ final class AppState {
         self.calendar = calendar
         self.todayText = SampleData.todayDocument
         self.lastSavedText = SampleData.todayDocument
+        observeTermination()
+    }
+
+    /// Flush any pending Today write synchronously when the app is quitting, so a capture or
+    /// edit made within the autosave debounce window is not lost on exit.
+    private func observeTermination() {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.flushPendingWrite() }
+        }
     }
 
     // MARK: - Lifecycle
@@ -77,6 +96,7 @@ final class AppState {
         if let loaded {
             todayText = loaded
             lastSavedText = loaded
+            didLoadToday = true
         }
 
         await openIndex(root: root, calendar: calendar)
@@ -116,6 +136,7 @@ final class AppState {
         hasExternalConflict = false
         externalDiskVersion = nil
         hasLoaded = false
+        didLoadToday = false
 
         workspaceRoot = .resolve(override: SettingsStore.workspaceRootOverride())
         await prepareWorkspace()
@@ -135,7 +156,7 @@ final class AppState {
     /// Called when the editor buffer changes. Debounces an atomic Markdown write so that
     /// typing is never on the disk path, then reprojects the saved note into the index.
     func handleTodayTextChange() {
-        guard hasLoaded, todayText != lastSavedText else { return }
+        guard didLoadToday, todayText != lastSavedText else { return }
         scheduleAutosave()
     }
 
@@ -255,38 +276,49 @@ final class AppState {
 
     // MARK: - Capture
 
-    /// Saves a capture to this month's Slip file off the main actor. Independent of the Today
-    /// buffer, so it never disturbs the editor. Blank captures are ignored.
-    func saveCapture(_ text: String) {
+    /// Saves a capture to this month's Slip file. The write is synchronous and atomic, so the
+    /// capture is durable before the panel dismisses, and it returns false (losing nothing) if
+    /// the write fails or the text is blank. This is an explicit save action, not the Today
+    /// editor's keystroke path, so the no-blocking-typing invariant still holds.
+    @discardableResult
+    func saveCapture(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        let root = workspaceRoot
-        let calendar = calendar
-        Task.detached(priority: .utility) {
-            try? SlipStore(root: root, calendar: calendar).save(trimmed)
+        guard !trimmed.isEmpty else { return false }
+        do {
+            try SlipStore(root: workspaceRoot, calendar: calendar).save(trimmed)
+            return true
+        } catch {
+            return false
         }
     }
 
     /// Appends a capture under today's `## Capture` section. The transform runs on the
-    /// in-memory buffer so it stays consistent with any unsaved edits, then the existing
-    /// autosave persists it atomically and reprojects the index. Blank captures are ignored.
-    func appendCaptureToToday(_ text: String) {
+    /// in-memory buffer so it stays consistent with any unsaved edits, then autosave persists
+    /// it atomically and reprojects the index. Returns false only for blank text.
+    @discardableResult
+    func appendCaptureToToday(_ text: String) -> Bool {
         appendCapture({ trimmed in
             CaptureFormatter.timestampedBullet(trimmed, at: Date(), calendar: calendar)
         }, text)
     }
 
     /// Promotes a capture to an open Markdown task line under today's `## Capture` section.
-    /// Same buffer-first persistence as `appendCaptureToToday`. Blank captures are ignored.
-    func promoteCaptureToTask(_ text: String) {
+    /// Same buffer-first persistence as `appendCaptureToToday`. Returns false only for blank text.
+    @discardableResult
+    func promoteCaptureToTask(_ text: String) -> Bool {
         appendCapture({ trimmed in
             CaptureFormatter.taskLine(trimmed)
         }, text)
     }
 
-    private func appendCapture(_ formatter: (String) -> String, _ text: String) {
+    @discardableResult
+    private func appendCapture(_ formatter: (String) -> String, _ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
+        // Before the real note is loaded the buffer still holds the SampleData placeholder, and
+        // writing it back would clobber the real daily note. Route the capture to the Slip file
+        // instead, so it is never lost and the daily note is never touched.
+        guard didLoadToday else { return saveCapture(trimmed) }
         let entry = formatter(trimmed)
         todayText = MarkdownSection.appendingEntry(
             entry,
@@ -294,6 +326,17 @@ final class AppState {
             to: todayText
         )
         handleTodayTextChange()
+        return true
+    }
+
+    /// Synchronously writes any pending Today edits before the app exits, closing the window
+    /// where a capture or edit lives only in the debounced autosave. Called on app termination.
+    func flushPendingWrite() {
+        autosaveTask?.cancel()
+        guard didLoadToday, todayText != lastSavedText else { return }
+        recordSelfWrite(todayText)
+        try? DailyNoteStore(root: workspaceRoot, calendar: calendar).save(todayText)
+        lastSavedText = todayText
     }
 
     // MARK: - Helpers

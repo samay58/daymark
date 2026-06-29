@@ -37,7 +37,17 @@ public struct SlipStore {
         guard !trimmed.isEmpty else { throw CaptureError.empty }
 
         let url = monthlyFileURL(for: date)
-        let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? newMonthlyDocument(for: date)
+        let existing: String
+        if fileManager.fileExists(atPath: url.path) {
+            // Read with `try`, not `try?`: if an existing slip file cannot be read, propagate
+            // the error rather than silently overwriting a month of captures with a fresh file.
+            let onDisk = try String(contentsOf: url, encoding: .utf8)
+            existing = onDisk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? newMonthlyDocument(for: date)
+                : onDisk
+        } else {
+            existing = newMonthlyDocument(for: date)
+        }
         let bullet = CaptureFormatter.timestampedBullet(trimmed, at: date, calendar: calendar)
         let heading = CaptureFormatter.dayHeading(for: date, calendar: calendar)
         let updated = MarkdownSection.appendingEntry(bullet, under: heading, to: existing)

@@ -4,6 +4,7 @@ struct SlipPanelView: View {
     @Binding var isPresented: Bool
     @Environment(AppState.self) private var appState
     @State private var text = ""
+    @State private var saveFailed = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -42,9 +43,9 @@ struct SlipPanelView: View {
                 }
                 CaptureTextView(
                     text: $text,
-                    onSave: { _ in withTrimmedText(appState.saveCapture) },
-                    onAppendToday: { _ in withTrimmedText(appState.appendCaptureToToday) },
-                    onPromoteTask: { _ in withTrimmedText(appState.promoteCaptureToTask) },
+                    onSave: { commit(appState.saveCapture, $0) },
+                    onAppendToday: { commit(appState.appendCaptureToToday, $0) },
+                    onPromoteTask: { commit(appState.promoteCaptureToTask, $0) },
                     onCancel: { handleDiscard() }
                 )
                     .frame(height: 132)
@@ -57,14 +58,14 @@ struct SlipPanelView: View {
             }
 
             HStack(spacing: 8) {
-                Button("Append to Today") { handleAppendToday() }
+                Button("Append to Today") { commit(appState.appendCaptureToToday, text) }
                     .buttonStyle(SecondaryButtonStyle())
-                Button("Task") { handlePromoteTask() }
+                Button("Task") { commit(appState.promoteCaptureToTask, text) }
                     .buttonStyle(SecondaryButtonStyle())
                 Spacer()
-                Text("⏎ saves")
+                Text(saveFailed ? "Couldn't save, text kept" : "⏎ saves")
                     .font(DesignType.metadata)
-                    .foregroundStyle(DesignTokens.textTertiary)
+                    .foregroundStyle(saveFailed ? DesignTokens.warning : DesignTokens.textTertiary)
             }
         }
         .padding(16)
@@ -79,20 +80,18 @@ struct SlipPanelView: View {
         .onExitCommand { handleDiscard() }
     }
 
-    private func withTrimmedText(_ handler: (String) -> Void) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Runs a capture action with the given text and dismisses only on a confirmed save. On
+    /// failure the panel stays open with the text intact, so a capture is never lost silently.
+    private func commit(_ action: (String) -> Bool, _ value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        handler(trimmed)
-        text = ""
-        isPresented = false
-    }
-
-    private func handleAppendToday() {
-        withTrimmedText(appState.appendCaptureToToday)
-    }
-
-    private func handlePromoteTask() {
-        withTrimmedText(appState.promoteCaptureToTask)
+        saveFailed = false
+        if action(trimmed) {
+            text = ""
+            isPresented = false
+        } else {
+            saveFailed = true
+        }
     }
 
     private func handleDiscard() {

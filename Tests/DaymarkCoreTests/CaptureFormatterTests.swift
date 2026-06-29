@@ -53,4 +53,10 @@ final class CaptureFormatterTests: XCTestCase {
     func testTaskLineTrimsWhitespace() {
         XCTAssertEqual(CaptureFormatter.taskLine("  write the spec  "), "- [ ] write the spec")
     }
+
+    func testTimestampHandlesMidnightAndNoon() {
+        XCTAssertEqual(CaptureFormatter.timestamp(for: dateAt(hour: 0, minute: 0), calendar: calendar), "00:00")
+        XCTAssertEqual(CaptureFormatter.timestamp(for: dateAt(hour: 12, minute: 0), calendar: calendar), "12:00")
+        XCTAssertEqual(CaptureFormatter.timestamp(for: dateAt(hour: 23, minute: 59), calendar: calendar), "23:59")
+    }
 }

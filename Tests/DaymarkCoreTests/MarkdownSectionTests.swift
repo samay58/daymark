@@ -63,4 +63,52 @@ final class MarkdownSectionTests: XCTestCase {
         let result = MarkdownSection.appendingEntry("- x", under: "## Capture", to: "")
         XCTAssertEqual(result, "## Capture\n\n- x\n")
     }
+
+    func testAppendsAtEndOfSectionThatHasSubsections() {
+        let document = "# Today\n\n## Capture\n\n- first\n\n### Sub\n\n- nested\n\n## Decisions\n"
+        let result = MarkdownSection.appendingEntry("- second", under: "## Capture", to: document)
+
+        XCTAssertEqual(result.components(separatedBy: "## Capture").count - 1, 1, "no duplicate heading")
+        let subRange = result.range(of: "### Sub")!
+        let secondRange = result.range(of: "- second")!
+        let decisionsRange = result.range(of: "## Decisions")!
+        XCTAssertTrue(subRange.lowerBound < secondRange.lowerBound, "entry lands after the subsection")
+        XCTAssertTrue(secondRange.lowerBound < decisionsRange.lowerBound, "entry stays inside the level-2 section")
+    }
+
+    func testDoesNotTreatFencedCodeHeadingsAsBoundaries() {
+        let document = "# Today\n\n## Capture\n\n```\n## not a heading\n```\n\n## Decisions\n"
+        let result = MarkdownSection.appendingEntry("- x", under: "## Capture", to: document)
+
+        XCTAssertTrue(result.contains("```\n## not a heading\n```"), "fenced code block must survive intact")
+        let codeRange = result.range(of: "## not a heading")!
+        let entryRange = result.range(of: "- x")!
+        let decisionsRange = result.range(of: "## Decisions")!
+        XCTAssertTrue(codeRange.lowerBound < entryRange.lowerBound, "entry lands after the code block, not inside it")
+        XCTAssertTrue(entryRange.lowerBound < decisionsRange.lowerBound, "entry stays inside the Capture section")
+    }
+
+    func testDoesNotMatchHeadingInsideFencedCode() {
+        // A "## Capture" that appears only inside a code block must not be treated as the
+        // real section; the real heading is added at the end instead.
+        let document = "# Today\n\n```\n## Capture\n```\n"
+        let result = MarkdownSection.appendingEntry("- x", under: "## Capture", to: document)
+
+        XCTAssertTrue(result.contains("```\n## Capture\n```"), "the in-code heading is left untouched")
+        XCTAssertEqual(result.components(separatedBy: "## Capture").count - 1, 2, "one in-code, one real heading")
+        XCTAssertTrue(result.hasSuffix("## Capture\n\n- x\n"), "a real Capture section is appended at the end")
+    }
+
+    func testMatchesHeadingInCRLFDocumentWithoutDuplicating() {
+        let document = "# Today\r\n\r\n## Capture\r\n\r\n## Decisions\r\n"
+        let result = MarkdownSection.appendingEntry("- x", under: "## Capture", to: document)
+
+        XCTAssertEqual(result.components(separatedBy: "## Capture").count - 1, 1,
+                       "a CRLF heading must still be matched, not duplicated")
+        XCTAssertTrue(result.contains("- x"))
+        XCTAssertFalse(result.contains("\r"), "output is normalized to LF")
+        let entryRange = result.range(of: "- x")!
+        let decisionsRange = result.range(of: "## Decisions")!
+        XCTAssertTrue(entryRange.lowerBound < decisionsRange.lowerBound, "entry stays inside the section")
+    }
 }
