@@ -98,6 +98,166 @@ final class CodexTaskGeneratorTests: XCTestCase {
         XCTAssertEqual(path, "specs/tasks/2026-06-29-fix-rollover-duplicate-write.md")
     }
 
+    func testEditedDraftCleansFieldsAndUpdatesMarkdown() {
+        let draft = sampleDraft().withEditedFields(
+            title: "  Tighten editable preview  ",
+            goal: "  Let Samay revise the handoff before writing.  ",
+            constraints: [" - [ ] Keep source read-only  ", " ", "* Write one file only"],
+            acceptanceCriteria: [" - [ ] Edited title appears  ", "", "- Edited goal appears"],
+            date: fixedDate(),
+            existingRelativePaths: []
+        )
+
+        XCTAssertEqual(draft.title, "Tighten editable preview")
+        XCTAssertEqual(draft.goal, "Let Samay revise the handoff before writing.")
+        XCTAssertEqual(draft.constraints, ["Keep source read-only", "Write one file only"])
+        XCTAssertEqual(draft.acceptanceCriteria, ["Edited title appears", "Edited goal appears"])
+        XCTAssertEqual(draft.suggestedFilePath, "specs/tasks/2026-06-29-tighten-editable-preview.md")
+
+        let markdown = draft.markdown()
+        XCTAssertTrue(markdown.contains("# Tighten editable preview"))
+        XCTAssertTrue(markdown.contains("- Keep source read-only"))
+        XCTAssertTrue(markdown.contains("- [ ] Edited title appears"))
+        XCTAssertFalse(markdown.contains("- [ ] - [ ]"))
+    }
+
+    func testEditedDraftRejectsBlankTitleAndGoalBeforeWriting() {
+        let draft = sampleDraft().withEditedFields(
+            title: " ",
+            goal: "\n",
+            constraints: [],
+            acceptanceCriteria: ["Still has a criterion"],
+            date: fixedDate(),
+            existingRelativePaths: []
+        )
+
+        XCTAssertThrowsError(try CodexTaskFileWriter().validate(draft)) { error in
+            XCTAssertEqual(error as? CodexTaskFileWriter.Error, .blankDraft)
+        }
+    }
+
+    func testEditedTitleRefreshesSuggestedPathWithCollisionSuffix() {
+        let draft = sampleDraft().withEditedFields(
+            title: "Editable Preview",
+            goal: "Keep the goal.",
+            constraints: [],
+            acceptanceCriteria: [],
+            date: fixedDate(),
+            existingRelativePaths: [
+                "specs/tasks/2026-06-29-editable-preview.md",
+                "specs/tasks/2026-06-29-editable-preview-2.md"
+            ]
+        )
+
+        XCTAssertEqual(draft.suggestedFilePath, "specs/tasks/2026-06-29-editable-preview-3.md")
+    }
+
+    func testEditedCriteriaDeduplicatesDefaultAcceptanceCriteria() {
+        let draft = sampleDraft().withEditedFields(
+            title: "Editable Preview",
+            goal: "Keep the goal.",
+            constraints: [],
+            acceptanceCriteria: [
+                "Source note remains unchanged",
+                "source note remains unchanged",
+                "Task file is readable Markdown"
+            ],
+            date: fixedDate(),
+            existingRelativePaths: []
+        )
+
+        let criteriaLines = draft.markdown()
+            .components(separatedBy: "\n")
+            .filter { $0.hasPrefix("- [ ] ") }
+
+        XCTAssertEqual(criteriaLines.filter { $0 == "- [ ] Source note remains unchanged" }.count, 1)
+        XCTAssertEqual(criteriaLines.filter { $0 == "- [ ] Task file is readable Markdown" }.count, 1)
+    }
+
+    func testContextBundleMarkdownIncludesTaskAndSourceProvenance() {
+        let bundle = CodexContextBundle.from(
+            draft: sampleDraft(),
+            taskRelativePath: "specs/tasks/2026-06-29-original-title.md",
+            date: fixedDate(),
+            existingRelativePaths: []
+        )
+
+        let markdown = bundle.markdown()
+
+        XCTAssertTrue(markdown.contains("# Context Bundle: Original title"))
+        XCTAssertTrue(markdown.contains("Task: `specs/tasks/2026-06-29-original-title.md`"))
+        XCTAssertTrue(markdown.contains("Path: `daily/2026/06/2026-06-29.md`"))
+        XCTAssertTrue(markdown.contains("Line: 8"))
+        XCTAssertTrue(markdown.contains("```md\nMessy source note text.\n```"))
+        XCTAssertTrue(markdown.contains("- [ ] Original criterion"))
+        XCTAssertEqual(bundle.suggestedFilePath, "artifacts/context-bundles/2026-06-29-original-title-context.md")
+    }
+
+    func testContextBundleWriterCreatesCollisionSafeMarkdownAndLeavesInputsUnchanged() throws {
+        let root = WorkspaceRoot(path: "\(NSTemporaryDirectory())daymark-context-bundle-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(atPath: root.expandedPath) }
+        let source = root.expandedURL.appendingPathComponent("daily/2026/06/2026-06-29.md")
+        let task = root.expandedURL.appendingPathComponent("specs/tasks/2026-06-29-original-title.md")
+        try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: task.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "source stays".write(to: source, atomically: true, encoding: .utf8)
+        try "task stays".write(to: task, atomically: true, encoding: .utf8)
+        let bundle = CodexContextBundle.from(
+            draft: sampleDraft(),
+            taskRelativePath: "specs/tasks/2026-06-29-original-title.md",
+            date: fixedDate(),
+            existingRelativePaths: []
+        )
+        let writer = CodexContextBundleWriter()
+
+        let first = try writer.write(bundle, root: root)
+        let second = try writer.write(bundle, root: root)
+
+        XCTAssertEqual(first.relativePath, "artifacts/context-bundles/2026-06-29-original-title-context.md")
+        XCTAssertEqual(second.relativePath, "artifacts/context-bundles/2026-06-29-original-title-context-2.md")
+        XCTAssertEqual(try String(contentsOf: source, encoding: .utf8), "source stays")
+        XCTAssertEqual(try String(contentsOf: task, encoding: .utf8), "task stays")
+        XCTAssertTrue(try String(contentsOf: first.url, encoding: .utf8).contains("Task: `specs/tasks/2026-06-29-original-title.md`"))
+    }
+
+    func testContextBundleWriterRejectsBlankBundleAndInvalidPath() {
+        var blank = CodexContextBundle.from(
+            draft: sampleDraft(),
+            taskRelativePath: "specs/tasks/2026-06-29-original-title.md",
+            date: fixedDate(),
+            existingRelativePaths: []
+        )
+        blank.title = " "
+
+        XCTAssertThrowsError(try CodexContextBundleWriter().validate(blank)) { error in
+            XCTAssertEqual(error as? CodexContextBundleWriter.Error, .blankBundle)
+        }
+
+        var invalid = CodexContextBundle.from(
+            draft: sampleDraft(),
+            taskRelativePath: "specs/tasks/2026-06-29-original-title.md",
+            date: fixedDate(),
+            existingRelativePaths: []
+        )
+        invalid.suggestedFilePath = "specs/tasks/not-a-bundle.md"
+
+        XCTAssertThrowsError(try CodexContextBundleWriter().validate(invalid)) { error in
+            XCTAssertEqual(error as? CodexContextBundleWriter.Error, .invalidPath)
+        }
+
+        var invalidTaskPath = CodexContextBundle.from(
+            draft: sampleDraft(),
+            taskRelativePath: "daily/2026/06/2026-06-29.md",
+            date: fixedDate(),
+            existingRelativePaths: []
+        )
+        invalidTaskPath.suggestedFilePath = "artifacts/context-bundles/2026-06-29-bundle.md"
+
+        XCTAssertThrowsError(try CodexContextBundleWriter().validate(invalidTaskPath)) { error in
+            XCTAssertEqual(error as? CodexContextBundleWriter.Error, .invalidPath)
+        }
+    }
+
     private func fixedDate() -> Date {
         var components = DateComponents()
         components.calendar = Calendar(identifier: .gregorian)
@@ -107,5 +267,18 @@ final class CodexTaskGeneratorTests: XCTestCase {
         components.day = 29
         components.hour = 12
         return components.date!
+    }
+
+    private func sampleDraft() -> CodexTaskDraft {
+        CodexTaskDraft(
+            title: "Original title",
+            goal: "Original goal.",
+            sourcePath: "daily/2026/06/2026-06-29.md",
+            sourceLine: 8,
+            sourceExcerpt: "Messy source note text.",
+            constraints: ["Do not modify the source note"],
+            suggestedFilePath: "specs/tasks/2026-06-29-original-title.md",
+            acceptanceCriteria: ["Original criterion"]
+        )
     }
 }

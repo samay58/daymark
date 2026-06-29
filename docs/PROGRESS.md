@@ -535,6 +535,75 @@ The first Codex handoff slice was reviewed against real use before consolidating
 
 Ready to consolidate and push to `main`.
 
+## 2026-06-29 (Milestone 4 editable Codex task preview)
+
+The next Codex handoff slice is complete. The in-app Codex Task Composer now lets Samay edit the generated draft before writing the approved task file.
+
+### What changed
+
+- Added `CodexTaskDraft.withEditedFields(...)` so edited title, goal, constraints, and acceptance criteria still flow through the same Markdown output and writer validation as CLI drafts.
+- Cleaned edited list fields by trimming blank lines and stripping Markdown bullet or checkbox prefixes before generating the final file.
+- Added tests for edited Markdown output, blank edited draft rejection, title-edit slug refresh, collision suffixes after title edits, constraint cleanup, criteria cleanup, and default acceptance-criteria deduping.
+- Replaced the read-only in-app composer fields with editable title, goal, constraints, and acceptance criteria controls.
+- Kept source path, source line or block, source excerpt, target path, and generated Markdown read-only in the composer.
+- Kept file I/O off the typing path. Existing task paths and the preview date are captured when the preview is created, local edit buffers handle field typing, and the writer rechecks collisions only when `Create Task File` is clicked.
+- Locked title-edit slug generation to the original preview date so an open composer cannot drift to a different date prefix while Samay is editing.
+- Improved create failure messages for blank drafts and invalid paths.
+- Updated `README.md`, `docs/ROADMAP.md`, `docs/PARKING_LOT.md`, and `docs/SELF_TEST_M4_CODEX_HANDOFF.md` so the production surfaces no longer describe editable preview as parked.
+
+### Verification
+
+- Red-green check: `swift test --filter CodexTaskGeneratorTests` first failed because `CodexTaskDraft.withEditedFields(...)` did not exist, then passed after implementation.
+- Targeted final: `swift test --filter CodexTaskGeneratorTests`, 9 tests, 0 failures.
+- Library suite: `swift package clean && swift test --skip CommandTests`, 137 tests, 0 failures.
+- CLI bundle after `swift build --product daymark`: 22 tests, 0 failures (`CodexTaskCommandTests`, `CaptureCommandTests`, `OpenLoopsCommandTests`, `RolloverCommandTests`, `EndOfDayCommandTests`).
+- Temp-workspace end-to-end: dry-run wrote nothing, apply wrote one task file, repeat apply wrote a `-2` suffix, empty heading selection failed, invalid line selection failed, and the source note stayed unchanged.
+- `swift build --product Daymark`: app target links.
+- App launch check: `swift run Daymark` launched for 4 seconds against a temp workspace and was stopped; no real `~/phoenix` mutation was used for the app check. Hands-on UI interaction still needs Samay's app pass.
+- `swift build --product daymark && .build/arm64-apple-macosx/debug/daymark doctor`: read-only doctor passed against `~/phoenix`; today's note, workspace folders, and database were present.
+- `python3 ~/.claude/scripts/slopcheck.py <changed files>` reported 0 kill-list hits and 0 warnings. It reported a structural exclamation count from Swift syntax and an existing test string, not prose.
+
+### Remaining in Milestone 4
+
+- Run a real hands-on app pass with the editable composer and tighten any field focus, scrolling, or layout roughness that appears in use.
+- Context bundle export is the next substantial M4 slice: preview a small source bundle for an approved task and write it under `artifacts/context-bundles/` only after approval.
+- Source-note backlinking remains parked unless separately approved. If built, it must be idempotent and gated separately from task-file creation.
+- Strong duplicate warnings remain parked. Current behavior is still safe: repeated approvals write suffix files instead of overwriting.
+
+## 2026-06-29 (Milestone 4 context bundle CLI slice)
+
+The next Codex handoff slice is started and useful from the CLI. Daymark can now preview and write one context bundle from an approved Codex task file.
+
+### What changed
+
+- Added `CodexContextBundle`, a readable Markdown bundle with task path, goal, source path, source line or range, source block, source excerpt, constraints, and acceptance criteria.
+- Added `CodexContextBundleWriter`, which writes atomically under `artifacts/context-bundles/`, creates the directory as needed, and suffixes repeat writes instead of overwriting.
+- Added `daymark context-bundle --task ...` for dry-run preview and `--apply` for the approved write.
+- Added conservative parsing of Daymark-generated Codex task Markdown. The CLI expects the task-file shape Daymark writes rather than trying to import arbitrary Markdown.
+- Split context bundle code into `CodexContextBundle.swift` so `CodexTaskDraft.swift` stays focused on task drafts and task-file writes.
+- Hardened bundle validation so a bundle must point back to a `specs/tasks/*.md` task file and write only under `artifacts/context-bundles/*.md`.
+- Recorded context bundle naming in ADR-008.
+- Updated `README.md`, `docs/ROADMAP.md`, `docs/PARKING_LOT.md`, and `docs/SELF_TEST_M4_CODEX_HANDOFF.md`.
+
+### Verification
+
+- Red-green check: the first bundle test failed because `CodexContextBundle` did not exist, then passed after implementation.
+- Targeted core: `swift test --filter CodexTaskGeneratorTests`, 12 tests, 0 failures.
+- CLI bundle after `swift build --product daymark`: `DaymarkCLITests.CodexTaskCommandTests`, 7 tests, 0 failures.
+- Library suite: `swift package clean && swift test --skip CommandTests`, 140 tests, 0 failures.
+- CLI regression bundle after `swift build --product daymark`: 24 tests, 0 failures (`CodexTaskCommandTests`, `CaptureCommandTests`, `OpenLoopsCommandTests`, `RolloverCommandTests`, `EndOfDayCommandTests`).
+- Temp-workspace end-to-end: Codex task dry-run wrote nothing, task apply wrote one file, repeat task apply wrote a `-2` suffix, empty heading and invalid line failed, context-bundle dry-run wrote nothing, context-bundle apply wrote one file, repeat bundle apply wrote a `-2` suffix, and both the source note and original task file stayed unchanged.
+- `swift build --product daymark` and `swift build --product Daymark` both linked.
+- `swift build --product daymark && .build/arm64-apple-macosx/debug/daymark doctor`: read-only doctor passed against `~/phoenix`.
+- `python3 ~/.claude/scripts/slopcheck.py <changed files>` reported 0 kill-list hits and 0 warnings. The remaining structural notes came from Swift syntax and test strings, not prose.
+- The em dash scan found no matches. `git diff --check` was clean.
+
+### Remaining in Milestone 4
+
+- Wire context bundle preview and approval into the app after a Codex task file is created.
+- Keep source-note backlinking parked unless separately approved and idempotent.
+- Do a real hands-on app pass before consolidating if this working tree is going to be committed as one slice.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
@@ -543,9 +612,9 @@ Milestone 4: Codex Handoff is active.
 
 ### Start Here Next
 
-1. Build the next concrete M4 slice: editable in-app preview fields, still writing exactly one approved Markdown task file.
-2. Add optional source-note backlinking only if it is separately approved and idempotent.
-3. Keep context bundle export parked until the editable preview path is green.
+1. Do one real hands-on app pass with the editable Codex Task Composer and tighten any field focus, scrolling, or layout roughness found in use.
+2. Wire app preview and approval for context bundles, using the new core writer and CLI behavior as the contract.
+3. Keep source-note backlinking parked unless it is separately approved and idempotent.
 
 ### Current Truths
 
@@ -553,10 +622,12 @@ Milestone 4: Codex Handoff is active.
 - Milestone 1 is complete.
 - Milestone 2 is closed. Capture is implemented and hardened: monthly Slip file, append to Today, promote to task, discard, and a `daymark capture` CLI. The system-global hotkey is deferred behind an app-bundle ADR.
 - Milestone 3 is closed. Tasks are parsed with due and source metadata, projected into a rebuildable `tasks` table, rolled forward through a Markdown-derived dedup marker, and surfaced through CLI plus the in-app Open Loops view.
-- Milestone 4 is active. The first slice is complete: selected text or current Markdown block to a previewed draft, with an approved single-file write under `specs/tasks/`.
+- Milestone 4 is active. The first slices are complete: selected text or current Markdown block to a previewed draft, an approved single-file write under `specs/tasks/`, editable in-app preview fields before approval, and CLI context bundle preview/apply under `artifacts/context-bundles/`.
 - The first slice has been hardened after real testing: empty heading-only sections are rejected, generic goal text was removed, bad CLI line numbers fail, and app icon resources are packaged without SwiftPM warnings.
+- The editable preview slice keeps source metadata read-only, derives the exact Markdown from `CodexTaskDraft.markdown()`, and refreshes the suggested slug path when the title changes while preserving the preview date.
 - Markdown stays the source of truth. Tasks are a projection, rollover dedup is derived from Today's Markdown, and SQLite rollover rows are audit state.
-- Codex task files use `specs/tasks/yyyy-mm-dd-title-slug.md` with numeric suffixes for collisions. Source notes are not modified by the first M4 slice.
+- Codex task files use `specs/tasks/yyyy-mm-dd-title-slug.md` with numeric suffixes for collisions. Source notes are not modified by the M4 slices so far.
+- Context bundle files use `artifacts/context-bundles/yyyy-mm-dd-title-slug-context.md` with numeric suffixes for collisions. Source notes and task files are not modified by bundle creation.
 - The default workspace root is `~/phoenix`; ADR-005 is reversed.
 - Do not add Gmail, Calendar, AI, cloud sync, embeddings, dynamic blocks, Codex execution, app-bundle work, or global hotkey work while finishing Milestone 4.
 

@@ -174,3 +174,35 @@ Two repeated approvals can create two task files for the same note excerpt.
 ### Mitigation
 
 The suffix makes the duplicate visible and non-destructive. Future backlinking or task indexes can add stronger duplicate detection after the basic preview and approval flow has real usage.
+
+## ADR-008: Context Bundle File Naming
+
+Status: Accepted
+Date: 2026-06-29
+
+### Context
+
+Milestone 4 adds context bundles that help another agent execute an approved task file without relying on private Daymark state. Bundles must be readable Markdown, previewed before writing, and safe to create repeatedly.
+
+### Decision
+
+Approved context bundles are written under `artifacts/context-bundles/` with a date prefix, the task title slug, and a `-context` suffix:
+
+```txt
+artifacts/context-bundles/2026-06-29-make-rollover-deterministic-context.md
+artifacts/context-bundles/2026-06-29-make-rollover-deterministic-context-2.md
+```
+
+The bundle Markdown includes the task file path, goal, source note path, source line or line range when known, source block heading when known, source excerpt, constraints, and acceptance criteria. The source note and task file are not modified by bundle creation.
+
+### Why
+
+The path keeps bundles grouped by date and task while making repeated approvals visible. The `-context` suffix separates bundles from task specs and prevents ambiguity when both files are open in an editor.
+
+### Risks
+
+Repeated approvals can create duplicate context bundles for the same task.
+
+### Mitigation
+
+Numeric suffixes prevent overwrites. Strong duplicate warnings can be added after the app preview path has real usage.

@@ -4,6 +4,10 @@ import DaymarkCore
 struct CodexTaskComposerView: View {
     let draft: CodexTaskDraft?
     let message: String?
+    var onTitleChange: (String) -> Void
+    var onGoalChange: (String) -> Void
+    var onConstraintsChange: (String) -> Void
+    var onAcceptanceCriteriaChange: (String) -> Void
     var onCreate: () -> Void
     var onCancel: () -> Void
 
@@ -16,7 +20,14 @@ struct CodexTaskComposerView: View {
             Rectangle().fill(DesignTokens.hairline).frame(height: 1)
 
             if let draft {
-                preview(for: draft)
+                EditableCodexTaskDraftView(
+                    draft: draft,
+                    onTitleChange: onTitleChange,
+                    onGoalChange: onGoalChange,
+                    onConstraintsChange: onConstraintsChange,
+                    onAcceptanceCriteriaChange: onAcceptanceCriteriaChange
+                )
+                .id(editorIdentity(for: draft))
             } else {
                 emptyState
             }
@@ -34,7 +45,8 @@ struct CodexTaskComposerView: View {
                 Button("Create Task File", action: onCreate)
                     .buttonStyle(PrimaryButtonStyle())
                     .frame(maxWidth: .infinity)
-                    .disabled(draft == nil)
+                    .disabled(!canCreate(draft))
+                    .opacity(canCreate(draft) ? 1 : 0.55)
                 Button("Cancel", action: onCancel)
                     .buttonStyle(QuietButtonStyle())
                     .frame(maxWidth: .infinity)
@@ -49,34 +61,6 @@ struct CodexTaskComposerView: View {
                 .stroke(DesignTokens.hairline, lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.05), radius: 10, y: 4)
-    }
-
-    @ViewBuilder
-    private func preview(for draft: CodexTaskDraft) -> some View {
-        field("Title", value: draft.title)
-        field("Goal", value: draft.goal, lines: 2)
-        field("Source", value: sourceLabel(for: draft), mono: true)
-        field("Excerpt", value: draft.sourceExcerpt, lines: 4, mono: true)
-
-        VStack(alignment: .leading, spacing: 8) {
-            FieldLabel(text: "Acceptance Criteria")
-            VStack(alignment: .leading, spacing: 7) {
-                ForEach(displayCriteria(for: draft), id: \.self) { item in
-                    criterion(item)
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(DesignTokens.surface.opacity(0.6))
-            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cardRadius, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: DesignTokens.cardRadius, style: .continuous)
-                    .stroke(DesignTokens.hairline, lineWidth: 1)
-            }
-        }
-
-        field("File", value: draft.suggestedFilePath, mono: true)
-        field("Markdown", value: draft.markdown(), lines: 8, mono: true)
     }
 
     private var emptyState: some View {
@@ -94,7 +78,137 @@ struct CodexTaskComposerView: View {
             }
     }
 
-    private func field(_ label: String, value: String, lines: Int = 1, mono: Bool = false) -> some View {
+    private func canCreate(_ draft: CodexTaskDraft?) -> Bool {
+        guard let draft else { return false }
+        do {
+            try CodexTaskFileWriter().validate(draft)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func editorIdentity(for draft: CodexTaskDraft) -> String {
+        [
+            draft.sourcePath,
+            draft.sourceLine.map(String.init) ?? "",
+            draft.sourceEndLine.map(String.init) ?? "",
+            draft.sourceBlock ?? "",
+            draft.sourceExcerpt
+        ].joined(separator: "|")
+    }
+}
+
+private struct EditableCodexTaskDraftView: View {
+    let draft: CodexTaskDraft
+    var onTitleChange: (String) -> Void
+    var onGoalChange: (String) -> Void
+    var onConstraintsChange: (String) -> Void
+    var onAcceptanceCriteriaChange: (String) -> Void
+
+    @State private var titleText: String
+    @State private var goalText: String
+    @State private var constraintsText: String
+    @State private var acceptanceCriteriaText: String
+
+    init(
+        draft: CodexTaskDraft,
+        onTitleChange: @escaping (String) -> Void,
+        onGoalChange: @escaping (String) -> Void,
+        onConstraintsChange: @escaping (String) -> Void,
+        onAcceptanceCriteriaChange: @escaping (String) -> Void
+    ) {
+        self.draft = draft
+        self.onTitleChange = onTitleChange
+        self.onGoalChange = onGoalChange
+        self.onConstraintsChange = onConstraintsChange
+        self.onAcceptanceCriteriaChange = onAcceptanceCriteriaChange
+        _titleText = State(initialValue: draft.title)
+        _goalText = State(initialValue: draft.goal)
+        _constraintsText = State(initialValue: draft.constraints.map { "- \($0)" }.joined(separator: "\n"))
+        _acceptanceCriteriaText = State(initialValue: draft.acceptanceCriteria.map { "- [ ] \($0)" }.joined(separator: "\n"))
+    }
+
+    var body: some View {
+        editableTextField("Title", value: $titleText, onChange: onTitleChange)
+        editableTextArea("Goal", value: $goalText, lines: 3, onChange: onGoalChange)
+        editableTextArea("Constraints", value: $constraintsText, lines: 4, onChange: onConstraintsChange)
+        editableTextArea(
+            "Acceptance Criteria",
+            value: $acceptanceCriteriaText,
+            lines: 5,
+            onChange: onAcceptanceCriteriaChange
+        )
+        readOnlyField("Source", value: sourceLabel(for: draft), mono: true)
+        readOnlyField("Excerpt", value: draft.sourceExcerpt, lines: 4, mono: true)
+        readOnlyField("File", value: draft.suggestedFilePath, mono: true)
+        readOnlyField("Markdown", value: draft.markdown(), lines: 8, mono: true)
+    }
+
+    private func editableTextField(
+        _ label: String,
+        value: Binding<String>,
+        onChange: @escaping (String) -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            FieldLabel(text: label)
+            TextField(
+                "",
+                text: Binding(
+                    get: { value.wrappedValue },
+                    set: {
+                        value.wrappedValue = $0
+                        onChange($0)
+                    }
+                )
+            )
+            .textFieldStyle(.plain)
+            .font(.system(size: 13))
+            .foregroundStyle(DesignTokens.textPrimary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color.white.opacity(0.68))
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(DesignTokens.hairline, lineWidth: 1)
+            }
+        }
+    }
+
+    private func editableTextArea(
+        _ label: String,
+        value: Binding<String>,
+        lines: Int,
+        onChange: @escaping (String) -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            FieldLabel(text: label)
+            TextEditor(
+                text: Binding(
+                    get: { value.wrappedValue },
+                    set: {
+                        value.wrappedValue = $0
+                        onChange($0)
+                    }
+                )
+            )
+            .font(.system(size: 13))
+            .foregroundStyle(DesignTokens.textPrimary)
+            .scrollContentBackground(.hidden)
+            .frame(maxWidth: .infinity, minHeight: CGFloat(lines) * 21, alignment: .topLeading)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.68))
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(DesignTokens.hairline, lineWidth: 1)
+            }
+        }
+    }
+
+    private func readOnlyField(_ label: String, value: String, lines: Int = 1, mono: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             FieldLabel(text: label)
             Text(value)
@@ -112,19 +226,6 @@ struct CodexTaskComposerView: View {
         }
     }
 
-    private func criterion(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 9) {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .stroke(DesignTokens.hairline, lineWidth: 1.5)
-                .frame(width: 14, height: 14)
-                .padding(.top, 1)
-            Text(text)
-                .font(.system(size: 13))
-                .foregroundStyle(DesignTokens.textSecondary)
-            Spacer(minLength: 0)
-        }
-    }
-
     private func sourceLabel(for draft: CodexTaskDraft) -> String {
         if let line = draft.sourceLine {
             if let endLine = draft.sourceEndLine, endLine > line {
@@ -133,12 +234,5 @@ struct CodexTaskComposerView: View {
             return "\(draft.sourcePath):\(line)"
         }
         return draft.sourcePath
-    }
-
-    private func displayCriteria(for draft: CodexTaskDraft) -> [String] {
-        let markdown = draft.markdown()
-        return markdown.components(separatedBy: "\n")
-            .filter { $0.hasPrefix("- [ ] ") }
-            .map { String($0.dropFirst(6)) }
     }
 }

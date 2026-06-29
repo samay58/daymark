@@ -99,12 +99,12 @@ Build:
 
 - Select current highlighted text or, when no selection exists, the current Markdown block.
 - Derive a `CodexTaskDraft` with title, goal, source, constraints, acceptance criteria, and suggested file path.
-- Render the draft in the existing right-side Codex Task Composer as a preview. The first slice is read-only plus approval.
+- Render the draft in the existing right-side Codex Task Composer as an editable preview.
 - Write exactly one approved Markdown task file under `specs/tasks/`.
 - Include a stable source backlink to the source note path and line or block identity.
 - Optionally add a source-note backlink only after explicit approval.
 - Add a CLI path for dry-run and apply, so the feature can be tested against temp workspaces without launching the app.
-- Keep context bundle export as a later slice inside this milestone, after draft generation and file write are solid.
+- Add previewed context bundle export after draft generation and file write are solid.
 
 First slice done:
 
@@ -114,6 +114,20 @@ First slice done:
 - `CodexTaskFileWriter` writes one approved file under `specs/tasks/` without modifying the source note.
 - `daymark codex-task` supports dry-run preview and `--apply`.
 - Command Shift C in the app opens a real preview in the Codex Task Composer, and `Create Task File` writes only after approval.
+
+Editable preview slice done:
+
+- The in-app composer lets the user edit title, goal, constraints, and acceptance criteria before approval.
+- Source path, source line or block, source excerpt, and the target file path remain read-only.
+- The Markdown preview is still derived from `CodexTaskDraft.markdown()`.
+- Title edits refresh the date-prefixed slug path without reading the filesystem on every keystroke.
+
+Context bundle CLI slice done:
+
+- `CodexContextBundle` writes a readable single-file Markdown bundle with task path, goal, source path, source excerpt, constraints, and acceptance criteria.
+- `CodexContextBundleWriter` writes under `artifacts/context-bundles/` with numeric suffixes and does not modify the source note or task file.
+- `daymark context-bundle --task ...` supports dry-run preview and `--apply`.
+- In-app context bundle preview and approval are not wired yet.
 
 Non-goals:
 

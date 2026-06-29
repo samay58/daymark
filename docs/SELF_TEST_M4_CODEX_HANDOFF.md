@@ -59,12 +59,26 @@ Use this to test the first Codex Handoff slice without touching your real `~/pho
 
 9. Run the same apply command again. It should create a second file with `-2.md` instead of overwriting the first file:
 
-   ```bash
-   .build/arm64-apple-macosx/debug/daymark codex-task --root "$ROOT" --source daily/2026/06/2026-06-29.md --line 5 --date 2026-06-29 --apply
-   ls "$ROOT/specs/tasks"
-   ```
+    ```bash
+    .build/arm64-apple-macosx/debug/daymark codex-task --root "$ROOT" --source daily/2026/06/2026-06-29.md --line 5 --date 2026-06-29 --apply
+    ls "$ROOT/specs/tasks"
+    ```
 
-10. Clean up when done:
+10. Preview a context bundle for the first task file. This should not write anything:
+
+    ```bash
+    .build/arm64-apple-macosx/debug/daymark context-bundle --root "$ROOT" --task specs/tasks/2026-06-29-build-selected-text-to-codex-task-handoff.md --date 2026-06-29
+    ```
+
+11. Approve the context bundle write:
+
+    ```bash
+    .build/arm64-apple-macosx/debug/daymark context-bundle --root "$ROOT" --task specs/tasks/2026-06-29-build-selected-text-to-codex-task-handoff.md --date 2026-06-29 --apply
+    ```
+
+12. Open the generated bundle under `artifacts/context-bundles/`. It should mention the task file path, source note path, source excerpt, and acceptance criteria.
+
+13. Clean up when done:
 
     ```bash
     rm -rf "$ROOT"
@@ -84,10 +98,14 @@ Use this to test the first Codex Handoff slice without touching your real `~/pho
 
 4. Press Command Shift C.
 
-5. The right-side Codex Task Composer should show the draft and the exact Markdown that will be written.
+5. The right-side Codex Task Composer should show editable fields for title, goal, constraints, and acceptance criteria.
 
-6. Click `Create Task File`.
+6. Change the title or goal. The Markdown preview should update. If you change the title, the target file name should update too.
 
-7. Check the generated file under `specs/tasks/`.
+7. Confirm the source path, source excerpt, target file path, and Markdown preview are visible before writing.
 
-8. Confirm the source note still has the same text.
+8. Click `Create Task File`.
+
+9. Check the generated file under `specs/tasks/`.
+
+10. Confirm the source note still has the same text.

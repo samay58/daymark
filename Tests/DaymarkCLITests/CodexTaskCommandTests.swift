@@ -36,6 +36,12 @@ final class CodexTaskCommandTests: XCTestCase {
         try markdown.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    private func writeTask(_ markdown: String, named name: String, in root: String) throws {
+        let url = URL(fileURLWithPath: "\(root)/specs/tasks/\(name)")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try markdown.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     @discardableResult
     private func runDaymark(_ arguments: [String], timeout: TimeInterval = 20) throws -> (output: String, status: Int32) {
         let binaryURL = try XCTUnwrap(binaryURL, "daymark binary not found")
@@ -201,5 +207,113 @@ final class CodexTaskCommandTests: XCTestCase {
         XCTAssertNotEqual(result.status, 0, result.output)
         XCTAssertTrue(result.output.contains("invalid line: 99"), result.output)
         XCTAssertFalse(FileManager.default.fileExists(atPath: "\(root)/specs/tasks"))
+    }
+
+    func testContextBundleDryRunPrintsPreviewAndWritesNothing() throws {
+        try skipIfBinaryMissing()
+        let root = tempRoot()
+        try writeTask("""
+        # Build selected text to Codex task handoff
+
+        ## Goal
+
+        Build selected text to Codex task handoff.
+
+        ## Source
+
+        Path: `daily/2026/06/2026-06-29.md`
+        Line: 5
+
+        ## Source Excerpt
+
+        ```md
+        Build selected text to Codex task handoff.
+        ```
+
+        ## Constraints
+
+        - Do not modify the source note
+
+        ## Acceptance Criteria
+
+        - [ ] Source note remains unchanged
+        - [ ] Task file is readable Markdown
+
+        ## Suggested File
+
+        `specs/tasks/2026-06-29-build-selected-text-to-codex-task-handoff.md`
+        """, named: "2026-06-29-build-selected-text-to-codex-task-handoff.md", in: root)
+
+        let result = try runDaymark([
+            "context-bundle",
+            "--root", root,
+            "--task", "specs/tasks/2026-06-29-build-selected-text-to-codex-task-handoff.md",
+            "--date", "2026-06-29"
+        ])
+
+        XCTAssertEqual(result.status, 0, result.output)
+        XCTAssertTrue(result.output.contains("Target: artifacts/context-bundles/2026-06-29-build-selected-text-to-codex-task-handoff-context.md"), result.output)
+        XCTAssertTrue(result.output.contains("# Context Bundle: Build selected text to Codex task handoff"), result.output)
+        XCTAssertTrue(result.output.contains("Task: `specs/tasks/2026-06-29-build-selected-text-to-codex-task-handoff.md`"), result.output)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: "\(root)/artifacts/context-bundles"))
+    }
+
+    func testContextBundleApplyWritesOneBundleAndDoesNotOverwrite() throws {
+        try skipIfBinaryMissing()
+        let root = tempRoot()
+        let taskMarkdown = """
+        # Build selected text to Codex task handoff
+
+        ## Goal
+
+        Build selected text to Codex task handoff.
+
+        ## Source
+
+        Path: `daily/2026/06/2026-06-29.md`
+        Line: 5
+
+        ## Source Excerpt
+
+        ```md
+        Build selected text to Codex task handoff.
+        ```
+
+        ## Constraints
+
+        - Do not modify the source note
+
+        ## Acceptance Criteria
+
+        - [ ] Source note remains unchanged
+        - [ ] Task file is readable Markdown
+        """
+        try writeTask(taskMarkdown, named: "2026-06-29-build-selected-text-to-codex-task-handoff.md", in: root)
+
+        let first = try runDaymark([
+            "context-bundle",
+            "--root", root,
+            "--task", "specs/tasks/2026-06-29-build-selected-text-to-codex-task-handoff.md",
+            "--date", "2026-06-29",
+            "--apply"
+        ])
+        let second = try runDaymark([
+            "context-bundle",
+            "--root", root,
+            "--task", "specs/tasks/2026-06-29-build-selected-text-to-codex-task-handoff.md",
+            "--date", "2026-06-29",
+            "--apply"
+        ])
+
+        XCTAssertEqual(first.status, 0, first.output)
+        XCTAssertEqual(second.status, 0, second.output)
+        XCTAssertTrue(first.output.contains("Created: artifacts/context-bundles/2026-06-29-build-selected-text-to-codex-task-handoff-context.md"), first.output)
+        XCTAssertTrue(second.output.contains("Created: artifacts/context-bundles/2026-06-29-build-selected-text-to-codex-task-handoff-context-2.md"), second.output)
+        XCTAssertEqual(
+            try String(contentsOfFile: "\(root)/specs/tasks/2026-06-29-build-selected-text-to-codex-task-handoff.md", encoding: .utf8),
+            taskMarkdown
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(root)/artifacts/context-bundles/2026-06-29-build-selected-text-to-codex-task-handoff-context.md"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: "\(root)/artifacts/context-bundles/2026-06-29-build-selected-text-to-codex-task-handoff-context-2.md"))
     }
 }

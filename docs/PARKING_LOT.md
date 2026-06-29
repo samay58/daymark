@@ -35,7 +35,6 @@ Good ideas that are not part of the current milestone belong here.
 
 ## Milestone 4 follow-ups (deferred by first-slice scope)
 
-- Editable Codex task preview: the first slice shows the exact Markdown and writes after approval, but it does not yet support editing fields inside the app.
 - Source-note backlink: not built in the first slice because task-file creation is the required write path. Backlinking should be a separate explicit approval and idempotent if added.
-- Context bundle export: parked until task draft generation, preview, and single-file write have real use.
+- In-app context bundle export: the core bundle model, writer, and CLI preview/apply path exist. The app still needs a preview and approval surface before it writes bundles.
 - Strong duplicate detection: repeated approvals create `-2`, `-3`, and later suffixes instead of overwriting. A future source-indexed duplicate warning can be added after the basic flow is used.

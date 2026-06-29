@@ -90,6 +90,48 @@ public struct CodexTaskDraft: Equatable, Sendable {
         return copy
     }
 
+    public func withEditedFields(
+        title: String,
+        goal: String,
+        constraints: [String],
+        acceptanceCriteria: [String],
+        date: Date,
+        existingRelativePaths: Set<String>,
+        calendar: Calendar = Calendar(identifier: .gregorian)
+    ) -> CodexTaskDraft {
+        let cleanedTitle = clean(title)
+        let preferredPath = Self.suggestedRelativePath(title: cleanedTitle, date: date, calendar: calendar)
+        var copy = self
+        copy.title = cleanedTitle
+        copy.goal = clean(goal)
+        copy.constraints = Self.cleanedListItems(constraints)
+        copy.acceptanceCriteria = Self.cleanedListItems(acceptanceCriteria)
+        copy.suggestedFilePath = Self.collisionSafeRelativePath(
+            preferredPath: preferredPath,
+            existingRelativePaths: existingRelativePaths
+        )
+        return copy
+    }
+
+    public static func cleanedListItems(_ values: [String]) -> [String] {
+        values.compactMap { value in
+            let cleaned = value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(
+                    of: #"^\s*[-*+]\s+\[[ xX]\]\s+"#,
+                    with: "",
+                    options: .regularExpression
+                )
+                .replacingOccurrences(
+                    of: #"^\s*[-*+]\s+"#,
+                    with: "",
+                    options: .regularExpression
+                )
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return cleaned.isEmpty ? nil : cleaned
+        }
+    }
+
     public static func suggestedRelativePath(
         title: String,
         date: Date,

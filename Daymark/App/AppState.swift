@@ -19,6 +19,8 @@ final class AppState {
     var editorSelection = SelectionModel()
     var codexTaskDraft: CodexTaskDraft?
     var codexTaskMessage: String?
+    private var codexTaskPathBasis: Set<String> = []
+    private var codexTaskDateBasis: Date?
 
     /// Local full-text search results for the current command-palette query.
     var searchResults: [SearchHit] = []
@@ -333,10 +335,14 @@ final class AppState {
                 cursorLocation: editorSelection.cursorLocation,
                 sourcePath: sourcePath
             )
+            let existingPaths = existingCodexTaskPaths()
+            let previewDate = Date()
+            codexTaskPathBasis = existingPaths
+            codexTaskDateBasis = previewDate
             codexTaskDraft = try PreviewBuilder().codexTaskPreview(
                 source: selection,
-                date: Date(),
-                existingRelativePaths: existingCodexTaskPaths()
+                date: previewDate,
+                existingRelativePaths: existingPaths
             )
             codexTaskMessage = nil
             isContextMarginVisible = true
@@ -347,6 +353,64 @@ final class AppState {
         }
     }
 
+    func updateCodexTaskDraftTitle(_ title: String) {
+        updateCodexTaskDraft { draft in
+            draft.withEditedFields(
+                title: title,
+                goal: draft.goal,
+                constraints: draft.constraints,
+                acceptanceCriteria: draft.acceptanceCriteria,
+                date: codexTaskDateBasis ?? Date(),
+                existingRelativePaths: codexTaskPathBasis
+            )
+        }
+    }
+
+    func updateCodexTaskDraftGoal(_ goal: String) {
+        updateCodexTaskDraft { draft in
+            draft.withEditedFields(
+                title: draft.title,
+                goal: goal,
+                constraints: draft.constraints,
+                acceptanceCriteria: draft.acceptanceCriteria,
+                date: codexTaskDateBasis ?? Date(),
+                existingRelativePaths: codexTaskPathBasis
+            )
+        }
+    }
+
+    func updateCodexTaskDraftConstraints(_ text: String) {
+        updateCodexTaskDraft { draft in
+            draft.withEditedFields(
+                title: draft.title,
+                goal: draft.goal,
+                constraints: Self.lines(from: text),
+                acceptanceCriteria: draft.acceptanceCriteria,
+                date: codexTaskDateBasis ?? Date(),
+                existingRelativePaths: codexTaskPathBasis
+            )
+        }
+    }
+
+    func updateCodexTaskDraftAcceptanceCriteria(_ text: String) {
+        updateCodexTaskDraft { draft in
+            draft.withEditedFields(
+                title: draft.title,
+                goal: draft.goal,
+                constraints: draft.constraints,
+                acceptanceCriteria: Self.lines(from: text),
+                date: codexTaskDateBasis ?? Date(),
+                existingRelativePaths: codexTaskPathBasis
+            )
+        }
+    }
+
+    private func updateCodexTaskDraft(_ edit: (CodexTaskDraft) -> CodexTaskDraft) {
+        guard let codexTaskDraft else { return }
+        self.codexTaskDraft = edit(codexTaskDraft)
+        codexTaskMessage = nil
+    }
+
     func createCodexTaskFile() {
         guard let codexTaskDraft else {
             codexTaskMessage = "Create a preview before writing a task file."
@@ -354,8 +418,13 @@ final class AppState {
         }
         do {
             let result = try CodexTaskFileWriter().write(codexTaskDraft, root: workspaceRoot)
+            codexTaskPathBasis.insert(result.relativePath)
             self.codexTaskDraft = codexTaskDraft.withSuggestedFilePath(result.relativePath)
             codexTaskMessage = "Created \(result.relativePath)"
+        } catch CodexTaskFileWriter.Error.blankDraft {
+            codexTaskMessage = "Fill in a title, goal, source, and excerpt before creating the file."
+        } catch CodexTaskFileWriter.Error.invalidPath {
+            codexTaskMessage = "The task file path must stay under specs/tasks."
         } catch {
             codexTaskMessage = "Could not create the task file."
         }
@@ -364,6 +433,8 @@ final class AppState {
     func dismissCodexTaskDraft() {
         codexTaskDraft = nil
         codexTaskMessage = nil
+        codexTaskPathBasis = []
+        codexTaskDateBasis = nil
     }
 
     private func existingCodexTaskPaths() -> Set<String> {
@@ -451,5 +522,9 @@ final class AppState {
         let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
         guard filePath.hasPrefix(prefix) else { return nil }
         return String(filePath.dropFirst(prefix.count))
+    }
+
+    private static func lines(from text: String) -> [String] {
+        text.components(separatedBy: CharacterSet.newlines)
     }
 }

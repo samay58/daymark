@@ -14,6 +14,10 @@ struct ContextMarginView: View {
                 CodexTaskComposerView(
                     draft: appState.codexTaskDraft,
                     message: appState.codexTaskMessage,
+                    onTitleChange: { appState.updateCodexTaskDraftTitle($0) },
+                    onGoalChange: { appState.updateCodexTaskDraftGoal($0) },
+                    onConstraintsChange: { appState.updateCodexTaskDraftConstraints($0) },
+                    onAcceptanceCriteriaChange: { appState.updateCodexTaskDraftAcceptanceCriteria($0) },
                     onCreate: { appState.createCodexTaskFile() },
                     onCancel: { appState.dismissCodexTaskDraft() }
                 )

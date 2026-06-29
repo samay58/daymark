@@ -42,6 +42,8 @@ struct DaymarkCLI {
                 try await runOpenLoops(root: root)
             case "codex-task":
                 try runCodexTask(arguments: options, root: root)
+            case "context-bundle":
+                try runContextBundle(arguments: options, root: root)
             case "search":
                 try await runSearch(arguments: options, root: root)
             case "today":
@@ -352,6 +354,12 @@ struct DaymarkCLI {
         var apply = false
     }
 
+    private struct ParsedContextBundleArguments {
+        var taskPath: String?
+        var date: Date = Date()
+        var apply = false
+    }
+
     /// Creates a previewed Codex task draft from a source note line or explicit selection
     /// file. Dry-run prints the exact Markdown; `--apply` writes one file under specs/tasks.
     private static func runCodexTask(arguments: [String], root: WorkspaceRoot) throws {
@@ -478,6 +486,158 @@ struct DaymarkCLI {
         return Set(files.filter { $0.pathExtension == "md" }.map { "specs/tasks/\($0.lastPathComponent)" })
     }
 
+    private static func runContextBundle(arguments: [String], root: WorkspaceRoot) throws {
+        let parsed = try parseContextBundleArguments(arguments)
+        guard let taskPath = parsed.taskPath else { throw CommandError.missingContextBundleTask }
+        let taskURL = resolveWorkspaceFile(taskPath, root: root)
+        guard FileManager.default.fileExists(atPath: taskURL.path) else {
+            throw CommandError.contextBundleTaskNotFound(taskPath)
+        }
+        let markdown = try String(contentsOf: taskURL, encoding: .utf8)
+        let draft = try draftFromCodexTaskMarkdown(markdown, taskRelativePath: taskPath)
+        let bundle = CodexContextBundle.from(
+            draft: draft,
+            taskRelativePath: taskPath,
+            date: parsed.date,
+            existingRelativePaths: existingContextBundlePaths(root: root)
+        )
+
+        if parsed.apply {
+            let result = try CodexContextBundleWriter().write(bundle, root: root)
+            print("Created: \(result.relativePath)")
+        } else {
+            print("Target: \(bundle.suggestedFilePath)")
+            print("")
+            print(bundle.markdown(), terminator: "")
+        }
+    }
+
+    private static func parseContextBundleArguments(_ arguments: [String]) throws -> ParsedContextBundleArguments {
+        var parsed = ParsedContextBundleArguments()
+        var index = 0
+
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--task":
+                guard index + 1 < arguments.count else { throw CommandError.missingContextBundleTask }
+                parsed.taskPath = arguments[index + 1]
+                index += 2
+            case "--date":
+                guard index + 1 < arguments.count else { throw CommandError.missingDateValue }
+                parsed.date = try parseISODate(arguments[index + 1])
+                index += 2
+            case "--apply":
+                parsed.apply = true
+                index += 1
+            case let flag where flag.hasPrefix("--"):
+                throw CommandError.unknownContextBundleFlag(flag)
+            default:
+                throw CommandError.unknownContextBundleFlag(arguments[index])
+            }
+        }
+
+        return parsed
+    }
+
+    private static func draftFromCodexTaskMarkdown(_ markdown: String, taskRelativePath: String) throws -> CodexTaskDraft {
+        let normalized = markdown
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let lines = normalized.components(separatedBy: "\n")
+        let title = lines
+            .first { $0.hasPrefix("# ") }?
+            .dropFirst(2)
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let goal = section("Goal", in: lines).trimmingCharacters(in: .whitespacesAndNewlines)
+        let sourceLines = section("Source", in: lines)
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let sourcePath = sourceLines.compactMap { sourceValue(prefix: "Path:", line: $0) }.first ?? ""
+        let lineRange = sourceLines.compactMap { sourceLineRange(from: $0) }.first
+        let sourceBlock = sourceLines.compactMap { sourceValue(prefix: "Block:", line: $0) }.first
+        let excerpt = unfenced(section("Source Excerpt", in: lines))
+        let constraints = CodexTaskDraft.cleanedListItems(
+            section("Constraints", in: lines).components(separatedBy: "\n")
+        )
+        let criteria = CodexTaskDraft.cleanedListItems(
+            section("Acceptance Criteria", in: lines).components(separatedBy: "\n")
+        )
+
+        let draft = CodexTaskDraft(
+            title: title,
+            goal: goal,
+            sourcePath: sourcePath,
+            sourceLine: lineRange?.start,
+            sourceEndLine: lineRange?.end,
+            sourceBlock: sourceBlock,
+            sourceExcerpt: excerpt,
+            constraints: constraints,
+            suggestedFilePath: taskRelativePath,
+            acceptanceCriteria: criteria
+        )
+        do {
+            try CodexTaskFileWriter().validate(draft)
+        } catch {
+            throw CommandError.invalidContextBundleTask(taskRelativePath)
+        }
+        return draft
+    }
+
+    private static func section(_ name: String, in lines: [String]) -> String {
+        let heading = "## \(name)"
+        guard let start = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == heading }) else {
+            return ""
+        }
+        let bodyStart = start + 1
+        let bodyEnd = lines[bodyStart...].firstIndex { line in
+            line.hasPrefix("## ")
+        } ?? lines.endIndex
+        return lines[bodyStart..<bodyEnd].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func sourceValue(prefix: String, line: String) -> String? {
+        guard line.hasPrefix(prefix) else { return nil }
+        let raw = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.hasPrefix("`"), raw.hasSuffix("`"), raw.count >= 2 {
+            return String(raw.dropFirst().dropLast())
+        }
+        return raw.isEmpty ? nil : raw
+    }
+
+    private static func sourceLineRange(from line: String) -> (start: Int, end: Int?)? {
+        if let value = sourceValue(prefix: "Line:", line: line), let number = Int(value) {
+            return (number, nil)
+        }
+        guard let value = sourceValue(prefix: "Lines:", line: line) else { return nil }
+        let parts = value.split(separator: "-", maxSplits: 1)
+        guard let start = parts.first.flatMap({ Int($0) }) else { return nil }
+        let end = parts.dropFirst().first.flatMap { Int($0) }
+        return (start, end)
+    }
+
+    private static func unfenced(_ value: String) -> String {
+        let lines = value
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
+        guard let first = lines.first?.trimmingCharacters(in: .whitespaces),
+              let last = lines.last?.trimmingCharacters(in: .whitespaces),
+              first.hasPrefix("```"),
+              last == "```",
+              lines.count >= 2 else {
+            return value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return lines.dropFirst().dropLast().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func existingContextBundlePaths(root: WorkspaceRoot) -> Set<String> {
+        let directory = root.expandedURL.appendingPathComponent("artifacts/context-bundles", isDirectory: true)
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
+            return []
+        }
+        return Set(files.filter { $0.pathExtension == "md" }.map { "artifacts/context-bundles/\($0.lastPathComponent)" })
+    }
+
     /// Runs a local full-text search over the index and prints matching notes.
     private static func runSearch(arguments: [String], root: WorkspaceRoot) async throws {
         var terms: [String] = []
@@ -543,6 +703,7 @@ struct DaymarkCLI {
           end-of-day  List today's still-open tasks
           open-loops  List open tasks grouped into buckets (read-only)
           codex-task  Preview or write one Codex task file from note text
+          context-bundle  Preview or write one context bundle from a Codex task file
           search      Search notes locally with full-text search
           today       Print today's note (or the template it would use)
 
@@ -555,6 +716,10 @@ struct DaymarkCLI {
         Codex task:
           daymark codex-task --source <path> --line <n>
           daymark codex-task --source <path> --selection-file <path> --apply
+
+        Context bundle:
+          daymark context-bundle --task specs/tasks/<file>.md
+          daymark context-bundle --task specs/tasks/<file>.md --apply
 
         Options:
           --root <path>   Workspace root (default: $DAYMARK_WORKSPACE_ROOT or ~/phoenix)
@@ -645,12 +810,16 @@ struct DaymarkCLI {
         case unknownRolloverFlag(String)
         case unknownEndOfDayFlag(String)
         case unknownCodexTaskFlag(String)
+        case unknownContextBundleFlag(String)
         case missingDateValue
         case invalidDate(String)
         case missingCodexTaskSource
         case missingCodexTaskLine
         case missingSelectionFile
         case invalidLineValue(String)
+        case missingContextBundleTask
+        case contextBundleTaskNotFound(String)
+        case invalidContextBundleTask(String)
         case sourceNotFound(String)
         case missingSearchQuery
         case missingRootValue
@@ -675,8 +844,13 @@ struct DaymarkCLI {
                  .sourceNotFound,
                  .unknownCodexTaskFlag:
                 return "Usage: daymark codex-task --source <path> (--line <n> | --selection-file <path>) [--date yyyy-MM-dd] [--apply]"
+            case .missingContextBundleTask,
+                 .contextBundleTaskNotFound,
+                 .invalidContextBundleTask,
+                 .unknownContextBundleFlag:
+                return "Usage: daymark context-bundle --task specs/tasks/<file>.md [--date yyyy-MM-dd] [--apply]"
             case .unknownCommand:
-                return "Usage: daymark <doctor|init|index|rebuild|capture|rollover|end-of-day|open-loops|codex-task|search|today>"
+                return "Usage: daymark <doctor|init|index|rebuild|capture|rollover|end-of-day|open-loops|codex-task|context-bundle|search|today>"
             case .missingSearchQuery:
                 return "Usage: daymark search <query>"
             case .missingRootValue:
@@ -700,6 +874,8 @@ struct DaymarkCLI {
                 return "unknown end-of-day flag: \(flag)"
             case .unknownCodexTaskFlag(let flag):
                 return "unknown codex-task flag: \(flag)"
+            case .unknownContextBundleFlag(let flag):
+                return "unknown context-bundle flag: \(flag)"
             case .missingDateValue:
                 return "--date requires a yyyy-MM-dd value"
             case .invalidDate(let value):
@@ -712,6 +888,12 @@ struct DaymarkCLI {
                 return "--selection-file requires a path"
             case .invalidLineValue(let value):
                 return "invalid line: \(value)"
+            case .missingContextBundleTask:
+                return "--task is required"
+            case .contextBundleTaskNotFound(let path):
+                return "task file not found: \(path)"
+            case .invalidContextBundleTask(let path):
+                return "invalid Codex task file: \(path)"
             case .sourceNotFound(let path):
                 return "source not found: \(path)"
             case .missingSearchQuery:
