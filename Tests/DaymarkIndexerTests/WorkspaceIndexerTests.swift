@@ -85,6 +85,35 @@ final class WorkspaceIndexerTests: XCTestCase {
         await db.close()
     }
 
+    func testIndexStripsDynamicBlockGeneratedRegionsBeforeTaskProjection() async throws {
+        let root = try makeBootstrappedWorkspace()
+        let today = try fixedToday()
+        let relativePath = DailyNote.relativePath(for: today, calendar: calendar)
+        let url = root.expandedURL.appendingPathComponent(relativePath)
+        try AtomicFileWriter().write("""
+        # Today
+
+        - [ ] real task
+        /daymark open-loops
+        <!-- daymark:block-begin abc123 -->
+        - [ ] generated task
+        <!-- daymark:block-end abc123 -->
+        """, to: url)
+
+        let db = makeDatabase(in: root)
+        try await db.open()
+        _ = try await db.migrate()
+        try await WorkspaceIndexer(root: root, database: db, calendar: calendar).indexToday(date: today)
+
+        let open = try await db.openTasks()
+        XCTAssertEqual(open.map(\.title), ["real task"])
+
+        let record = try await db.note(relativePath: relativePath)
+        let onDisk = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertEqual(record?.contentHash, ContentHasher.hash(onDisk))
+        await db.close()
+    }
+
     func testRebuildReprojectsAllDailyNotesFromDisk() async throws {
         let root = try makeBootstrappedWorkspace()
         let store = DailyNoteStore(root: root, calendar: calendar)

@@ -44,6 +44,8 @@ struct DaymarkCLI {
                 try runCodexTask(arguments: options, root: root)
             case "context-bundle":
                 try runContextBundle(arguments: options, root: root)
+            case "blocks":
+                try runBlocks(arguments: options, root: root)
             case "search":
                 try await runSearch(arguments: options, root: root)
             case "today":
@@ -360,6 +362,12 @@ struct DaymarkCLI {
         var apply = false
     }
 
+    private struct ParsedBlocksRefreshArguments {
+        var sourcePath: String?
+        var date: Date = Date()
+        var apply = false
+    }
+
     /// Creates a previewed Codex task draft from a source note line or explicit selection
     /// file. Dry-run prints the exact Markdown; `--apply` writes one file under specs/tasks.
     private static func runCodexTask(arguments: [String], root: WorkspaceRoot) throws {
@@ -622,6 +630,119 @@ struct DaymarkCLI {
         return lines.dropFirst().dropLast().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private static func runBlocks(arguments: [String], root: WorkspaceRoot) throws {
+        guard arguments.first == "refresh" else {
+            throw CommandError.unknownBlocksSubcommand(arguments.first ?? "")
+        }
+        let parsed = try parseBlocksRefreshArguments(Array(arguments.dropFirst()))
+        guard let sourcePath = parsed.sourcePath else { throw CommandError.missingBlocksSource }
+        let sourceURL = resolveWorkspaceFile(sourcePath, root: root)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            throw CommandError.sourceNotFound(sourcePath)
+        }
+
+        let markdown = try String(contentsOf: sourceURL, encoding: .utf8)
+        let tasks = try taskProjectionFromMarkdownFiles(root: root)
+        let plan = try DynamicBlockPatchPlanner().plan(
+            markdown: markdown,
+            sourcePath: sourcePath,
+            tasks: tasks,
+            referenceDate: parsed.date
+        )
+
+        guard !plan.patches.isEmpty else {
+            print("No dynamic blocks found in \(sourcePath).")
+            return
+        }
+
+        if parsed.apply {
+            let updated = try plan.apply(to: markdown)
+            try AtomicFileWriter().write(updated, to: sourceURL)
+            try DynamicBlockCacheStore().record(patches: plan.patches, root: root)
+            print("Updated: \(sourcePath)")
+            for patch in plan.patches {
+                print("  \(patch.rawCommand) (line \(patch.commandLine), \(operationLabel(patch.operation)))")
+            }
+        } else {
+            printBlocksPreview(plan)
+        }
+    }
+
+    private static func parseBlocksRefreshArguments(_ arguments: [String]) throws -> ParsedBlocksRefreshArguments {
+        var parsed = ParsedBlocksRefreshArguments()
+        var index = 0
+
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--source":
+                guard index + 1 < arguments.count else { throw CommandError.missingBlocksSource }
+                parsed.sourcePath = arguments[index + 1]
+                index += 2
+            case "--date":
+                guard index + 1 < arguments.count else { throw CommandError.missingDateValue }
+                parsed.date = try parseISODate(arguments[index + 1])
+                index += 2
+            case "--apply":
+                parsed.apply = true
+                index += 1
+            case let flag where flag.hasPrefix("--"):
+                throw CommandError.unknownBlocksFlag(flag)
+            default:
+                throw CommandError.unknownBlocksFlag(arguments[index])
+            }
+        }
+
+        return parsed
+    }
+
+    private static func printBlocksPreview(_ plan: DynamicBlockPatchPlan) {
+        for (index, patch) in plan.patches.enumerated() {
+            if index > 0 { print("") }
+            print("Target: \(plan.targetFilePath)")
+            print("Command: \(patch.rawCommand) (line \(patch.commandLine))")
+            print("Operation: \(operationLabel(patch.operation))")
+            print("")
+            print(patch.replacementMarkdown)
+        }
+    }
+
+    private static func operationLabel(_ operation: DynamicBlockPatchOperation) -> String {
+        switch operation {
+        case .insert: return "insert"
+        case .replacement: return "replacement"
+        }
+    }
+
+    private static func taskProjectionFromMarkdownFiles(root: WorkspaceRoot) throws -> [TaskItem] {
+        let dailyRoot = root.expandedURL.appendingPathComponent("daily", isDirectory: true)
+        guard let enumerator = FileManager.default.enumerator(at: dailyRoot, includingPropertiesForKeys: nil) else {
+            return []
+        }
+
+        let parser = TaskParser()
+        var tasks: [TaskItem] = []
+        let files = enumerator.compactMap { $0 as? URL }
+            .filter { $0.pathExtension == "md" }
+            .sorted { $0.path < $1.path }
+        for url in files {
+            let markdown = try String(contentsOf: url, encoding: .utf8)
+            tasks.append(contentsOf: parser.parse(
+                markdown: DynamicBlockRegion.removingGeneratedRegions(from: markdown),
+                notePath: workspaceRelativePath(of: url, under: root)
+            ))
+        }
+        return tasks
+    }
+
+    private static func workspaceRelativePath(of url: URL, under root: WorkspaceRoot) -> String {
+        let rootPath = root.expandedURL.resolvingSymlinksInPath().path
+        let filePath = url.resolvingSymlinksInPath().path
+        if filePath.hasPrefix(rootPath + "/") {
+            return String(filePath.dropFirst(rootPath.count + 1))
+        }
+        return url.lastPathComponent
+    }
+
     /// Runs a local full-text search over the index and prints matching notes.
     private static func runSearch(arguments: [String], root: WorkspaceRoot) async throws {
         var terms: [String] = []
@@ -688,6 +809,7 @@ struct DaymarkCLI {
           open-loops  List open tasks grouped into buckets (read-only)
           codex-task  Preview or write one Codex task file from note text
           context-bundle  Preview or write one context bundle from a Codex task file
+          blocks      Preview or apply generated output for /daymark blocks
           search      Search notes locally with full-text search
           today       Print today's note (or the template it would use)
 
@@ -704,6 +826,10 @@ struct DaymarkCLI {
         Context bundle:
           daymark context-bundle --task specs/tasks/<file>.md
           daymark context-bundle --task specs/tasks/<file>.md --apply
+
+        Dynamic blocks:
+          daymark blocks refresh --source daily/yyyy/mm/yyyy-mm-dd.md
+          daymark blocks refresh --source daily/yyyy/mm/yyyy-mm-dd.md --apply
 
         Options:
           --root <path>   Workspace root (default: $DAYMARK_WORKSPACE_ROOT or ~/phoenix)
@@ -804,6 +930,9 @@ struct DaymarkCLI {
         case missingContextBundleTask
         case contextBundleTaskNotFound(String)
         case invalidContextBundleTask(String)
+        case unknownBlocksSubcommand(String)
+        case unknownBlocksFlag(String)
+        case missingBlocksSource
         case sourceNotFound(String)
         case missingSearchQuery
         case missingRootValue
@@ -833,8 +962,12 @@ struct DaymarkCLI {
                  .invalidContextBundleTask,
                  .unknownContextBundleFlag:
                 return "Usage: daymark context-bundle --task specs/tasks/<file>.md [--date yyyy-MM-dd] [--apply]"
+            case .unknownBlocksSubcommand,
+                 .unknownBlocksFlag,
+                 .missingBlocksSource:
+                return "Usage: daymark blocks refresh --source <path> [--date yyyy-MM-dd] [--apply]"
             case .unknownCommand:
-                return "Usage: daymark <doctor|init|index|rebuild|capture|rollover|end-of-day|open-loops|codex-task|context-bundle|search|today>"
+                return "Usage: daymark <doctor|init|index|rebuild|capture|rollover|end-of-day|open-loops|codex-task|context-bundle|blocks|search|today>"
             case .missingSearchQuery:
                 return "Usage: daymark search <query>"
             case .missingRootValue:
@@ -878,6 +1011,12 @@ struct DaymarkCLI {
                 return "task file not found: \(path)"
             case .invalidContextBundleTask(let path):
                 return "invalid Codex task file: \(path)"
+            case .unknownBlocksSubcommand(let subcommand):
+                return subcommand.isEmpty ? "blocks subcommand is required" : "unknown blocks subcommand: \(subcommand)"
+            case .unknownBlocksFlag(let flag):
+                return "unknown blocks flag: \(flag)"
+            case .missingBlocksSource:
+                return "--source is required"
             case .sourceNotFound(let path):
                 return "source not found: \(path)"
             case .missingSearchQuery:

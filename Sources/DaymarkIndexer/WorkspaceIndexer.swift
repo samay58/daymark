@@ -36,7 +36,10 @@ public struct WorkspaceIndexer {
             content: content,
             modifiedAt: modifiedAt,
             blocks: parser.blocks(from: content),
-            tasks: taskParser.parse(markdown: content, notePath: relativePath)
+            tasks: taskParser.parse(
+                markdown: DynamicBlockRegion.removingGeneratedRegions(from: content),
+                notePath: relativePath
+            )
         )
         return true
     }

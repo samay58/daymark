@@ -707,17 +707,79 @@ An adversarial review of the in-app context bundle slice found no correctness bu
 
 `swift test --filter CommandTests` corrupts the `daymark` binary through the documented dual-`@main` relink collision, so every spawned-process test times out. That produces a 10 minute run with 104 failures, which is a harness artifact and not a regression. Run CLI tests from the prebuilt bundle instead: `swift build --product daymark`, then `xcrun xctest -XCTest <ClassName> .build/arm64-apple-macosx/debug/DaymarkPackageTests.xctest`. A durable fix for the harness is parked.
 
+## 2026-06-29 (Milestone 5 first slice: Dynamic Blocks CLI preview and apply)
+
+Milestone 5 is active. The first useful Dynamic Blocks slice is complete for `/daymark open-loops`: Daymark parses visible commands from Markdown, renders deterministic local output from existing task parsing and Open Loops grouping, previews the generated region, and writes only on explicit `--apply`.
+
+### What changed
+
+- Added a Dynamic Blocks domain path in `DaymarkCore`: command invocations with source path, line number, raw command text, command name, arguments, ordinal, and stable command hash.
+- Added parser coverage for `/daymark open-loops`, `/daymark open-loops #tag`, multiple commands, CRLF input, fenced-code skipping, and clear unsupported-command errors.
+- Added an Open Loops renderer that reuses `OpenLoops.grouped`, excludes completed tasks, preserves deterministic bucket order, and supports exact tag arguments such as `#deal/acme`.
+- Added a patch planner that inserts or replaces one generated Markdown region below the visible command. The generated region uses `<!-- daymark:block-begin <hash> -->` and `<!-- daymark:block-end <hash> -->` markers.
+- Added generated-region stripping before task parsing so generated checklist lines do not become source tasks on the next refresh.
+- Added `daymark blocks refresh --source <path>` for dry-run preview and `--apply` for explicit target-note writes. The CLI scans daily Markdown directly for this slice, so dry-run does not need to create or mutate `.daymark`.
+- Added `docs/SELF_TEST_M5_DYNAMIC_BLOCKS.md` and ADR-009 for the marker convention.
+
+### Verification
+
+- TDD red checks: the first core test run failed on missing Dynamic Blocks types; the first CLI test run failed on unknown `blocks`; the recursive-render regression failed before adding generated-region stripping.
+- DynamicBlockTests are included in the clean library suite: 7 tests, 0 failures.
+- Focused CLI suite after rebuilding `daymark`: `xcrun xctest -XCTest DaymarkCLITests.DynamicBlocksCommandTests .build/arm64-apple-macosx/debug/DaymarkPackageTests.xctest`, 1 test, 0 failures.
+- Clean library suite: `swift package clean && swift test --skip CommandTests`, 151 tests, 0 failures.
+- CLI regression bundle after `swift build --product daymark`: 25 tests, 0 failures, including `DynamicBlocksCommandTests`, `CodexTaskCommandTests`, `CaptureCommandTests`, `OpenLoopsCommandTests`, `RolloverCommandTests`, and `EndOfDayCommandTests`.
+- App product: `swift build --product Daymark` linked.
+- Temp-workspace end-to-end: dry-run wrote nothing, apply wrote one generated region, repeat apply was byte-stable, completed tasks were excluded, exact tag filtering worked, edits before and after the block were preserved, deleting `.daymark` did not affect idempotency, and only the two test Markdown notes existed after the flow.
+- Read-only doctor after rebuilding `daymark`: `.build/arm64-apple-macosx/debug/daymark doctor` passed against `~/phoenix`.
+
+### Remaining in Milestone 5
+
+- Add rebuildable `.daymark` cache metadata for dynamic block renders without making cache authoritative.
+- Add the next renderer, likely `source-list`, only after the cache choice is settled.
+- Add app affordance or manual refresh only after the CLI/domain path has real use.
+- Keep Calendar, Gmail, AI summaries, Codex execution, automatic refresh, and arbitrary plugin blocks out of scope.
+
+## 2026-06-29 (Milestone 5 hardening and Dynamic Blocks cache metadata)
+
+The M5 first slice is hardened and now includes rebuildable `.daymark` cache metadata for approved dynamic block applies. Markdown remains authoritative: preview and apply still derive from visible `/daymark ...` commands plus generated-region markers, and cache deletion or corruption does not control correctness.
+
+### What changed
+
+- Added `DynamicBlockCacheStore` and `DynamicBlockCacheRecord`, writing a versioned JSON metadata file at `.daymark/dynamic-blocks.json`.
+- Cache records include source path, command hash, raw command, renderer name, rendered output hash, and refreshed timestamp.
+- Wired `daymark blocks refresh --apply` to record cache metadata after the target note update. Dry-run still writes nothing.
+- Hardened `WorkspaceIndexer` so task projection strips dynamic generated regions before parsing checkboxes. This prevents generated Open Loops checklist lines from feeding back into SQLite after `daymark rebuild`.
+- Made cache recording rebuild bad metadata by overwriting invalid cache JSON from the current Markdown-derived patch plan.
+- Updated ADR-010, the M5 self-test, README, roadmap, and parking lot to reflect the cache convention and remaining M5 scope.
+
+### Verification
+
+- TDD red checks: the indexer regression first projected both real and generated tasks; the cache store test first failed because the store did not exist; the CLI cache test first failed because apply did not write `.daymark/dynamic-blocks.json`; the invalid-cache test first failed on JSON decoding.
+- Focused green checks: indexer generated-region stripping, cache record/update, corrupt-cache overwrite, and dynamic blocks CLI cache behavior all passed after implementation.
+- Clean library suite: `swift package clean && swift test --skip CommandTests`, 154 tests, 0 failures.
+- CLI product and regression bundle: `swift build --product daymark`, then `xcrun xctest -XCTest DaymarkCLITests.DynamicBlocksCommandTests,DaymarkCLITests.CodexTaskCommandTests,DaymarkCLITests.CaptureCommandTests,DaymarkCLITests.OpenLoopsCommandTests,DaymarkCLITests.RolloverCommandTests,DaymarkCLITests.EndOfDayCommandTests .build/arm64-apple-macosx/debug/DaymarkPackageTests.xctest`, 25 tests, 0 failures.
+- App product: `swift build --product Daymark` linked.
+- Temp-workspace end-to-end: dry-run wrote no note and no cache, apply wrote one generated region plus cache metadata, repeat apply left the note byte-stable, edits outside the region were preserved, an injected generated checkbox did not feed back after rebuild/open-loops, deleting `.daymark` left refresh idempotent and recreated cache metadata.
+- Read-only doctor after rebuilding the CLI: `.build/arm64-apple-macosx/debug/daymark doctor` passed against `~/phoenix`.
+- Hygiene checks: `git diff --check` clean, `python3 ~/.claude/scripts/slopcheck.py <changed files>` clean, and em dash scan over changed files found no hits.
+
+### Remaining in Milestone 5
+
+- Add the next deterministic renderer, likely `source-list`, using the same parser, patch, preview, apply, and cache path.
+- Add a restrained app affordance only after the CLI/domain behavior has more use.
+- Keep Calendar, Gmail, AI summaries, Codex execution, automatic refresh, and arbitrary plugin blocks out of scope.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
 
-Milestone 4: Codex Handoff is closed and on `main`.
+Milestone 5: Dynamic Blocks is active. The `/daymark open-loops` CLI/domain slice and rebuildable cache metadata slice are complete.
 
 ### Start Here Next
 
-1. Start Milestone 5: Dynamic Blocks.
-2. Keep source-note backlinking, Codex execution, model calls, network calls, app-bundle work, and global hotkey work parked unless separately approved.
-3. Optional cleanup, both parked in `docs/PARKING_LOT.md`: collapse the `createdCodexTaskDraft` and `createdCodexTaskRelativePath` pair into one receipt value, and make the CLI test harness survive the dual-`@main` relink.
+1. Add the next deterministic renderer, likely `source-list`, using the existing parser, patch planner, preview/apply flow, and cache metadata.
+2. Keep app auto-refresh parked until the CLI/domain path has more use.
+3. Keep source-note backlinking, Codex execution, model calls, network calls, app-bundle work, and global hotkey work parked unless separately approved.
 
 ### Current Truths
 
@@ -734,6 +796,10 @@ Milestone 4: Codex Handoff is closed and on `main`.
 - Context bundle files use `artifacts/context-bundles/yyyy-mm-dd-title-slug-context.md` with numeric suffixes for collisions. Source notes and task files are not modified by bundle creation.
 - The in-app bundle preview is derived from the exact draft and relative path that were approved for task-file creation. Editing the task draft or starting a fresh task preview clears the bundle offer until another task file is approved.
 - Source-note backlinking remains parked because task files and context bundles already carry source provenance without source-note mutation.
+- Milestone 5 has a first Dynamic Blocks slice: `/daymark open-loops` commands stay visible in Markdown, `daymark blocks refresh --source <path>` previews the generated region, and `--apply` writes one idempotent generated region below the command.
+- Dynamic block generated regions use `<!-- daymark:block-begin <hash> -->` and `<!-- daymark:block-end <hash> -->` markers. Task scans strip those regions before parsing tasks so generated checklist lines do not feed back into Open Loops.
+- Dynamic block apply records rebuildable metadata in `.daymark/dynamic-blocks.json`. Dry-run writes no cache. Cache deletion or corruption does not affect Markdown correctness.
+- App refresh, `source-list`, `codex-context`, and `weekly-review` renderers remain M5 follow-ups.
 - The default workspace root is `~/phoenix`; ADR-005 is reversed.
 - Do not add Gmail, Calendar, AI, cloud sync, embeddings, Codex execution, app-bundle work, or global hotkey work while starting Milestone 5.
 
@@ -742,5 +808,5 @@ Milestone 4: Codex Handoff is closed and on `main`.
 - `git status --short`
 - `swift test --skip CommandTests` for the library tests. Run the CLI command tests from the prebuilt bundle, not `swift test --filter`: `swift build --product daymark`, then `xcrun xctest .build/arm64-apple-macosx/debug/DaymarkPackageTests.xctest` (see the CLI test harness note above).
 - `swift build --product daymark` and `swift build --product Daymark`.
-- Temp-workspace `daymark codex-task` dry-run, apply, repeat-apply, empty-heading rejection, invalid-line rejection, source-note unchanged check, `context-bundle` dry-run, apply, repeat-apply, and unchanged task-file check.
+- Temp-workspace Dynamic Blocks check: create prior and current daily notes, put `/daymark open-loops` in the current note, run dry-run and confirm no note or cache write, run apply and confirm one marker pair plus `.daymark/dynamic-blocks.json`, run repeat apply and confirm no duplicate output, edit text outside the generated region and confirm it is preserved, inject a generated checkbox inside the region and confirm it does not feed back through rebuild/open-loops, delete `.daymark`, and confirm refresh remains idempotent and recreates cache metadata.
 - `daymark doctor` (read-only).

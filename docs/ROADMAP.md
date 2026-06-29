@@ -162,14 +162,16 @@ Goal: notes become dynamic without becoming dashboards.
 
 Why this matters: useful computed context should sit beside the source Markdown without replacing it. Dynamic blocks are local views, not a dashboard layer.
 
+Status: active. The CLI/domain slice is done for `/daymark open-loops`: Daymark parses visible commands, renders deterministic local Markdown from existing task parsing and Open Loops grouping, previews the generated region, applies it idempotently only when `--apply` is passed, and records rebuildable `.daymark` render metadata on apply. App refresh and additional renderers remain in this milestone.
+
 Build:
 
-- Parse `/daymark ...` block commands from Markdown.
+- Parse `/daymark ...` block commands from Markdown. First slice done for `open-loops`, including tag arguments and fenced-code awareness.
 - Support conservative local commands first: `open-loops`, `source-list`, `codex-context`, and `weekly-review`.
-- Cache rendered output in `.daymark` as rebuildable state.
-- Show patch previews before writing rendered output back into notes.
-- Keep the source command visible and readable.
-- Add a CLI refresh command before adding automatic app refresh.
+- Cache rendered output metadata in `.daymark` as rebuildable state. Done for approved CLI apply; Markdown remains authoritative.
+- Show patch previews before writing rendered output back into notes. First slice done for CLI dry-run.
+- Keep the source command visible and readable. First slice keeps `/daymark open-loops` in the note and inserts generated output in a marked region below it.
+- Add a CLI refresh command before adding automatic app refresh. First slice done with `daymark blocks refresh --source <path>` and `--apply`.
 
 Non-goals:
 

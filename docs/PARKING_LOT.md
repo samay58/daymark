@@ -40,3 +40,9 @@ Good ideas that are not part of the current milestone belong here.
 - Strong duplicate detection: repeated approvals create `-2`, `-3`, and later suffixes instead of overwriting. A future source-indexed duplicate warning can be added after the basic flow is used.
 - Created-task receipt as one value: `AppState` holds `createdCodexTaskDraft` and `createdCodexTaskRelativePath` as a pair that is always set and cleared together. Collapsing them into a single `CreatedCodexTask` value would make the both-or-neither state unrepresentable. Deferred from the closeout consolidation to avoid churning a freshly verified state machine; do it as a small, test-guarded change.
 - CLI test harness survives the dual-`@main` relink: `swift test --filter CommandTests` corrupts the `daymark` binary and every spawned-process test times out, so the only reliable run is `xcrun xctest` against the prebuilt bundle. Options to make the standard `swift test` invocation safe: have `runDaymark` fail fast when the binary is not a working CLI, or restructure so the two executables do not collide on `@main` during the test link.
+
+## Milestone 5 follow-ups
+
+- App refresh affordance: not built in the first slice. Keep automatic app refresh parked until the CLI/domain path has proven safe and useful.
+- Additional renderers: `source-list`, `codex-context`, and `weekly-review` parse as known commands but do not render yet. Build one renderer at a time with preview and idempotency tests.
+- Broader tag filtering: the first slice supports exact task tag arguments such as `/daymark open-loops #deal/acme`. More expressive filters should wait for real note examples.

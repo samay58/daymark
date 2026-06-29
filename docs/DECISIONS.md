@@ -206,3 +206,87 @@ Repeated approvals can create duplicate context bundles for the same task.
 ### Mitigation
 
 Numeric suffixes prevent overwrites. Strong duplicate warnings can be added after the app preview path has real usage.
+
+## ADR-009: Dynamic Block Generated Region Markers
+
+Status: Accepted
+Date: 2026-06-29
+
+### Context
+
+Milestone 5 starts with visible `/daymark ...` commands in Markdown. Refresh must show a patch preview, keep the source command readable, and avoid duplicating generated output on repeated refreshes.
+
+### Decision
+
+A dynamic block command stays visible as normal Markdown:
+
+```md
+/daymark open-loops
+```
+
+Generated output is written directly below the command inside an HTML comment marker pair:
+
+```md
+<!-- daymark:block-begin <hash> -->
+### Open Loops
+
+No open loops.
+<!-- daymark:block-end <hash> -->
+```
+
+The hash is a short SHA-256 prefix derived from the workspace-relative source path, the command ordinal in that note, and the raw command text. Refresh replaces the generated region adjacent to the command when it exists, or inserts a new region when it does not.
+
+### Why
+
+The note remains plain Markdown if Daymark disappears. The command explains why generated text exists, and the marker pair gives Daymark a narrow replacement boundary that preserves surrounding user text.
+
+### Risks
+
+If a user edits inside the generated region, the next approved refresh replaces those edits.
+
+### Mitigation
+
+Generated output is always previewed before apply. User-authored text belongs outside the marker pair. Task scans strip generated regions before parsing so rendered checklist lines do not become source tasks on the next refresh.
+
+## ADR-010: Dynamic Block Cache Metadata
+
+Status: Accepted
+Date: 2026-06-29
+
+### Context
+
+Milestone 5 requires generated Dynamic Block output to be cached while keeping Markdown as the source of truth. Cache must be rebuildable, safe to delete, and unable to change refresh correctness.
+
+### Decision
+
+Dynamic Block apply records metadata in `.daymark/dynamic-blocks.json` using a versioned JSON envelope:
+
+```json
+{
+  "version": 1,
+  "records": [
+    {
+      "sourcePath": "daily/2026/06/2026-06-29.md",
+      "commandHash": "<hash>",
+      "rawCommand": "/daymark open-loops",
+      "rendererName": "open-loops",
+      "renderedOutputHash": "<sha256>",
+      "refreshedAt": "2026-06-29T19:00:00Z"
+    }
+  ]
+}
+```
+
+Records are keyed by source path and command hash. Approved apply rewrites the matching record after the target note is updated. Dry-run preview does not write cache metadata. If the cache file is missing or invalid during apply, Daymark rebuilds it from the current Markdown-derived patch plan.
+
+### Why
+
+The cache gives Daymark a cheap local record of what was rendered without making the cache a control surface. Idempotency still comes from the visible command plus generated-region markers in Markdown.
+
+### Risks
+
+Cache metadata can be stale if a note is edited outside Daymark or if `.daymark` is deleted.
+
+### Mitigation
+
+Refresh correctness never depends on the cache. Deleting or corrupting `.daymark/dynamic-blocks.json` leaves notes readable and the next approved apply can recreate metadata.
