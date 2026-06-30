@@ -44,7 +44,7 @@ Good ideas that are not part of the current milestone belong here.
 ## Milestone 5 follow-ups
 
 - App refresh affordance: not built in the first slice. Keep automatic app refresh parked until the CLI/domain path has proven safe and useful.
-- Additional renderer: `weekly-review` parses as a known command but does not render yet. `source-list` and `codex-context` shipped as deterministic renderers on 2026-06-29. Build the remaining renderer with preview and idempotency tests.
+- App Dynamic Blocks refresh design: the CLI/domain renderer set now includes `open-loops`, `source-list`, `codex-context`, and `weekly-review`. Design the app affordance separately so refresh still previews before write and never mutates notes while typing.
 - Broader tag filtering: the first slice supports exact task tag arguments such as `/daymark open-loops #deal/acme`. More expressive filters should wait for real note examples.
 
 ## Hardening pass follow-ups (2026-06-29)

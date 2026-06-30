@@ -2,12 +2,26 @@ import XCTest
 import DaymarkCore
 
 final class DynamicBlockTests: XCTestCase {
+    private var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        return calendar
+    }
+
     private func makeRoot() -> WorkspaceRoot {
         let path = "\(NSTemporaryDirectory())daymark-dynamic-cache-\(UUID().uuidString)"
         addTeardownBlock {
             try? FileManager.default.removeItem(atPath: path)
         }
         return WorkspaceRoot(path: path)
+    }
+
+    private func date(_ iso: String) -> Date {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: iso)!
     }
 
     func testParserFindsOpenLoopsCommandWithTagArgument() throws {
@@ -235,6 +249,128 @@ final class DynamicBlockTests: XCTestCase {
             XCTAssertEqual(
                 (error as? DynamicBlockError)?.errorDescription,
                 "unsupported argument for codex-context: project/daymark"
+            )
+        }
+    }
+
+    func testWeeklyReviewRendererIncludesOpenTasksCompletedTasksAndRecentHandoffs() throws {
+        let invocation = DynamicBlockInvocation(
+            sourcePath: "planning/week.md",
+            lineNumber: 1,
+            rawText: "/daymark weekly-review",
+            command: .weeklyReview,
+            ordinal: 1
+        )
+        let tasks = [
+            TaskItem(title: "ship the review block due:2026-06-29", status: .open, due: .date("2026-06-29"), notePath: "daily/2026/06/2026-06-29.md", lineNumber: 4),
+            TaskItem(title: "close out old handoff", status: .completed, notePath: "daily/2026/06/2026-06-28.md", lineNumber: 7),
+            TaskItem(title: "completed outside week", status: .completed, notePath: "daily/2026/06/2026-06-20.md", lineNumber: 2)
+        ]
+        let sources = [
+            DynamicBlockSource(title: "Daymark Project", relativePath: "projects/daymark.md", tags: ["#project/daymark"])
+        ]
+        let contexts = [
+            DynamicBlockCodexContextArtifact(
+                kind: .taskSpec,
+                title: "Ship weekly review",
+                relativePath: "specs/tasks/2026-06-29-ship-weekly-review.md",
+                tags: ["#project/daymark"],
+                sourcePaths: ["projects/daymark.md"]
+            ),
+            DynamicBlockCodexContextArtifact(
+                kind: .contextBundle,
+                title: "Context Bundle: Ship weekly review",
+                relativePath: "artifacts/context-bundles/2026-06-29-ship-weekly-review-context.md",
+                tags: ["#project/daymark"],
+                sourcePaths: ["projects/daymark.md"],
+                taskPaths: ["specs/tasks/2026-06-29-ship-weekly-review.md"]
+            ),
+            DynamicBlockCodexContextArtifact(
+                kind: .taskSpec,
+                title: "Old handoff",
+                relativePath: "specs/tasks/2026-06-15-old.md",
+                tags: ["#project/daymark"],
+                sourcePaths: ["projects/old.md"]
+            )
+        ]
+
+        let rendered = try DynamicBlockRenderer().render(
+            invocation: invocation,
+            tasks: tasks,
+            sources: sources,
+            codexContexts: contexts,
+            referenceDate: date("2026-06-29"),
+            calendar: calendar
+        )
+
+        XCTAssertTrue(rendered.contains("### Weekly Review"))
+        XCTAssertTrue(rendered.contains("#### Still Open"))
+        XCTAssertTrue(rendered.contains("- [ ] ship the review block due:2026-06-29  (daily/2026/06/2026-06-29.md:4)"))
+        XCTAssertTrue(rendered.contains("#### Completed This Week"))
+        XCTAssertTrue(rendered.contains("- [x] close out old handoff  (daily/2026/06/2026-06-28.md:7)"))
+        XCTAssertFalse(rendered.contains("completed outside week"))
+        XCTAssertTrue(rendered.contains("#### Codex Handoffs"))
+        XCTAssertTrue(rendered.contains("- Task: Ship weekly review (`specs/tasks/2026-06-29-ship-weekly-review.md`) source: `projects/daymark.md`"))
+        XCTAssertTrue(rendered.contains("- Bundle: Context Bundle: Ship weekly review (`artifacts/context-bundles/2026-06-29-ship-weekly-review-context.md`) task: `specs/tasks/2026-06-29-ship-weekly-review.md`; source: `projects/daymark.md`"))
+        XCTAssertFalse(rendered.contains("Old handoff"))
+        XCTAssertTrue(rendered.contains("#### Sources To Revisit"))
+        XCTAssertTrue(rendered.contains("- Daymark Project (`projects/daymark.md`)"))
+    }
+
+    func testWeeklyReviewRendererRejectsArgumentsAndShowsPlainEmptyStates() throws {
+        let renderer = DynamicBlockRenderer()
+        let invocation = DynamicBlockInvocation(
+            sourcePath: "planning/week.md",
+            lineNumber: 1,
+            rawText: "/daymark weekly-review",
+            command: .weeklyReview,
+            ordinal: 1
+        )
+
+        let rendered = try renderer.render(
+            invocation: invocation,
+            tasks: [],
+            sources: [],
+            codexContexts: [],
+            referenceDate: date("2026-06-29"),
+            calendar: calendar
+        )
+        XCTAssertEqual(rendered, """
+        ### Weekly Review
+
+        #### Still Open
+        No open loops.
+
+        #### Completed This Week
+        No completed tasks found for this week.
+
+        #### Codex Handoffs
+        No Codex handoffs found for this week.
+
+        #### Sources To Revisit
+        No source notes found from this week's handoffs.
+
+        """)
+
+        let malformed = DynamicBlockInvocation(
+            sourcePath: "planning/week.md",
+            lineNumber: 1,
+            rawText: "/daymark weekly-review #project/daymark",
+            command: .weeklyReview,
+            arguments: ["#project/daymark"],
+            ordinal: 1
+        )
+        XCTAssertThrowsError(try renderer.render(
+            invocation: malformed,
+            tasks: [],
+            sources: [],
+            codexContexts: [],
+            referenceDate: date("2026-06-29"),
+            calendar: calendar
+        )) { error in
+            XCTAssertEqual(
+                (error as? DynamicBlockError)?.errorDescription,
+                "unsupported argument for weekly-review: #project/daymark"
             )
         }
     }

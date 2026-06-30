@@ -875,16 +875,47 @@ it does not create task specs, refresh context bundles, mutate source notes, cal
 - Keep automatic app refresh parked until the CLI/domain path has more use across the three shipped renderers.
 - Keep app rollover preview/approval as a separate product decision; the app launch path still auto-applies rollover to preserve Milestone 3 behavior.
 
+## 2026-06-29: M5 weekly-review renderer
+
+The fourth deterministic Dynamic Blocks renderer is implemented for `/daymark weekly-review`.
+It uses the same visible command, preview, apply, generated-region marker, and cache path as
+the other M5 renderers. The renderer is a local review scaffold, not a narrative summary.
+
+### What changed
+
+- Added a compact Weekly Review renderer in `DaymarkCore`. It accepts no arguments, uses the existing CLI `--date` value as the week anchor, lists current open tasks through the Open Loops grouping, lists completed tasks from daily notes in the anchored week, lists Codex task specs and context bundles dated in that week, and lists source notes referenced by those handoffs.
+- Kept the renderer on the existing `DynamicBlockPatchPlanner` path. Dry-run writes nothing; `--apply` writes only the approved target note and records rebuildable `.daymark/dynamic-blocks.json` metadata after the note write.
+- Added focused core and CLI coverage for weekly-review output, malformed arguments, generated-region stripping, dry-run, apply, repeat apply, cache recreation after `.daymark` deletion, and unchanged user text outside generated regions.
+- Updated README, CLAUDE.md, roadmap, parking lot, and this self-test surface so production docs name `weekly-review` as shipped and keep app refresh parked as the remaining M5 slice.
+
+### Verification
+
+- Baseline before edits: `swift package clean && swift test --skip CommandTests`, 186 tests, 0 failures; `swift build --build-tests`, `swift build --product daymark`, `swift build --product Daymark`, rebuilt CLI, and read-only `daymark doctor` all passed.
+- TDD red check: `DynamicBlockTests/testWeeklyReviewRendererIncludesOpenTasksCompletedTasksAndRecentHandoffs` first failed with `unsupportedRenderer(.weeklyReview)`.
+- Focused green checks: `DynamicBlockTests`, `DailyMarkdownProjectionReaderTests`, and `DynamicBlocksCommandTests`, 30 tests, 0 failures.
+- Hygiene: slopcheck passed for every changed source, test, and doc file; no em dashes in changed files; `git diff --check` clean.
+- Full library suite: `swift package clean && swift test --skip CommandTests`, 188 tests, 0 failures.
+- CLI command bundle: `swift build --build-tests`, `swift build --product daymark`, then `xcrun xctest` over the six command-test classes that exist in the repo, 37 tests, 0 failures. Context-bundle CLI coverage remains in `CodexTaskCommandTests`; there is no separate `ContextBundleCommandTests` class.
+- Product builds: `swift build --product daymark` and `swift build --product Daymark` both linked.
+- Temp-workspace end-to-end: one note containing `/daymark open-loops #deal/acme`, `/daymark source-list #project/daymark`, `/daymark codex-context #project/daymark`, and `/daymark weekly-review`; dry-run left the note unchanged and wrote no cache; apply wrote exactly four generated regions and cache records; repeat apply was byte-stable; user edits before and after generated regions were preserved; a generated task-looking checkbox injected inside a generated region did not feed back into preview output; deleting `.daymark` recreated cache metadata without changing note correctness.
+- Read-only doctor after rebuilding the CLI: `.build/arm64-apple-macosx/debug/daymark doctor` passed against `~/phoenix`.
+
+### Remaining in Milestone 5
+
+- Design and build an app refresh affordance only after a focused app UX pass. The CLI/domain renderer set is now broad enough for that separate slice.
+- Keep app rollover preview/approval as a separate product decision; the app launch path still auto-applies rollover to preserve Milestone 3 behavior.
+- Keep source-note backlinking, Codex execution, model calls, network calls, app-bundle work, and global hotkey work parked unless separately approved.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
 
-Milestone 5: Dynamic Blocks is active. The `/daymark open-loops` slice and its cache metadata are shipped and hardened. The `/daymark source-list #tag` and `/daymark codex-context #tag` renderers are now implemented through the same preview, apply, marker, and cache path.
+Milestone 5: Dynamic Blocks is active. The CLI/domain renderer set is now implemented for `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review` through the same preview, apply, marker, and cache path.
 
 ### Start Here Next
 
-1. Add `/daymark weekly-review` as the next deterministic renderer only if the first slice can stay local, compact, and previewable through the existing parser, patch planner, preview/apply flow, cache metadata, and shared `DailyMarkdownProjectionReader`.
-2. Keep app auto-refresh parked until the CLI/domain path has more use.
+1. Run the full verification gate for the weekly-review slice if this session has not already completed it, then decide whether to commit and push the slice.
+2. Start the app refresh design/build slice only after a focused UX pass. It must preserve preview-before-write and must not refresh while typing.
 3. App rollover preview/approval is a separate, ADR-worthy product decision (see `docs/PARKING_LOT.md`); the launch path still auto-applies and that is intentional for now.
 4. Keep source-note backlinking, Codex execution, model calls, network calls, app-bundle work, and global hotkey work parked unless separately approved.
 
@@ -906,13 +937,14 @@ Milestone 5: Dynamic Blocks is active. The `/daymark open-loops` slice and its c
 - Milestone 5 has a first Dynamic Blocks slice: `/daymark open-loops` commands stay visible in Markdown, `daymark blocks refresh --source <path>` previews the generated region, and `--apply` writes one idempotent generated region below the command.
 - Milestone 5 also has `/daymark source-list #tag`: it scans local Markdown sources, strips generated regions before matching, ignores `/daymark ...` command lines for tag matching, and renders title plus relative path in deterministic order.
 - Milestone 5 also has `/daymark codex-context #tag`: it scans existing local task specs and context bundles, strips generated regions before matching, inherits tags through referenced source notes or task specs, and renders compact task and source path references without copying large excerpts.
+- Milestone 5 also has `/daymark weekly-review`: it renders a compact local review scaffold with current open loops, completed tasks from the anchored week, recent Codex handoff artifacts, and source notes referenced by those handoffs.
 - Dynamic block generated regions use `<!-- daymark:block-begin <hash> -->` and `<!-- daymark:block-end <hash> -->` markers. Task scans strip those regions before parsing tasks so generated checklist lines do not feed back into Open Loops.
 - Dynamic block apply records rebuildable metadata in `.daymark/dynamic-blocks.json`. Dry-run writes no cache. Cache deletion or corruption does not affect Markdown correctness, and duplicate cache records no longer crash apply.
 - After the 2026-06-29 hardening pass: `blocks refresh --source` is workspace-confined; region stripping and replacement are complete-pair and hash-aware (a stray begin marker no longer hides following tasks); `apply` preserves CRLF; fence matching (shared `MarkdownFenceScanner`) respects fence type and length.
 - `DailyMarkdownProjectionReader` (DaymarkIndexer) is the single daily-Markdown projection path used by both the indexer and the CLI. `rebuild` prunes projections for deleted daily notes. `daymark open-loops` reads fresh from Markdown without a prior `rebuild`.
 - Note projection is atomic: `Database.replaceNoteProjection` and `deleteNote` each run in one transaction.
 - The Codex task-file parser lives in `DaymarkCore` (`CodexTaskDraft.parse`) beside the writer and is fence-aware; excerpt fences widen to wrap any backtick content. `AppState` holds one `CreatedCodexTask`, and view button state uses `CodexTaskDraft.isWritable` / `CodexContextBundle.isWritable`.
-- App refresh and `weekly-review` remain M5 follow-ups.
+- App refresh remains the main M5 follow-up after the CLI/domain renderer set.
 - The default workspace root is `~/phoenix`; ADR-005 is reversed.
 - Do not add Gmail, Calendar, AI, cloud sync, embeddings, Codex execution, app-bundle work, or global hotkey work while starting Milestone 5.
 
@@ -921,5 +953,5 @@ Milestone 5: Dynamic Blocks is active. The `/daymark open-loops` slice and its c
 - `git status --short`
 - `swift test --skip CommandTests` for the library tests. Run the CLI command tests from the prebuilt bundle, not `swift test --filter`: build the test bundle (`swift build --build-tests`), then build the CLI LAST (`swift build --product daymark`) so it wins the `Daymark`/`daymark` case-insensitive collision, then `xcrun xctest .build/arm64-apple-macosx/debug/DaymarkPackageTests.xctest` with no build in between. If a CLI test hangs to its timeout, the spawned binary is the GUI app, not the CLI; rebuild `daymark` last and re-run.
 - `swift build --product daymark` and `swift build --product Daymark`.
-- Temp-workspace Dynamic Blocks check: create prior and current daily notes, add a tagged project note, add a task spec and context bundle referencing that source, put `/daymark open-loops`, `/daymark source-list #tag`, and `/daymark codex-context #tag` in the current note, run dry-run and confirm no note or cache write, run apply and confirm one marker pair per command plus `.daymark/dynamic-blocks.json`, run repeat apply and confirm no duplicate output, edit text outside generated regions and confirm it is preserved, inject a generated checkbox inside a region and confirm it does not feed back through rebuild/open-loops, delete `.daymark`, and confirm refresh remains idempotent and recreates cache metadata.
+- Temp-workspace Dynamic Blocks check: create prior and current daily notes, add a tagged project note, add a task spec and context bundle referencing that source, put `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review` in the current note, run dry-run and confirm no note or cache write, run apply and confirm one marker pair per command plus `.daymark/dynamic-blocks.json`, run repeat apply and confirm no duplicate output, edit text outside generated regions and confirm it is preserved, inject a generated checkbox inside a region and confirm it does not feed back through rebuild/open-loops/weekly-review, delete `.daymark`, and confirm refresh remains idempotent and recreates cache metadata.
 - `daymark doctor` (read-only).

@@ -162,7 +162,14 @@ public struct DynamicBlockRenderer: Sendable {
         case .codexContext:
             return try renderCodexContext(invocation: invocation, contexts: codexContexts)
         case .weeklyReview:
-            throw DynamicBlockError.unsupportedRenderer(invocation.command)
+            return try renderWeeklyReview(
+                invocation: invocation,
+                tasks: tasks,
+                sources: sources,
+                codexContexts: codexContexts,
+                referenceDate: referenceDate,
+                calendar: calendar
+            )
         }
     }
 
@@ -296,6 +303,129 @@ public struct DynamicBlockRenderer: Sendable {
             parts.append("source: `\(sourcePath)`")
         }
         return parts.isEmpty ? "" : " " + parts.joined(separator: "; ")
+    }
+
+    private func renderWeeklyReview(
+        invocation: DynamicBlockInvocation,
+        tasks: [TaskItem],
+        sources: [DynamicBlockSource],
+        codexContexts: [DynamicBlockCodexContextArtifact],
+        referenceDate: Date,
+        calendar: Calendar
+    ) throws -> String {
+        if let argument = invocation.arguments.first {
+            throw DynamicBlockError.unsupportedArgument(command: invocation.command, argument: argument)
+        }
+
+        let week = WeekWindow(containing: referenceDate, calendar: calendar)
+        let completedThisWeek = tasks
+            .filter { $0.status == .completed && week.containsDailyNotePath($0.notePath, calendar: calendar) }
+            .sorted { lhs, rhs in
+                if lhs.notePath == rhs.notePath { return lhs.lineNumber < rhs.lineNumber }
+                return lhs.notePath < rhs.notePath
+            }
+        let recentContexts = codexContexts
+            .filter { week.containsArtifactPath($0.relativePath, calendar: calendar) }
+            .sorted { lhs, rhs in
+                if lhs.kind == rhs.kind { return lhs.relativePath < rhs.relativePath }
+                return lhs.kind == .taskSpec
+            }
+        let sourceTitles = Dictionary(uniqueKeysWithValues: sources.map { ($0.relativePath, $0.title) })
+        let sourcePaths = Array(Set(recentContexts.flatMap(\.sourcePaths))).sorted()
+
+        var lines = ["### Weekly Review", ""]
+        lines.append("#### Still Open")
+        let groups = OpenLoops.grouped(tasks: tasks, on: referenceDate, calendar: calendar)
+        if groups.isEmpty {
+            lines.append("No open loops.")
+        } else {
+            for (groupIndex, group) in groups.enumerated() {
+                if groupIndex > 0 { lines.append("") }
+                lines.append("##### \(group.bucket.title)")
+                for task in group.tasks {
+                    lines.append("- [ ] \(task.title)  (\(task.notePath):\(task.lineNumber))")
+                }
+            }
+        }
+
+        lines.append("")
+        lines.append("#### Completed This Week")
+        if completedThisWeek.isEmpty {
+            lines.append("No completed tasks found for this week.")
+        } else {
+            for task in completedThisWeek {
+                lines.append("- [x] \(task.title)  (\(task.notePath):\(task.lineNumber))")
+            }
+        }
+
+        lines.append("")
+        lines.append("#### Codex Handoffs")
+        if recentContexts.isEmpty {
+            lines.append("No Codex handoffs found for this week.")
+        } else {
+            for artifact in recentContexts {
+                let label = artifact.kind == .taskSpec ? "Task" : "Bundle"
+                lines.append("- \(label): \(artifact.title) (`\(artifact.relativePath)`)\(referenceSuffix(for: artifact))")
+            }
+        }
+
+        lines.append("")
+        lines.append("#### Sources To Revisit")
+        if sourcePaths.isEmpty {
+            lines.append("No source notes found from this week's handoffs.")
+        } else {
+            for path in sourcePaths {
+                lines.append("- \(sourceTitles[path] ?? path) (`\(path)`)")
+            }
+        }
+
+        return lines.joined(separator: "\n") + "\n"
+    }
+}
+
+private struct WeekWindow {
+    var start: Date
+    var end: Date
+
+    init(containing date: Date, calendar: Calendar) {
+        let interval = calendar.dateInterval(of: .weekOfYear, for: date)
+        self.start = interval?.start ?? calendar.startOfDay(for: date)
+        self.end = interval?.end ?? calendar.date(byAdding: .day, value: 7, to: self.start) ?? date
+    }
+
+    func containsDailyNotePath(_ path: String, calendar: Calendar) -> Bool {
+        guard let date = Self.date(fromDailyNotePath: path, calendar: calendar) else { return false }
+        return contains(date)
+    }
+
+    func containsArtifactPath(_ path: String, calendar: Calendar) -> Bool {
+        guard let date = Self.date(fromArtifactPath: path, calendar: calendar) else { return false }
+        return contains(date)
+    }
+
+    private func contains(_ date: Date) -> Bool {
+        date >= start && date < end
+    }
+
+    private static func date(fromDailyNotePath path: String, calendar: Calendar) -> Date? {
+        let filename = (path as NSString).lastPathComponent
+        guard filename.hasSuffix(".md"), filename.count >= 13 else { return nil }
+        return date(fromISO: String(filename.prefix(10)), calendar: calendar)
+    }
+
+    private static func date(fromArtifactPath path: String, calendar: Calendar) -> Date? {
+        let filename = (path as NSString).lastPathComponent
+        guard filename.count >= 10 else { return nil }
+        return date(fromISO: String(filename.prefix(10)), calendar: calendar)
+    }
+
+    private static func date(fromISO iso: String, calendar: Calendar) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        return formatter.date(from: iso)
     }
 }
 

@@ -29,7 +29,7 @@ swift run daymark end-of-day       # list today's still-open tasks
 swift run daymark open-loops       # list open tasks grouped into buckets (read-only)
 swift run daymark codex-task --source <path> --line <n>  # preview a Codex task draft (or --selection-file <path>; --apply writes under specs/tasks/)
 swift run daymark context-bundle --task specs/tasks/<file>.md  # preview a context bundle from a task file (--apply writes under artifacts/context-bundles/)
-swift run daymark blocks refresh --source <path>   # preview /daymark open-loops, source-list, or codex-context output (--apply writes one idempotent region + .daymark/dynamic-blocks.json)
+swift run daymark blocks refresh --source <path>   # preview /daymark open-loops, source-list, codex-context, or weekly-review output (--apply writes one idempotent region + .daymark/dynamic-blocks.json)
 swift run daymark search <q>       # full-text search the index
 ```
 

@@ -211,6 +211,95 @@ Expected result: dry-run writes nothing, apply inserts one readable Source List 
 
 Expected result: dry-run writes nothing, apply inserts one readable Codex Context region, generated-only matches are ignored, existing task specs and context bundles are listed without copying large excerpts, repeated apply is idempotent, and cache remains rebuildable metadata.
 
+## CLI `/daymark weekly-review` Preview and Apply
+
+1. Reuse a rebuilt CLI product:
+
+   ```bash
+   swift build --product daymark
+   ```
+
+2. Create a temp workspace with prior and current daily notes, a tagged source note, one task spec, one context bundle, and a note containing the visible command:
+
+   ```bash
+   ROOT="$(mktemp -d /tmp/daymark-m5-weekly-review.XXXXXX)"
+   mkdir -p "$ROOT/daily/2026/06" "$ROOT/projects" "$ROOT/specs/tasks" "$ROOT/artifacts/context-bundles"
+   cat > "$ROOT/daily/2026/06/2026-06-28.md" <<'EOF'
+   # Yesterday
+
+   - [ ] ship the dynamic block due:2026-06-29
+   - [x] close out Codex handoff
+   <!-- daymark:block-begin abc -->
+   - [ ] generated task must not feed back
+   <!-- daymark:block-end abc -->
+   EOF
+   cat > "$ROOT/daily/2026/06/2026-06-20.md" <<'EOF'
+   # Older
+
+   - [x] older completed task
+   EOF
+   cat > "$ROOT/daily/2026/06/2026-06-29.md" <<'EOF'
+   # Today
+
+   Intro stays.
+   /daymark weekly-review
+   Outro stays.
+   EOF
+   cat > "$ROOT/projects/daymark.md" <<'EOF'
+   # Daymark Project
+
+   Build local review blocks. #project/daymark
+   EOF
+   cat > "$ROOT/specs/tasks/2026-06-29-ship-weekly-review.md" <<'EOF'
+   # Ship weekly review
+
+   ## Source
+
+   Path: `projects/daymark.md`
+   EOF
+   cat > "$ROOT/artifacts/context-bundles/2026-06-29-ship-weekly-review-context.md" <<'EOF'
+   # Context Bundle: Ship weekly review
+
+   ## Task
+
+   Task: `specs/tasks/2026-06-29-ship-weekly-review.md`
+   EOF
+   ```
+
+3. Preview and confirm the note is unchanged:
+
+   ```bash
+   BEFORE="$(shasum -a 256 "$ROOT/daily/2026/06/2026-06-29.md")"
+   .build/arm64-apple-macosx/debug/daymark blocks refresh --root "$ROOT" --source daily/2026/06/2026-06-29.md --date 2026-06-29
+   AFTER="$(shasum -a 256 "$ROOT/daily/2026/06/2026-06-29.md")"
+   test "$BEFORE" = "$AFTER"
+   ```
+
+4. Apply and confirm one generated region, the open task, the completed-this-week task, recent handoffs, source provenance, and cache metadata:
+
+   ```bash
+   .build/arm64-apple-macosx/debug/daymark blocks refresh --root "$ROOT" --source daily/2026/06/2026-06-29.md --date 2026-06-29 --apply
+   grep -c "daymark:block-begin" "$ROOT/daily/2026/06/2026-06-29.md"
+   grep -n "ship the dynamic block" "$ROOT/daily/2026/06/2026-06-29.md"
+   grep -n "close out Codex handoff" "$ROOT/daily/2026/06/2026-06-29.md"
+   grep -n "Ship weekly review" "$ROOT/daily/2026/06/2026-06-29.md"
+   grep -n "Daymark Project" "$ROOT/daily/2026/06/2026-06-29.md"
+   grep -n '"rendererName" : "weekly-review"' "$ROOT/.daymark/dynamic-blocks.json"
+   ```
+
+5. Apply again, then delete `.daymark` and apply once more. The note should stay idempotent and cache metadata should be recreated:
+
+   ```bash
+   .build/arm64-apple-macosx/debug/daymark blocks refresh --root "$ROOT" --source daily/2026/06/2026-06-29.md --date 2026-06-29 --apply
+   grep -c "daymark:block-begin" "$ROOT/daily/2026/06/2026-06-29.md"
+   rm -rf "$ROOT/.daymark"
+   .build/arm64-apple-macosx/debug/daymark blocks refresh --root "$ROOT" --source daily/2026/06/2026-06-29.md --date 2026-06-29 --apply
+   grep -c "daymark:block-begin" "$ROOT/daily/2026/06/2026-06-29.md"
+   test -f "$ROOT/.daymark/dynamic-blocks.json"
+   ```
+
+Expected result: dry-run writes nothing, apply inserts one readable Weekly Review region, completed tasks outside the anchored week are excluded, generated task-looking lines are ignored, repeated apply is idempotent, and cache remains rebuildable metadata.
+
 ## Safety and Idempotency Checks (2026-06-29 hardening)
 
 Automated coverage for these lives in `Tests/DaymarkCoreTests/DynamicBlockSafetyTests.swift`,

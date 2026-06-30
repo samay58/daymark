@@ -321,4 +321,83 @@ final class DynamicBlocksCommandTests: XCTestCase {
         XCTAssertEqual(repeatApply.status, 0, repeatApply.output)
         XCTAssertEqual(try read(sourcePath, root: root), applied)
     }
+
+    func testBlocksRefreshWeeklyReviewDryRunApplyAndRepeatApplyAreIdempotent() throws {
+        try skipIfBinaryMissing()
+        let root = tempRoot()
+        let sourcePath = "daily/2026/06/2026-06-29.md"
+        try write("""
+        # Today
+
+        Intro stays.
+        /daymark weekly-review
+        Outro stays.
+        """, relativePath: sourcePath, root: root)
+        try write("""
+        # Yesterday
+
+        - [ ] ship the dynamic block due:2026-06-29
+        - [x] close out Codex handoff
+        <!-- daymark:block-begin abc -->
+        - [ ] generated task must not feed back
+        <!-- daymark:block-end abc -->
+        """, relativePath: "daily/2026/06/2026-06-28.md", root: root)
+        try write("""
+        # Older
+
+        - [x] older completed task
+        """, relativePath: "daily/2026/06/2026-06-20.md", root: root)
+        try write("""
+        # Daymark Project
+
+        Build local review blocks. #project/daymark
+        """, relativePath: "projects/daymark.md", root: root)
+        try write("""
+        # Ship weekly review
+
+        ## Source
+
+        Path: `projects/daymark.md`
+        """, relativePath: "specs/tasks/2026-06-29-ship-weekly-review.md", root: root)
+        try write("""
+        # Context Bundle: Ship weekly review
+
+        ## Task
+
+        Task: `specs/tasks/2026-06-29-ship-weekly-review.md`
+        """, relativePath: "artifacts/context-bundles/2026-06-29-ship-weekly-review-context.md", root: root)
+
+        let original = try read(sourcePath, root: root)
+        let dryRun = try runDaymark(["blocks", "refresh", "--root", root, "--source", sourcePath, "--date", "2026-06-29"])
+        XCTAssertEqual(dryRun.status, 0, dryRun.output)
+        XCTAssertTrue(dryRun.output.contains("### Weekly Review"), dryRun.output)
+        XCTAssertTrue(dryRun.output.contains("- [ ] ship the dynamic block due:2026-06-29  (daily/2026/06/2026-06-28.md:3)"), dryRun.output)
+        XCTAssertTrue(dryRun.output.contains("- [x] close out Codex handoff  (daily/2026/06/2026-06-28.md:4)"), dryRun.output)
+        XCTAssertTrue(dryRun.output.contains("- Task: Ship weekly review (`specs/tasks/2026-06-29-ship-weekly-review.md`) source: `projects/daymark.md`"), dryRun.output)
+        XCTAssertTrue(dryRun.output.contains("- Bundle: Context Bundle: Ship weekly review (`artifacts/context-bundles/2026-06-29-ship-weekly-review-context.md`) task: `specs/tasks/2026-06-29-ship-weekly-review.md`; source: `projects/daymark.md`"), dryRun.output)
+        XCTAssertTrue(dryRun.output.contains("- Daymark Project (`projects/daymark.md`)"), dryRun.output)
+        XCTAssertFalse(dryRun.output.contains("generated task must not feed back"), dryRun.output)
+        XCTAssertFalse(dryRun.output.contains("older completed task"), dryRun.output)
+        XCTAssertEqual(try read(sourcePath, root: root), original)
+        let cachePath = "\(root)/.daymark/dynamic-blocks.json"
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cachePath))
+
+        let apply = try runDaymark(["blocks", "refresh", "--root", root, "--source", sourcePath, "--date", "2026-06-29", "--apply"])
+        XCTAssertEqual(apply.status, 0, apply.output)
+        let applied = try read(sourcePath, root: root)
+        XCTAssertTrue(applied.contains("Intro stays."))
+        XCTAssertTrue(applied.contains("/daymark weekly-review"))
+        XCTAssertTrue(applied.contains("### Weekly Review"))
+        XCTAssertTrue(applied.contains("Outro stays."))
+        XCTAssertEqual(applied.components(separatedBy: "daymark:block-begin").count - 1, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cachePath))
+        let cache = try String(contentsOfFile: cachePath, encoding: .utf8)
+        XCTAssertTrue(cache.contains("\"rendererName\" : \"weekly-review\""), cache)
+
+        try? FileManager.default.removeItem(atPath: "\(root)/.daymark")
+        let repeatApply = try runDaymark(["blocks", "refresh", "--root", root, "--source", sourcePath, "--date", "2026-06-29", "--apply"])
+        XCTAssertEqual(repeatApply.status, 0, repeatApply.output)
+        XCTAssertEqual(try read(sourcePath, root: root), applied)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cachePath))
+    }
 }
