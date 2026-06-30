@@ -69,6 +69,90 @@ final class DynamicBlocksCommandTests: XCTestCase {
         return (String(data: data, encoding: .utf8) ?? "", process.terminationStatus)
     }
 
+    func testBlocksRefreshRejectsParentEscapeSource() throws {
+        try skipIfBinaryMissing()
+        let root = tempRoot()
+        try write("Intro\n/daymark open-loops\n", relativePath: "daily/2026/06/2026-06-29.md", root: root)
+        let outsideURL = URL(fileURLWithPath: root).deletingLastPathComponent()
+            .appendingPathComponent("outside-\(UUID().uuidString).md")
+        try "/daymark open-loops\nimportant outside content\n".write(to: outsideURL, atomically: true, encoding: .utf8)
+        addTeardownBlock { try? FileManager.default.removeItem(at: outsideURL) }
+        let before = try String(contentsOf: outsideURL, encoding: .utf8)
+
+        let result = try runDaymark(["blocks", "refresh", "--root", root,
+                                     "--source", "../\(outsideURL.lastPathComponent)", "--apply"])
+        XCTAssertNotEqual(result.status, 0, "a parent-escape source must be rejected: \(result.output)")
+        XCTAssertTrue(result.output.lowercased().contains("outside the workspace"), result.output)
+        XCTAssertEqual(try String(contentsOf: outsideURL, encoding: .utf8), before,
+                       "the file outside the workspace must be untouched")
+    }
+
+    func testBlocksRefreshRejectsAbsoluteOutsideSource() throws {
+        try skipIfBinaryMissing()
+        let root = tempRoot()
+        let outsideURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("daymark-abs-\(UUID().uuidString).md")
+        try "/daymark open-loops\nabsolute outside content\n".write(to: outsideURL, atomically: true, encoding: .utf8)
+        addTeardownBlock { try? FileManager.default.removeItem(at: outsideURL) }
+        let before = try String(contentsOf: outsideURL, encoding: .utf8)
+
+        let result = try runDaymark(["blocks", "refresh", "--root", root, "--source", outsideURL.path, "--apply"])
+        XCTAssertNotEqual(result.status, 0, "an absolute outside source must be rejected: \(result.output)")
+        XCTAssertEqual(try String(contentsOf: outsideURL, encoding: .utf8), before,
+                       "the file outside the workspace must be untouched")
+    }
+
+    func testBlocksRefreshToleratesDuplicateCacheRecords() throws {
+        try skipIfBinaryMissing()
+        let root = tempRoot()
+        let sourcePath = "daily/2026/06/2026-06-29.md"
+        try write("Intro\n/daymark open-loops\nOutro\n", relativePath: sourcePath, root: root)
+        try write("""
+        {
+          "version" : 1,
+          "records" : [
+            { "commandHash" : "dup", "rawCommand" : "/daymark open-loops", "refreshedAt" : "1970-01-01T00:00:00Z", "renderedOutputHash" : "h1", "rendererName" : "open-loops", "sourcePath" : "daily/2026/06/2026-06-29.md" },
+            { "commandHash" : "dup", "rawCommand" : "/daymark open-loops", "refreshedAt" : "1970-01-01T00:01:00Z", "renderedOutputHash" : "h2", "rendererName" : "open-loops", "sourcePath" : "daily/2026/06/2026-06-29.md" }
+          ]
+        }
+        """, relativePath: ".daymark/dynamic-blocks.json", root: root)
+
+        let result = try runDaymark(["blocks", "refresh", "--root", root, "--source", sourcePath, "--date", "2026-06-29", "--apply"])
+        XCTAssertEqual(result.status, 0, "a duplicate-key cache must not crash apply: \(result.output)")
+        let applied = try read(sourcePath, root: root)
+        XCTAssertTrue(applied.contains("daymark:block-begin"), "the note is written despite the corrupt cache")
+    }
+
+    func testBlocksRequiresSubcommand() throws {
+        try skipIfBinaryMissing()
+        let result = try runDaymark(["blocks", "--root", tempRoot()])
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.output.contains("blocks subcommand is required"), result.output)
+    }
+
+    func testBlocksRefreshRequiresSource() throws {
+        try skipIfBinaryMissing()
+        let result = try runDaymark(["blocks", "refresh", "--root", tempRoot()])
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.output.contains("--source is required"), result.output)
+    }
+
+    func testBlocksRefreshReportsMissingSource() throws {
+        try skipIfBinaryMissing()
+        let result = try runDaymark(["blocks", "refresh", "--root", tempRoot(), "--source", "daily/missing.md"])
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.output.contains("source not found"), result.output)
+    }
+
+    func testBlocksRefreshRejectsUnknownFlag() throws {
+        try skipIfBinaryMissing()
+        let root = tempRoot()
+        try write("/daymark open-loops\n", relativePath: "daily/x.md", root: root)
+        let result = try runDaymark(["blocks", "refresh", "--root", root, "--source", "daily/x.md", "--bogus"])
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.output.contains("unknown blocks flag: --bogus"), result.output)
+    }
+
     func testBlocksRefreshDryRunAndApplyAreIdempotent() throws {
         try skipIfBinaryMissing()
         let root = tempRoot()
@@ -119,5 +203,56 @@ final class DynamicBlocksCommandTests: XCTestCase {
         XCTAssertEqual(repeatApply.status, 0, repeatApply.output)
         XCTAssertEqual(try read(sourcePath, root: root), applied)
         XCTAssertTrue(FileManager.default.fileExists(atPath: cachePath))
+    }
+
+    func testBlocksRefreshSourceListDryRunApplyAndRepeatApplyAreIdempotent() throws {
+        try skipIfBinaryMissing()
+        let root = tempRoot()
+        let sourcePath = "daily/2026/06/2026-06-29.md"
+        try write("""
+        # Today
+
+        Intro stays.
+        /daymark source-list #project/daymark
+        Outro stays.
+        """, relativePath: sourcePath, root: root)
+        try write("""
+        # Daymark Project
+
+        Build local dynamic blocks. #project/daymark
+        """, relativePath: "projects/daymark.md", root: root)
+        try write("""
+        # Generated Only
+
+        <!-- daymark:block-begin abc -->
+        Generated #project/daymark
+        <!-- daymark:block-end abc -->
+        """, relativePath: "projects/generated.md", root: root)
+
+        let original = try read(sourcePath, root: root)
+        let dryRun = try runDaymark(["blocks", "refresh", "--root", root, "--source", sourcePath])
+        XCTAssertEqual(dryRun.status, 0, dryRun.output)
+        XCTAssertTrue(dryRun.output.contains("### Source List: #project/daymark"), dryRun.output)
+        XCTAssertTrue(dryRun.output.contains("- Daymark Project (`projects/daymark.md`)"), dryRun.output)
+        XCTAssertFalse(dryRun.output.contains("Generated Only"), dryRun.output)
+        XCTAssertEqual(try read(sourcePath, root: root), original)
+        let cachePath = "\(root)/.daymark/dynamic-blocks.json"
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cachePath))
+
+        let apply = try runDaymark(["blocks", "refresh", "--root", root, "--source", sourcePath, "--apply"])
+        XCTAssertEqual(apply.status, 0, apply.output)
+        let applied = try read(sourcePath, root: root)
+        XCTAssertTrue(applied.contains("Intro stays."))
+        XCTAssertTrue(applied.contains("/daymark source-list #project/daymark"))
+        XCTAssertTrue(applied.contains("- Daymark Project (`projects/daymark.md`)"))
+        XCTAssertTrue(applied.contains("Outro stays."))
+        XCTAssertEqual(applied.components(separatedBy: "daymark:block-begin").count - 1, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cachePath))
+        let cache = try String(contentsOfFile: cachePath, encoding: .utf8)
+        XCTAssertTrue(cache.contains("\"rendererName\" : \"source-list\""), cache)
+
+        let repeatApply = try runDaymark(["blocks", "refresh", "--root", root, "--source", sourcePath, "--apply"])
+        XCTAssertEqual(repeatApply.status, 0, repeatApply.output)
+        XCTAssertEqual(try read(sourcePath, root: root), applied)
     }
 }

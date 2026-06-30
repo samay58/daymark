@@ -10,17 +10,14 @@ public struct TaskParser {
     public func parse(markdown: String, notePath: String = "") -> [TaskItem] {
         let lines = Self.normalizingNewlines(markdown).components(separatedBy: "\n")
         var tasks: [TaskItem] = []
-        var inFence = false
+        var fence = MarkdownFenceScanner()
         var section: String?
 
         for (index, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
-            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
-                inFence.toggle()
-                continue
-            }
-            if inFence { continue }
+            if fence.consume(trimmedLine: trimmed) { continue }
+            if fence.isInsideFence { continue }
 
             if let heading = Self.headingText(trimmed) {
                 section = heading

@@ -42,6 +42,57 @@ final class NoteProjectionTests: XCTestCase {
         XCTAssertEqual(record?.contentHash, ContentHasher.hash("two"))
     }
 
+    func testReprojectionReplacesTasksThroughTransactionalPath() async throws {
+        let repo = try await makeMigratedRepository()
+        let path = "daily/2026/06/2026-06-28.md"
+        try await repo.projectNote(
+            relativePath: path, title: "v1", content: "a", modifiedAt: nil,
+            blocks: [Block(id: "l1", markdown: "a", lineStart: 1, lineEnd: 1)],
+            tasks: [
+                TaskItem(title: "first", status: .open, notePath: path, lineNumber: 1),
+                TaskItem(title: "second", status: .open, notePath: path, lineNumber: 2)
+            ]
+        )
+        try await repo.projectNote(
+            relativePath: path, title: "v2", content: "b", modifiedAt: nil,
+            blocks: [Block(id: "l1", markdown: "b", lineStart: 1, lineEnd: 1)],
+            tasks: [TaskItem(title: "only", status: .open, notePath: path, lineNumber: 1)]
+        )
+        let noteCount = try await repo.database.noteCount()
+        XCTAssertEqual(noteCount, 1)
+        let taskCount = try await repo.database.taskCount()
+        XCTAssertEqual(taskCount, 1, "reprojection replaces tasks, never appends")
+        let openTitles = try await repo.database.openTasks().map(\.title)
+        XCTAssertEqual(openTitles, ["only"])
+    }
+
+    func testDeleteNoteRemovesNoteBlocksTasksAndSearchRow() async throws {
+        let repo = try await makeMigratedRepository()
+        let path = "daily/2026/06/2026-06-28.md"
+        try await repo.projectNote(
+            relativePath: path, title: "Today", content: "# Today\n- [ ] open task", modifiedAt: nil,
+            blocks: [Block(id: "l1", markdown: "# Today", lineStart: 1, lineEnd: 1)],
+            tasks: [TaskItem(title: "open task", status: .open, notePath: path, lineNumber: 2)]
+        )
+        let beforeNotes = try await repo.database.noteCount()
+        XCTAssertEqual(beforeNotes, 1)
+        let beforeTasks = try await repo.database.taskCount()
+        XCTAssertEqual(beforeTasks, 1)
+        let beforeSearch = try await repo.search("Today")
+        XCTAssertFalse(beforeSearch.isEmpty)
+
+        try await repo.removeNote(relativePath: path)
+
+        let afterNotes = try await repo.database.noteCount()
+        XCTAssertEqual(afterNotes, 0)
+        let afterBlocks = try await repo.database.blockCount()
+        XCTAssertEqual(afterBlocks, 0, "blocks cascade-delete with the note")
+        let afterTasks = try await repo.database.taskCount()
+        XCTAssertEqual(afterTasks, 0, "tasks cascade-delete with the note")
+        let afterSearch = try await repo.search("Today")
+        XCTAssertTrue(afterSearch.isEmpty, "the FTS row is removed in the same transaction")
+    }
+
     func testReplaceBlocksDoesNotAppend() async throws {
         let repo = try await makeMigratedRepository()
         let path = "daily/2026/06/2026-06-28.md"

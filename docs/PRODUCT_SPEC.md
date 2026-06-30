@@ -119,8 +119,7 @@ The composer turns selected messy notes into a previewed implementation spec. No
     context-bundles/
   .daymark/
     daymark.db
-    events.log
-    config.yaml
+    dynamic-blocks.json   (rebuildable render metadata, created on first apply)
     indexes/
     migrations/
 ```

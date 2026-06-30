@@ -80,6 +80,73 @@ final class DynamicBlockTests: XCTestCase {
         XCTAssertFalse(rendered.contains("other project"))
     }
 
+    func testSourceListRendererListsMatchingSourcesInPathOrder() throws {
+        let invocation = DynamicBlockInvocation(
+            sourcePath: "daily/today.md",
+            lineNumber: 1,
+            rawText: "/daymark source-list #project/daymark",
+            command: .sourceList,
+            arguments: ["#project/daymark"],
+            ordinal: 1
+        )
+        let sources = [
+            DynamicBlockSource(title: "Beta", relativePath: "projects/beta.md", tags: ["#project/beta"]),
+            DynamicBlockSource(title: "Today", relativePath: "daily/2026/06/2026-06-29.md", tags: ["#project/daymark"]),
+            DynamicBlockSource(title: "Daymark", relativePath: "projects/daymark.md", tags: ["#project/daymark"])
+        ]
+
+        let rendered = try DynamicBlockRenderer().render(
+            invocation: invocation,
+            tasks: [],
+            sources: sources,
+            referenceDate: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertTrue(rendered.contains("### Source List: #project/daymark"))
+        let todayRange = try XCTUnwrap(rendered.range(of: "- Today (`daily/2026/06/2026-06-29.md`)"))
+        let projectRange = try XCTUnwrap(rendered.range(of: "- Daymark (`projects/daymark.md`)"))
+        XCTAssertLessThan(todayRange.lowerBound, projectRange.lowerBound)
+        XCTAssertFalse(rendered.contains("Beta"))
+    }
+
+    func testSourceListRendererRejectsMalformedArgumentsAndShowsPlainEmptyState() throws {
+        let renderer = DynamicBlockRenderer()
+        let missingArgument = DynamicBlockInvocation(
+            sourcePath: "daily/today.md",
+            lineNumber: 1,
+            rawText: "/daymark source-list",
+            command: .sourceList,
+            ordinal: 1
+        )
+        let empty = try renderer.render(
+            invocation: missingArgument,
+            tasks: [],
+            sources: [],
+            referenceDate: Date(timeIntervalSince1970: 0)
+        )
+        XCTAssertEqual(empty, "### Source List\n\nAdd a tag argument, for example `#project/daymark`.\n")
+
+        let malformed = DynamicBlockInvocation(
+            sourcePath: "daily/today.md",
+            lineNumber: 1,
+            rawText: "/daymark source-list project/daymark",
+            command: .sourceList,
+            arguments: ["project/daymark"],
+            ordinal: 1
+        )
+        XCTAssertThrowsError(try renderer.render(
+            invocation: malformed,
+            tasks: [],
+            sources: [],
+            referenceDate: Date(timeIntervalSince1970: 0)
+        )) { error in
+            XCTAssertEqual(
+                (error as? DynamicBlockError)?.errorDescription,
+                "unsupported argument for source-list: project/daymark"
+            )
+        }
+    }
+
     func testPatchPlanInsertsGeneratedRegionAndThenReplacesItIdempotently() throws {
         let markdown = """
         Before
@@ -94,6 +161,7 @@ final class DynamicBlockTests: XCTestCase {
             markdown: markdown,
             sourcePath: "daily/today.md",
             tasks: tasks,
+            sources: [],
             referenceDate: Date(timeIntervalSince1970: 0)
         )
         XCTAssertEqual(firstPlan.patches.count, 1)
@@ -111,6 +179,7 @@ final class DynamicBlockTests: XCTestCase {
             markdown: firstApplied,
             sourcePath: "daily/today.md",
             tasks: tasks,
+            sources: [],
             referenceDate: Date(timeIntervalSince1970: 0)
         )
         XCTAssertEqual(secondPlan.patches[0].operation, .replacement)

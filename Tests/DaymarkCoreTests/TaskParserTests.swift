@@ -23,6 +23,26 @@ final class TaskParserTests: XCTestCase {
         XCTAssertEqual(tasks[0].status, .completed)
     }
 
+    func testCheckboxesInsideMixedFenceAreNotParsed() {
+        // A backtick fence containing a tilde line must stay open, so the example checkboxes
+        // inside it are not parsed as real tasks (the old toggle-on-any-fence logic leaked them).
+        let markdown = """
+        - [ ] real task
+
+        ```
+        ~~~
+        - [ ] sample inside the fence
+        - [x] also inside the fence
+        ```
+
+        - [ ] another real task
+        """
+
+        let tasks = TaskParser().parse(markdown: markdown)
+
+        XCTAssertEqual(tasks.map(\.title), ["real task", "another real task"])
+    }
+
     func testIgnoresCheckboxesInsideFencedCodeBlocks() {
         let markdown = """
         - [ ] real task

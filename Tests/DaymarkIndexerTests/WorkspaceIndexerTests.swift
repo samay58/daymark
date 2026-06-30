@@ -141,6 +141,40 @@ final class WorkspaceIndexerTests: XCTestCase {
         await db.close()
     }
 
+    func testRebuildPrunesDeletedDailyNotes() async throws {
+        let root = try makeBootstrappedWorkspace()
+        let today = try fixedToday()
+        let yesterday = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: today))
+        let todayURL = DailyNote.fileURL(in: root, for: today, calendar: calendar)
+        let yesterdayURL = DailyNote.fileURL(in: root, for: yesterday, calendar: calendar)
+        try AtomicFileWriter().write("# Today\n\n- [ ] today task\n", to: todayURL)
+        try AtomicFileWriter().write("# Yesterday\n\n- [ ] yesterday task\n", to: yesterdayURL)
+
+        let db = makeDatabase(in: root)
+        try await db.open()
+        _ = try await db.migrate()
+        let indexer = WorkspaceIndexer(root: root, database: db, calendar: calendar)
+        _ = try await indexer.rebuild()
+        let notesBefore = try await db.noteCount()
+        XCTAssertEqual(notesBefore, 2)
+        let openBefore = try await db.openTasks()
+        XCTAssertEqual(openBefore.count, 2)
+
+        try FileManager.default.removeItem(at: yesterdayURL)
+        _ = try await indexer.rebuild()
+
+        let notesAfter = try await db.noteCount()
+        XCTAssertEqual(notesAfter, 1, "the deleted note's projection is pruned")
+        let yesterdayRelative = DailyNote.relativePath(for: yesterday, calendar: calendar)
+        let record = try await db.note(relativePath: yesterdayRelative)
+        XCTAssertNil(record)
+        let openAfter = try await db.openTasks().map(\.title)
+        XCTAssertEqual(openAfter, ["today task"], "the deleted note's open task no longer surfaces")
+        let searchAfter = try await db.search("Yesterday")
+        XCTAssertTrue(searchAfter.isEmpty, "the deleted note's search row is gone")
+        await db.close()
+    }
+
     func testRebuildReconstructsProjectionAfterDatabaseDeleted() async throws {
         let root = try makeBootstrappedWorkspace()
         let store = DailyNoteStore(root: root, calendar: calendar)

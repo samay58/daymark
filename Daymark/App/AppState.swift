@@ -7,6 +7,14 @@ import DaymarkStore
 import DaymarkIndexer
 import DaymarkAgents
 
+/// A Codex task file that has been written, paired with the exact draft it came from.
+/// Bundling the two makes the "task created" phase a single value, so the path and draft
+/// can never disagree.
+struct CreatedCodexTask: Equatable {
+    var relativePath: String
+    var draft: CodexTaskDraft
+}
+
 @MainActor
 @Observable
 final class AppState {
@@ -19,12 +27,22 @@ final class AppState {
     var editorSelection = SelectionModel()
     var codexTaskDraft: CodexTaskDraft?
     var codexTaskMessage: String?
-    var createdCodexTaskRelativePath: String?
     var codexContextBundle: CodexContextBundle?
     var codexContextBundleMessage: String?
     private var codexTaskPathBasis: Set<String> = []
     private var codexTaskDateBasis: Date?
-    private var createdCodexTaskDraft: CodexTaskDraft?
+    /// The created task file and the exact draft it was written from, kept together so the
+    /// "task created" phase cannot be half-set (both-or-neither is unrepresentable).
+    private var createdCodexTask: CreatedCodexTask?
+
+    /// The created task file's path, read by the context-margin view.
+    var createdCodexTaskRelativePath: String? { createdCodexTask?.relativePath }
+
+    /// Whether the current draft / bundle can be written. The views read these instead of
+    /// constructing a file writer just to evaluate button enable state (the predicate is the
+    /// single source of truth, shared with the writers' `validate`).
+    var canCreateCodexTaskFile: Bool { codexTaskDraft?.isWritable ?? false }
+    var canCreateCodexContextBundle: Bool { codexContextBundle?.isWritable ?? false }
 
     /// Local full-text search results for the current command-palette query.
     var searchResults: [SearchHit] = []
@@ -333,7 +351,7 @@ final class AppState {
     // True once a task file has been created, while a bundle is previewed, or when a bundle
     // message needs to stay on screen. Drives whether the right margin shows the bundle panel.
     var showsContextBundlePanel: Bool {
-        createdCodexTaskRelativePath != nil
+        createdCodexTask != nil
             || codexContextBundle != nil
             || codexContextBundleMessage != nil
     }
@@ -436,8 +454,7 @@ final class AppState {
             codexTaskPathBasis.insert(result.relativePath)
             let writtenDraft = codexTaskDraft.withSuggestedFilePath(result.relativePath)
             self.codexTaskDraft = writtenDraft
-            createdCodexTaskDraft = writtenDraft
-            createdCodexTaskRelativePath = result.relativePath
+            createdCodexTask = CreatedCodexTask(relativePath: result.relativePath, draft: writtenDraft)
             codexContextBundle = nil
             codexContextBundleMessage = nil
             codexTaskMessage = "Created \(result.relativePath)"
@@ -459,22 +476,21 @@ final class AppState {
     }
 
     private func clearCodexContextBundleState() {
-        createdCodexTaskRelativePath = nil
-        createdCodexTaskDraft = nil
+        createdCodexTask = nil
         codexContextBundle = nil
         codexContextBundleMessage = nil
     }
 
     func previewCodexContextBundle() {
-        guard let createdCodexTaskDraft, let createdCodexTaskRelativePath else {
+        guard let createdCodexTask else {
             codexContextBundle = nil
             codexContextBundleMessage = "Create a task file before previewing a context bundle."
             return
         }
         let existingPaths = workspaceRoot.existingMarkdownRelativePaths(under: "artifacts/context-bundles")
         codexContextBundle = CodexContextBundle.from(
-            draft: createdCodexTaskDraft,
-            taskRelativePath: createdCodexTaskRelativePath,
+            draft: createdCodexTask.draft,
+            taskRelativePath: createdCodexTask.relativePath,
             date: Date(),
             existingRelativePaths: existingPaths
         )

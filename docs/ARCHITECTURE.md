@@ -37,34 +37,36 @@ DaymarkCore
   Blocks
   Tasks
   Slip and capture
-  Support (atomic writes, hashing)
-  Rollover engine
-  Dynamic block engine
-  Codex task drafting
+  Support (atomic writes, hashing, Markdown fence scanning)
+  Rollover planner (pure)
+  Dynamic block engine (parser, renderer, patch planner, cache)
+  Codex task drafting and parsing
 
 DaymarkStore
   SQLite connection
   Migrations
   Repositories
   FTS index
-  Event log
+  Atomic note projection (one transaction per note)
+  Event log (planned; declares the event vocabulary only, no table yet)
 
 DaymarkIndexer
   File watcher
   Markdown parser
   Block hashing
-  Incremental indexing
+  DailyMarkdownProjectionReader (the single daily-Markdown projection path)
+  Incremental indexing and rebuild-with-prune
+  Rollover execution (TaskRolloverEngine)
   External edit reconciliation
 
 DaymarkAgents
-  Future source selection
-  Future prompt assembly
-  Preview generation
-  Approval workflow
-  Agent run storage
+  Source selection (implemented)
+  Deterministic Codex draft preview (implemented; no model or prompt calls)
+  Approval workflow (implemented for Codex handoff)
+  Agent run storage (placeholder; not implemented)
 
 daymark
-  CLI commands: doctor, init, index, rebuild, capture, search, today
+  CLI commands: see README.md and `daymark help` for the full list.
 ```
 
 ## Data Flow: Typing
@@ -73,9 +75,8 @@ daymark
 User types
 -> editor buffer updates immediately
 -> debounced autosave writes Markdown atomically
--> event recorded
 -> background parser updates blocks/tasks
--> SQLite projections update
+-> SQLite projection updates atomically (one transaction per note)
 -> dependent views refresh
 ```
 
@@ -102,12 +103,18 @@ User selects text
 -> composer generates structured task preview
 -> user edits or approves
 -> Daymark writes Markdown file in specs/tasks/
--> Daymark records event
--> Daymark adds optional backlink to Today if approved
 ```
 
-## Initial SQLite Schema
+The source note is not modified by task creation. A backlink-to-Today write is planned and
+parked (see `docs/PARKING_LOT.md`); it would be a separate, explicit, approved write.
 
-The first schema should include notes, blocks, tasks, rollovers, entities, block_entities, dynamic_blocks, source_items, agent_runs, events, and an FTS5 note index.
+## SQLite Schema
+
+Implemented today (migrations `001`-`004` plus `schema_migrations`): `notes`, `blocks`,
+`notes_fts` (FTS5), `tasks`, `rollovers`.
+
+Planned but not built: `entities`, `block_entities`, `source_items`, `agent_runs`, `events`.
+The dynamic block cache is a rebuildable JSON file (`.daymark/dynamic-blocks.json`, ADR-010),
+not a SQLite table.
 
 SQLite is an index and projection. Markdown remains the source of truth.

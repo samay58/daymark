@@ -82,13 +82,7 @@ public struct CodexContextBundle: Equatable, Sendable {
         ]
 
         if !clean(sourceExcerpt).isEmpty {
-            sections.append("""
-            ## Source Excerpt
-
-            ```md
-            \(clean(sourceExcerpt))
-            ```
-            """)
+            sections.append("## Source Excerpt\n\n" + MarkdownCodeFence.wrap(clean(sourceExcerpt), info: "md"))
         }
 
         let cleanConstraints = CodexTaskDraft.cleanedListItems(constraints)
@@ -126,6 +120,29 @@ public struct CodexContextBundle: Equatable, Sendable {
         let datePrefix = dateFormatter(calendar: calendar).string(from: date)
         let slug = CodexTaskDraft.slugify(title)
         return "artifacts/context-bundles/\(datePrefix)-\(slug.isEmpty ? "codex-task" : slug)-context.md"
+    }
+
+    /// Whether the bundle has the content and valid paths required to write a file. The
+    /// writer's validate() derives its granular errors from the same checks.
+    public var isWritable: Bool {
+        hasRequiredContent
+            && CodexTaskDraft.isTaskPath(taskRelativePath)
+            && Self.isBundlePath(suggestedFilePath)
+    }
+
+    public var hasRequiredContent: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !taskRelativePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !sourcePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !sourceExcerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public static func isBundlePath(_ path: String) -> Bool {
+        path.hasPrefix("artifacts/context-bundles/")
+            && path.hasSuffix(".md")
+            && !path.contains("..")
+            && !path.hasPrefix("/")
     }
 
     public func withSuggestedFilePath(_ relativePath: String) -> CodexContextBundle {
@@ -207,14 +224,9 @@ public struct CodexContextBundleWriter {
     }
 
     public func validate(_ bundle: CodexContextBundle) throws {
-        guard !bundle.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !bundle.taskRelativePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !bundle.goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !bundle.sourcePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !bundle.sourceExcerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw Error.blankBundle
-        }
-        guard isTaskPath(bundle.taskRelativePath), isBundlePath(bundle.suggestedFilePath) else {
+        guard bundle.hasRequiredContent else { throw Error.blankBundle }
+        guard CodexTaskDraft.isTaskPath(bundle.taskRelativePath),
+              CodexContextBundle.isBundlePath(bundle.suggestedFilePath) else {
             throw Error.invalidPath
         }
     }
@@ -222,7 +234,7 @@ public struct CodexContextBundleWriter {
     public func write(_ bundle: CodexContextBundle, root: WorkspaceRoot) throws -> CodexContextBundleWriteResult {
         try validate(bundle)
         let relativePath = collisionSafePath(preferredPath: bundle.suggestedFilePath, root: root)
-        guard isBundlePath(relativePath) else { throw Error.invalidPath }
+        guard CodexContextBundle.isBundlePath(relativePath) else { throw Error.invalidPath }
         let fileURL = root.expandedURL.appendingPathComponent(relativePath)
         let finalBundle = bundle.withSuggestedFilePath(relativePath)
         try atomicWriter.write(finalBundle.markdown(), to: fileURL, fileManager: fileManager)
@@ -234,19 +246,5 @@ public struct CodexContextBundleWriter {
             preferredPath: preferredPath,
             existingRelativePaths: root.existingMarkdownRelativePaths(under: "artifacts/context-bundles", fileManager: fileManager)
         )
-    }
-
-    private func isBundlePath(_ path: String) -> Bool {
-        path.hasPrefix("artifacts/context-bundles/")
-            && path.hasSuffix(".md")
-            && !path.contains("..")
-            && !path.hasPrefix("/")
-    }
-
-    private func isTaskPath(_ path: String) -> Bool {
-        path.hasPrefix("specs/tasks/")
-            && path.hasSuffix(".md")
-            && !path.contains("..")
-            && !path.hasPrefix("/")
     }
 }

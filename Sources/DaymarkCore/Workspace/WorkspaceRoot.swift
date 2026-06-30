@@ -38,6 +38,28 @@ public struct WorkspaceRoot: Equatable, Sendable {
         return Set(files.filter { $0.pathExtension == "md" }.map { "\(subdirectory)/\($0.lastPathComponent)" })
     }
 
+    /// Resolves a user-supplied source path that must live inside the workspace, returning
+    /// the resolved file URL and its canonical workspace-relative path. Absolute paths and
+    /// `..` escapes that canonicalize outside the workspace root are rejected, so a command
+    /// that writes back into its source (for example `daymark blocks refresh --apply`) can
+    /// never mutate a file outside `~/phoenix`. The file is not required to exist; this is a
+    /// pure containment check that callers run before their own existence check.
+    public func containedFile(_ path: String) throws -> (url: URL, relativePath: String) {
+        let rootURL = expandedURL.resolvingSymlinksInPath()
+        let rootPath = rootURL.path
+        let expandedInput = (path as NSString).expandingTildeInPath
+        let candidate = expandedInput.hasPrefix("/")
+            ? URL(fileURLWithPath: expandedInput)
+            : rootURL.appendingPathComponent(expandedInput)
+        let resolved = candidate.standardizedFileURL.resolvingSymlinksInPath()
+        let resolvedPath = resolved.path
+        guard resolvedPath == rootPath || resolvedPath.hasPrefix(rootPath + "/") else {
+            throw WorkspacePathError.outsideWorkspace(path)
+        }
+        let relativePath = resolvedPath == rootPath ? "" : String(resolvedPath.dropFirst(rootPath.count + 1))
+        return (resolved, relativePath)
+    }
+
     public static let environmentOverrideKey = "DAYMARK_WORKSPACE_ROOT"
 
     /// Resolves the workspace root with precedence: explicit override, then the
@@ -53,5 +75,16 @@ public struct WorkspaceRoot: Equatable, Sendable {
             return WorkspaceRoot(path: env)
         }
         return .defaultWorkspace
+    }
+}
+
+public enum WorkspacePathError: LocalizedError, Equatable {
+    case outsideWorkspace(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .outsideWorkspace(let path):
+            return "source path is outside the workspace: \(path)"
+        }
     }
 }

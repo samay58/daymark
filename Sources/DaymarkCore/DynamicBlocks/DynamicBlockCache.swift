@@ -56,7 +56,10 @@ public struct DynamicBlockCacheStore {
 
         let stamp = Self.timestamp(from: refreshedAt)
         let existing = (try? read(root: root)) ?? []
-        var recordsByKey = Dictionary(uniqueKeysWithValues: existing.map { (Self.key(for: $0), $0) })
+        // Collapse duplicate keys last-wins rather than trapping: an externally corrupted
+        // or hand-merged cache file can contain duplicate (sourcePath, commandHash) records,
+        // and `Dictionary(uniqueKeysWithValues:)` would fatalError on those.
+        var recordsByKey = Dictionary(existing.map { (Self.key(for: $0), $0) }, uniquingKeysWith: { _, latest in latest })
         for patch in patches {
             let record = DynamicBlockCacheRecord(
                 sourcePath: patch.targetFilePath,

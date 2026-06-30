@@ -9,37 +9,30 @@ public struct WorkspaceIndexer {
     public let root: WorkspaceRoot
     public let database: Database
     public let calendar: Calendar
-    private let parser = MarkdownParser()
-    private let taskParser = TaskParser()
+    private let reader: DailyMarkdownProjectionReader
 
     public init(root: WorkspaceRoot, database: Database, calendar: Calendar = .current) {
         self.root = root
         self.database = database
         self.calendar = calendar
+        self.reader = DailyMarkdownProjectionReader(root: root)
     }
 
-    /// Reads a workspace-relative Markdown file, parses it into blocks, and upserts the
-    /// projection. Returns false when the file does not exist. Never appends on reindex.
+    /// Reads a workspace-relative Markdown file, parses it into blocks and tasks, and upserts
+    /// the projection. Returns false when the file does not exist. Never appends on reindex.
     @discardableResult
     public func indexFile(relativePath: String, fileManager: FileManager = .default) async throws -> Bool {
-        let url = root.expandedURL.appendingPathComponent(relativePath)
-        guard fileManager.fileExists(atPath: url.path) else { return false }
-
-        let content = try String(contentsOf: url, encoding: .utf8)
-        let attributes = try? fileManager.attributesOfItem(atPath: url.path)
-        let modifiedAt = attributes?[.modificationDate] as? Date
-
+        guard let projection = try reader.projection(relativePath: relativePath, fileManager: fileManager) else {
+            return false
+        }
         let repository = NoteRepository(database: database)
         try await repository.projectNote(
-            relativePath: relativePath,
-            title: parser.title(from: content),
-            content: content,
-            modifiedAt: modifiedAt,
-            blocks: parser.blocks(from: content),
-            tasks: taskParser.parse(
-                markdown: DynamicBlockRegion.removingGeneratedRegions(from: content),
-                notePath: relativePath
-            )
+            relativePath: projection.relativePath,
+            title: projection.title,
+            content: projection.content,
+            modifiedAt: projection.modifiedAt,
+            blocks: projection.blocks,
+            tasks: projection.tasks
         )
         return true
     }
@@ -50,42 +43,28 @@ public struct WorkspaceIndexer {
         _ = try await indexFile(relativePath: relativePath, fileManager: fileManager)
     }
 
-    /// Reprojects every daily Markdown file under `daily/`. Returns the number of files
-    /// indexed. Safe to run against a fresh database to reconstruct the full projection.
+    /// Reprojects every daily Markdown file under `daily/` and prunes index rows whose
+    /// Markdown file no longer exists, so the projection matches the files on disk. Returns
+    /// the number of files indexed. Safe to run against a fresh database.
     @discardableResult
     public func rebuild(fileManager: FileManager = .default) async throws -> Int {
-        let dailyRoot = root.expandedURL.appendingPathComponent("daily", isDirectory: true)
+        let onDisk = reader.dailyRelativePaths(fileManager: fileManager)
         var indexed = 0
-        for url in Self.markdownFiles(under: dailyRoot, fileManager: fileManager) {
-            let relativePath = Self.relativePath(of: url, under: root)
+        for relativePath in onDisk {
             if try await indexFile(relativePath: relativePath, fileManager: fileManager) {
                 indexed += 1
             }
         }
+
+        // Reconcile: drop projections for daily notes deleted from disk so stale tasks
+        // (and search rows) cannot resurface. The on-disk set and the stored rel_paths
+        // share one relative-path computation (the reader), so the keys match exactly.
+        let onDiskSet = Set(onDisk)
+        let repository = NoteRepository(database: database)
+        for indexedPath in try await database.noteRelativePaths()
+        where indexedPath.hasPrefix("daily/") && !onDiskSet.contains(indexedPath) {
+            try await repository.removeNote(relativePath: indexedPath)
+        }
         return indexed
-    }
-
-    // MARK: - Helpers
-
-    private static func markdownFiles(under directory: URL, fileManager: FileManager) -> [URL] {
-        guard let enumerator = fileManager.enumerator(at: directory, includingPropertiesForKeys: nil) else {
-            return []
-        }
-        var results: [URL] = []
-        for case let url as URL in enumerator where url.pathExtension == "md" {
-            results.append(url)
-        }
-        return results.sorted { $0.path < $1.path }
-    }
-
-    private static func relativePath(of url: URL, under root: WorkspaceRoot) -> String {
-        // Resolve symlinks on both sides so temp roots like /var -> /private/var,
-        // which the directory enumerator canonicalizes, still strip cleanly.
-        let rootPath = root.expandedURL.resolvingSymlinksInPath().path
-        let filePath = url.resolvingSymlinksInPath().path
-        if filePath.hasPrefix(rootPath + "/") {
-            return String(filePath.dropFirst(rootPath.count + 1))
-        }
-        return url.lastPathComponent
     }
 }

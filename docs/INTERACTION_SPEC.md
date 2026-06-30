@@ -1,5 +1,9 @@
 # Interaction Spec
 
+This is a target design spec describing intended interactions. Not every surface listed here
+is built yet. For what is implemented today, see `docs/ROADMAP.md` and the
+`## WHERE WE LEFT OFF` block in `docs/PROGRESS.md`.
+
 ## App Launch
 
 On launch:

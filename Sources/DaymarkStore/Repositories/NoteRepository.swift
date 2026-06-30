@@ -1,8 +1,9 @@
 import Foundation
 import DaymarkCore
 
-/// Ergonomic projection facade over `Database`. Projects a Markdown note into its
-/// note row and block rows as one logical operation, and exposes local search.
+/// Ergonomic projection facade over `Database`. Projects a Markdown note into its note
+/// row, search index, blocks, and tasks as one atomic operation, and exposes local search.
+/// The multi-table consistency boundary lives in `Database.replaceNoteProjection`, not here.
 public struct NoteRepository {
     public let database: Database
 
@@ -18,14 +19,14 @@ public struct NoteRepository {
         blocks: [Block],
         tasks: [TaskItem] = []
     ) async throws {
-        let id = try await database.upsertNote(
+        try await database.replaceNoteProjection(
             relativePath: relativePath,
             title: title,
             content: content,
-            modifiedAt: modifiedAt
+            modifiedAt: modifiedAt,
+            blocks: blocks,
+            tasks: tasks
         )
-        try await database.replaceBlocks(noteID: id, blocks: blocks)
-        try await database.replaceTasks(noteID: id, tasks: tasks)
     }
 
     public func removeNote(relativePath: String) async throws {

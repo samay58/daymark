@@ -4,7 +4,7 @@ Daymark is a high-craft, local-first macOS workspace centered on today's Markdow
 
 ## Status
 
-Milestones 0 (taste prototype), 1 (local workspace), 2 (Slip and capture), 3 (Tasks and Open Loops), and 4 (Codex Handoff) are complete. Milestone 5 is active. Tasks are parsed and projected into a rebuildable SQLite index, incomplete prior-day tasks roll forward into Today without duplicates, `daymark open-loops` and the in-app Open Loops view list open tasks read-only, and `daymark end-of-day` lists today's still-open tasks. Codex Handoff can preview and write one Codex task file from selected note text, edit the draft in app before approval, then preview and approve one context bundle from the created task file. The CLI also supports task and bundle dry-runs plus `--apply`. Dynamic Blocks now support visible `/daymark open-loops` commands with dry-run preview, explicit apply, and rebuildable `.daymark` render metadata. See `docs/PROGRESS.md` for the current state and `docs/ROADMAP.md` for the plan.
+Milestones 0 (taste prototype), 1 (local workspace), 2 (Slip and capture), 3 (Tasks and Open Loops), and 4 (Codex Handoff) are complete. Milestone 5 is active. Tasks are parsed and projected into a rebuildable SQLite index, incomplete prior-day tasks roll forward into Today without duplicates, `daymark open-loops` and the in-app Open Loops view list open tasks read-only, and `daymark end-of-day` lists today's still-open tasks. Codex Handoff can preview and write one Codex task file from selected note text, edit the draft in app before approval, then preview and approve one context bundle from the created task file. The CLI also supports task and bundle dry-runs plus `--apply`. Dynamic Blocks now support visible `/daymark open-loops` and `/daymark source-list #tag` commands with dry-run preview, explicit apply, and rebuildable `.daymark` render metadata. See `docs/PROGRESS.md` for the current state and `docs/ROADMAP.md` for the plan.
 
 ## Build and run
 
@@ -41,6 +41,8 @@ daymark context-bundle --task specs/tasks/2026-06-29-example.md
 daymark context-bundle --task specs/tasks/2026-06-29-example.md --apply
 daymark blocks refresh --source daily/2026/06/2026-06-29.md
 daymark blocks refresh --source daily/2026/06/2026-06-29.md --apply
+# In a note, write: /daymark source-list #project/daymark
+# Then preview or apply with the same blocks refresh command.
 ```
 
 ## Layout

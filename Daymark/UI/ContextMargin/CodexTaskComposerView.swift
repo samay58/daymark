@@ -4,6 +4,7 @@ import DaymarkCore
 struct CodexTaskComposerView: View {
     let draft: CodexTaskDraft?
     let message: String?
+    let canCreate: Bool
     var onTitleChange: (String) -> Void
     var onGoalChange: (String) -> Void
     var onConstraintsChange: (String) -> Void
@@ -45,8 +46,8 @@ struct CodexTaskComposerView: View {
                 Button("Create Task File", action: onCreate)
                     .buttonStyle(PrimaryButtonStyle())
                     .frame(maxWidth: .infinity)
-                    .disabled(!canCreate(draft))
-                    .opacity(canCreate(draft) ? 1 : 0.55)
+                    .disabled(!canCreate)
+                    .opacity(canCreate ? 1 : 0.55)
                 Button("Cancel", action: onCancel)
                     .buttonStyle(QuietButtonStyle())
                     .frame(maxWidth: .infinity)
@@ -70,16 +71,6 @@ struct CodexTaskComposerView: View {
             }
     }
 
-    private func canCreate(_ draft: CodexTaskDraft?) -> Bool {
-        guard let draft else { return false }
-        do {
-            try CodexTaskFileWriter().validate(draft)
-            return true
-        } catch {
-            return false
-        }
-    }
-
     private func editorIdentity(for draft: CodexTaskDraft) -> String {
         [
             draft.sourcePath,
@@ -95,6 +86,7 @@ struct CodexContextBundlePreviewView: View {
     let taskRelativePath: String?
     let bundle: CodexContextBundle?
     let message: String?
+    let canCreate: Bool
     var onPreview: () -> Void
     var onCreate: () -> Void
     var onCancel: () -> Void
@@ -135,8 +127,8 @@ struct CodexContextBundlePreviewView: View {
                     Button("Create Context Bundle", action: onCreate)
                         .buttonStyle(PrimaryButtonStyle())
                         .frame(maxWidth: .infinity)
-                        .disabled(!canCreate(bundle))
-                        .opacity(canCreate(bundle) ? 1 : 0.55)
+                        .disabled(!canCreate)
+                        .opacity(canCreate ? 1 : 0.55)
                     Button("Cancel", action: onCancel)
                         .buttonStyle(QuietButtonStyle())
                         .frame(maxWidth: .infinity)
@@ -144,16 +136,6 @@ struct CodexContextBundlePreviewView: View {
             }
         }
         .marginPanel()
-    }
-
-    private func canCreate(_ bundle: CodexContextBundle?) -> Bool {
-        guard let bundle else { return false }
-        do {
-            try CodexContextBundleWriter().validate(bundle)
-            return true
-        } catch {
-            return false
-        }
     }
 }
 

@@ -36,6 +36,18 @@ public struct DynamicBlockInvocation: Equatable, Sendable {
     }
 }
 
+public struct DynamicBlockSource: Equatable, Sendable {
+    public var title: String
+    public var relativePath: String
+    public var tags: [String]
+
+    public init(title: String, relativePath: String, tags: [String]) {
+        self.title = title
+        self.relativePath = relativePath
+        self.tags = tags
+    }
+}
+
 public enum DynamicBlockError: LocalizedError, Equatable {
     case unsupportedCommand(name: String, line: Int)
     case unsupportedRenderer(DynamicBlockCommand)
@@ -62,15 +74,12 @@ public struct DynamicBlockParser: Sendable {
     public func parse(markdown: String, sourcePath: String) throws -> [DynamicBlockInvocation] {
         let lines = Self.normalized(markdown).components(separatedBy: "\n")
         var invocations: [DynamicBlockInvocation] = []
-        var inFence = false
+        var fence = MarkdownFenceScanner()
 
         for (index, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
-                inFence.toggle()
-                continue
-            }
-            if inFence { continue }
+            if fence.consume(trimmedLine: trimmed) { continue }
+            if fence.isInsideFence { continue }
 
             let parts = trimmed.split { $0 == " " || $0 == "\t" }.map(String.init)
             guard parts.first == "/daymark" else { continue }
@@ -105,6 +114,7 @@ public struct DynamicBlockRenderer: Sendable {
     public func render(
         invocation: DynamicBlockInvocation,
         tasks: [TaskItem],
+        sources: [DynamicBlockSource] = [],
         referenceDate: Date,
         calendar: Calendar = .current
     ) throws -> String {
@@ -116,7 +126,9 @@ public struct DynamicBlockRenderer: Sendable {
                 referenceDate: referenceDate,
                 calendar: calendar
             )
-        case .sourceList, .codexContext, .weeklyReview:
+        case .sourceList:
+            return try renderSourceList(invocation: invocation, sources: sources)
+        case .codexContext, .weeklyReview:
             throw DynamicBlockError.unsupportedRenderer(invocation.command)
         }
     }
@@ -159,6 +171,39 @@ public struct DynamicBlockRenderer: Sendable {
 
         return lines.joined(separator: "\n") + "\n"
     }
+
+    private func renderSourceList(
+        invocation: DynamicBlockInvocation,
+        sources: [DynamicBlockSource]
+    ) throws -> String {
+        guard let tag = invocation.arguments.first else {
+            return "### Source List\n\nAdd a tag argument, for example `#project/daymark`.\n"
+        }
+        guard tag.hasPrefix("#"), invocation.arguments.count == 1 else {
+            let argument = invocation.arguments.first(where: { !$0.hasPrefix("#") })
+                ?? invocation.arguments.dropFirst().first
+                ?? tag
+            throw DynamicBlockError.unsupportedArgument(command: invocation.command, argument: argument)
+        }
+
+        let matches = sources
+            .filter { $0.tags.contains(tag) }
+            .sorted { lhs, rhs in
+                if lhs.relativePath == rhs.relativePath { return lhs.title < rhs.title }
+                return lhs.relativePath < rhs.relativePath
+            }
+
+        var lines = ["### Source List: \(tag)", ""]
+        guard !matches.isEmpty else {
+            lines.append("No sources found for \(tag).")
+            return lines.joined(separator: "\n") + "\n"
+        }
+
+        for source in matches {
+            lines.append("- \(source.title) (`\(source.relativePath)`)")
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
 }
 
 public enum DynamicBlockPatchOperation: Equatable, Sendable {
@@ -185,6 +230,10 @@ public struct DynamicBlockPatchPlan: Equatable, Sendable {
     public var patches: [DynamicBlockPatch]
 
     public func apply(to markdown: String) throws -> String {
+        // Patch on LF internally, but re-emit with the file's existing dominant line
+        // ending so untouched lines outside the generated region are never silently
+        // rewritten (a CRLF note stays CRLF; an LF note stays LF).
+        let lineEnding = markdown.contains("\r\n") ? "\r\n" : "\n"
         var lines = DynamicBlockParser.normalized(markdown).components(separatedBy: "\n")
         for patch in patches.sorted(by: { $0.startLineIndex > $1.startLineIndex }) {
             let replacementLines = patch.replacementMarkdown.components(separatedBy: "\n")
@@ -195,7 +244,7 @@ public struct DynamicBlockPatchPlan: Equatable, Sendable {
                 lines.replaceSubrange(patch.startLineIndex...patch.endLineIndex, with: replacementLines)
             }
         }
-        return lines.joined(separator: "\n")
+        return lines.joined(separator: lineEnding)
     }
 }
 
@@ -212,6 +261,7 @@ public struct DynamicBlockPatchPlanner: Sendable {
         markdown: String,
         sourcePath: String,
         tasks: [TaskItem],
+        sources: [DynamicBlockSource] = [],
         referenceDate: Date,
         calendar: Calendar = .current
     ) throws -> DynamicBlockPatchPlan {
@@ -224,6 +274,7 @@ public struct DynamicBlockPatchPlanner: Sendable {
             let generated = try renderer.render(
                 invocation: invocation,
                 tasks: tasks,
+                sources: sources,
                 referenceDate: referenceDate,
                 calendar: calendar
             )
@@ -231,8 +282,11 @@ public struct DynamicBlockPatchPlanner: Sendable {
             let commandIndex = invocation.lineNumber - 1
             let regionStart = commandIndex + 1
 
-            if regionStart < lines.count, Self.isBeginMarker(lines[regionStart]) {
-                guard let regionEnd = Self.endMarkerIndex(startingAt: regionStart, in: lines) else {
+            if regionStart < lines.count, let beginHash = GeneratedRegionMarker.beginHash(in: lines[regionStart]) {
+                // Bound the region by the existing begin marker's hash, not the new
+                // invocation hash: editing the command text changes the invocation hash,
+                // and the in-place region must still be found and replaced.
+                guard let regionEnd = GeneratedRegionMarker.endIndex(afterBegin: regionStart, hash: beginHash, in: lines) else {
                     throw DynamicBlockError.missingGeneratedRegionEnd(line: regionStart + 1)
                 }
                 patches.append(DynamicBlockPatch(
@@ -269,48 +323,63 @@ public struct DynamicBlockPatchPlanner: Sendable {
     static func generatedRegion(hash: String, markdown: String) -> String {
         let body = markdown.trimmingCharacters(in: .newlines)
         return """
-        <!-- daymark:block-begin \(hash) -->
+        \(GeneratedRegionMarker.begin(hash: hash))
         \(body)
-        <!-- daymark:block-end \(hash) -->
+        \(GeneratedRegionMarker.end(hash: hash))
         """
     }
+}
 
-    private static func isBeginMarker(_ line: String) -> Bool {
-        line.trimmingCharacters(in: .whitespaces).hasPrefix("<!-- daymark:block-begin ")
-    }
+/// Parses and builds the HTML-comment markers that wrap a generated dynamic-block region
+/// (ADR-009). Pairing is hash-aware so an unrelated or shorter-hash end marker cannot be
+/// mistaken for a region's close.
+enum GeneratedRegionMarker {
+    static let beginPrefix = "<!-- daymark:block-begin "
+    static let endPrefix = "<!-- daymark:block-end "
 
-    private static func isEndMarker(_ line: String) -> Bool {
-        line.trimmingCharacters(in: .whitespaces).hasPrefix("<!-- daymark:block-end ")
-    }
+    static func begin(hash: String) -> String { "\(beginPrefix)\(hash) -->" }
+    static func end(hash: String) -> String { "\(endPrefix)\(hash) -->" }
 
-    private static func endMarkerIndex(startingAt start: Int, in lines: [String]) -> Int? {
-        guard start < lines.count else { return nil }
-        for index in start..<lines.count where isEndMarker(lines[index]) {
+    static func beginHash(in line: String) -> String? { hash(in: line, prefix: beginPrefix) }
+    static func endHash(in line: String) -> String? { hash(in: line, prefix: endPrefix) }
+
+    /// The first end marker after `beginIndex` carrying `hash`, or nil if none exists.
+    static func endIndex(afterBegin beginIndex: Int, hash: String, in lines: [String]) -> Int? {
+        guard beginIndex + 1 <= lines.count else { return nil }
+        for index in (beginIndex + 1)..<lines.count where endHash(in: lines[index]) == hash {
             return index
         }
         return nil
     }
+
+    private static func hash(in line: String, prefix: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix(prefix) else { return nil }
+        let remainder = trimmed.dropFirst(prefix.count)
+        let token = remainder.split(whereSeparator: { $0 == " " }).first.map(String.init)
+        return (token?.isEmpty == false) ? token : nil
+    }
 }
 
 public enum DynamicBlockRegion {
+    /// Removes only COMPLETE generated regions: a begin marker that has a matching end
+    /// marker with the same hash. A begin marker with no matching end (a malformed or
+    /// hand-edited region) is preserved verbatim along with everything after it, so a
+    /// stray marker can never silently drop following real tasks from the projection.
     public static func removingGeneratedRegions(from markdown: String) -> String {
         let lines = DynamicBlockParser.normalized(markdown).components(separatedBy: "\n")
         var kept: [String] = []
-        var skipping = false
+        var index = 0
 
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("<!-- daymark:block-begin ") {
-                skipping = true
+        while index < lines.count {
+            let line = lines[index]
+            if let beginHash = GeneratedRegionMarker.beginHash(in: line),
+               let endIndex = GeneratedRegionMarker.endIndex(afterBegin: index, hash: beginHash, in: lines) {
+                index = endIndex + 1
                 continue
             }
-            if trimmed.hasPrefix("<!-- daymark:block-end ") {
-                skipping = false
-                continue
-            }
-            if !skipping {
-                kept.append(line)
-            }
+            kept.append(line)
+            index += 1
         }
 
         return kept.joined(separator: "\n")

@@ -68,7 +68,11 @@ Daymark needs readable local files and fast operational projections.
 
 ### Decision
 
-Markdown in `~/phoenix` is the source of truth. SQLite in `~/phoenix/.daymark` is the local index, event log, task projection, dynamic block cache, and search store.
+Markdown in `~/phoenix` is the source of truth. SQLite in `~/phoenix/.daymark` is the local index, task projection, and FTS search store.
+
+### Amendment (2026-06-29)
+
+The original wording also listed SQLite as the "event log" and "dynamic block cache". Neither is implemented that way, and the cache claim conflicts with ADR-010. Corrected to match the code: the dynamic block cache is a rebuildable JSON file (`.daymark/dynamic-blocks.json`, ADR-010), not a SQLite table; an event log is planned but not built (`EventLog` declares the event vocabulary only). The amendment follows the in-place ADR-005 precedent rather than a superseding ADR, because this is a factual correction, not a new decision.
 
 ### Risks
 

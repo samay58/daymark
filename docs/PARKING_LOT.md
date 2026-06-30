@@ -38,11 +38,25 @@ Good ideas that are not part of the current milestone belong here.
 - Source-note backlink: not built in Milestone 4 because task files and context bundles already include source path, line or block, and excerpt. Backlinking should be a separate explicit approval and idempotent if real use proves the source note needs a return link.
 - Existing task-file bundle picker: the app can create a bundle after it creates a task file in the composer. It does not yet open an arbitrary existing task file from `specs/tasks/` for bundle creation.
 - Strong duplicate detection: repeated approvals create `-2`, `-3`, and later suffixes instead of overwriting. A future source-indexed duplicate warning can be added after the basic flow is used.
-- Created-task receipt as one value: `AppState` holds `createdCodexTaskDraft` and `createdCodexTaskRelativePath` as a pair that is always set and cleared together. Collapsing them into a single `CreatedCodexTask` value would make the both-or-neither state unrepresentable. Deferred from the closeout consolidation to avoid churning a freshly verified state machine; do it as a small, test-guarded change.
+- Created-task receipt as one value: done (2026-06-29 hardening pass). `AppState` now holds a single `CreatedCodexTask` value (relative path plus the exact draft) instead of two parallel optionals, so the both-or-neither state is unrepresentable. Button enable-state moved to `CodexTaskDraft.isWritable` / `CodexContextBundle.isWritable` so the views no longer instantiate file writers just to validate.
 - CLI test harness survives the dual-`@main` relink: `swift test --filter CommandTests` corrupts the `daymark` binary and every spawned-process test times out, so the only reliable run is `xcrun xctest` against the prebuilt bundle. Options to make the standard `swift test` invocation safe: have `runDaymark` fail fast when the binary is not a working CLI, or restructure so the two executables do not collide on `@main` during the test link.
 
 ## Milestone 5 follow-ups
 
 - App refresh affordance: not built in the first slice. Keep automatic app refresh parked until the CLI/domain path has proven safe and useful.
-- Additional renderers: `source-list`, `codex-context`, and `weekly-review` parse as known commands but do not render yet. Build one renderer at a time with preview and idempotency tests.
+- Additional renderers: `codex-context` and `weekly-review` parse as known commands but do not render yet. `source-list` shipped as the second deterministic renderer on 2026-06-29. Build the remaining renderers one at a time with preview and idempotency tests.
 - Broader tag filtering: the first slice supports exact task tag arguments such as `/daymark open-loops #deal/acme`. More expressive filters should wait for real note examples.
+
+## Hardening pass follow-ups (2026-06-29)
+
+- App rollover preview and approval: the app still auto-applies rollover into Today on launch (`AppState.runRolloverIfSafe`, `apply: true`). This is in tension with the "generated actions are previewed before execution" invariant (`docs/ACCEPTANCE_CRITERIA.md`), but it is also how the app satisfies the Milestone 3 criterion "incomplete tasks from yesterday roll forward". Removing the auto-apply was considered during the hardening pass and reverted, because removing it without a preview/approval surface (out of M5 scope) would regress that M3 behavior in the app. The deliberate fix is to add an in-app rollover preview/approval surface and then move the launch path to preview-only; treat as its own product decision with an ADR. The CLI already models the explicit path (`daymark rollover` previews, `--apply` writes).
+- CLI test support extraction: a shared `CLITestSupport.swift` would dedup the binary discovery, temp-root, process-launch, and file helpers copied across the six `*CommandTests`. Deferred this pass: a shared `runDaymark` on an `XCTestCase` extension collides (overload ambiguity) with the per-file private `runDaymark`, so it forces migrating all six files at once. Do it as its own change that migrates every command-test file together.
+- CLI command extraction: `Sources/daymark/DaymarkCLI.swift` is a ~1000-line god struct with one shared `CommandError`. Extracting per-command files (starting with the Dynamic Blocks command) is a new structural pattern; land it as its own ADR-recorded change rather than folding it into a behavior-hardening pass, and keep printed strings and exit codes byte-identical.
+- Per-command argument-parse helpers: the `--date` / `--apply` parse loops repeat across five command parsers. Extract a small shared arg helper after the per-command-file pattern exists.
+- Preview-basis grouping: `AppState.codexTaskPathBasis` and `codexTaskDateBasis` are loose siblings of the active draft preview; group them with the draft so the `?? Date()` fallback disappears. Low value; do it only if it falls out of a nearby change.
+
+## Documentation stubs (not implemented)
+
+- `DaymarkStore/EventLog` declares the event vocabulary only. There is no events table and no event-recording path. ADR-003 was amended (2026-06-29) to stop claiming SQLite is the event log.
+- `DaymarkAgents/AgentRunStore` is an empty placeholder with no callers.
+- The schema tables `entities`, `block_entities`, `source_items`, `agent_runs`, and `events` named in older docs are planned, not built. `docs/ARCHITECTURE.md` now distinguishes implemented from planned.

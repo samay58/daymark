@@ -39,7 +39,7 @@ struct DaymarkCLI {
             case "end-of-day":
                 try await runEndOfDay(arguments: options, root: root)
             case "open-loops":
-                try await runOpenLoops(root: root)
+                try runOpenLoops(root: root)
             case "codex-task":
                 try runCodexTask(arguments: options, root: root)
             case "context-bundle":
@@ -322,19 +322,16 @@ struct DaymarkCLI {
         return date
     }
 
-    /// Read-only. Lists open tasks from the index, grouped into Open Loops buckets. It never
-    /// writes Markdown or rolls tasks forward; run `daymark rebuild` first to refresh the index.
-    private static func runOpenLoops(root: WorkspaceRoot) async throws {
-        let database = Database(configuration: DatabaseConfiguration(path: databaseURL(for: root).path))
-        try await database.open()
-        _ = try await database.migrate()
-        let tasks = try await database.openTasks()
-        await database.close()
+    /// Read-only. Lists open tasks parsed fresh from the daily Markdown files, grouped into
+    /// Open Loops buckets. It never writes Markdown, rolls tasks forward, or opens the index,
+    /// so the output always reflects the files on disk (no `daymark rebuild` needed first).
+    private static func runOpenLoops(root: WorkspaceRoot) throws {
+        let tasks = try DailyMarkdownProjectionReader(root: root).allTasks()
 
         let groups = OpenLoops.grouped(tasks: tasks, on: Date())
         let total = groups.reduce(0) { $0 + $1.tasks.count }
         guard total > 0 else {
-            print("No open tasks. Run `daymark rebuild` to index your notes, then capture some with `daymark capture --task`.")
+            print("No open tasks. Capture some with `daymark capture --task`.")
             return
         }
 
@@ -494,7 +491,12 @@ struct DaymarkCLI {
             throw CommandError.contextBundleTaskNotFound(taskPath)
         }
         let markdown = try String(contentsOf: taskURL, encoding: .utf8)
-        let draft = try draftFromCodexTaskMarkdown(markdown, taskRelativePath: taskPath)
+        let draft = CodexTaskDraft.parse(taskMarkdown: markdown, taskRelativePath: taskPath)
+        do {
+            try CodexTaskFileWriter().validate(draft)
+        } catch {
+            throw CommandError.invalidContextBundleTask(taskPath)
+        }
         let bundle = CodexContextBundle.from(
             draft: draft,
             taskRelativePath: taskPath,
@@ -539,129 +541,57 @@ struct DaymarkCLI {
         return parsed
     }
 
-    private static func draftFromCodexTaskMarkdown(_ markdown: String, taskRelativePath: String) throws -> CodexTaskDraft {
-        let normalized = markdown
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let lines = normalized.components(separatedBy: "\n")
-        let title = lines
-            .first { $0.hasPrefix("# ") }?
-            .dropFirst(2)
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let goal = section("Goal", in: lines).trimmingCharacters(in: .whitespacesAndNewlines)
-        let sourceLines = section("Source", in: lines)
-            .components(separatedBy: "\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        let sourcePath = sourceLines.compactMap { sourceValue(prefix: "Path:", line: $0) }.first ?? ""
-        let lineRange = sourceLines.compactMap { sourceLineRange(from: $0) }.first
-        let sourceBlock = sourceLines.compactMap { sourceValue(prefix: "Block:", line: $0) }.first
-        let excerpt = unfenced(section("Source Excerpt", in: lines))
-        let constraints = CodexTaskDraft.cleanedListItems(
-            section("Constraints", in: lines).components(separatedBy: "\n")
-        )
-        let criteria = CodexTaskDraft.cleanedListItems(
-            section("Acceptance Criteria", in: lines).components(separatedBy: "\n")
-        )
-
-        let draft = CodexTaskDraft(
-            title: title,
-            goal: goal,
-            sourcePath: sourcePath,
-            sourceLine: lineRange?.start,
-            sourceEndLine: lineRange?.end,
-            sourceBlock: sourceBlock,
-            sourceExcerpt: excerpt,
-            constraints: constraints,
-            suggestedFilePath: taskRelativePath,
-            acceptanceCriteria: criteria
-        )
-        do {
-            try CodexTaskFileWriter().validate(draft)
-        } catch {
-            throw CommandError.invalidContextBundleTask(taskRelativePath)
-        }
-        return draft
-    }
-
-    private static func section(_ name: String, in lines: [String]) -> String {
-        let heading = "## \(name)"
-        guard let start = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == heading }) else {
-            return ""
-        }
-        let bodyStart = start + 1
-        let bodyEnd = lines[bodyStart...].firstIndex { line in
-            line.hasPrefix("## ")
-        } ?? lines.endIndex
-        return lines[bodyStart..<bodyEnd].joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func sourceValue(prefix: String, line: String) -> String? {
-        guard line.hasPrefix(prefix) else { return nil }
-        let raw = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-        if raw.hasPrefix("`"), raw.hasSuffix("`"), raw.count >= 2 {
-            return String(raw.dropFirst().dropLast())
-        }
-        return raw.isEmpty ? nil : raw
-    }
-
-    private static func sourceLineRange(from line: String) -> (start: Int, end: Int?)? {
-        if let value = sourceValue(prefix: "Line:", line: line), let number = Int(value) {
-            return (number, nil)
-        }
-        guard let value = sourceValue(prefix: "Lines:", line: line) else { return nil }
-        let parts = value.split(separator: "-", maxSplits: 1)
-        guard let start = parts.first.flatMap({ Int($0) }) else { return nil }
-        let end = parts.dropFirst().first.flatMap { Int($0) }
-        return (start, end)
-    }
-
-    private static func unfenced(_ value: String) -> String {
-        let lines = value
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: "\n")
-        guard let first = lines.first?.trimmingCharacters(in: .whitespaces),
-              let last = lines.last?.trimmingCharacters(in: .whitespaces),
-              first.hasPrefix("```"),
-              last == "```",
-              lines.count >= 2 else {
-            return value.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return lines.dropFirst().dropLast().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private static func runBlocks(arguments: [String], root: WorkspaceRoot) throws {
         guard arguments.first == "refresh" else {
             throw CommandError.unknownBlocksSubcommand(arguments.first ?? "")
         }
         let parsed = try parseBlocksRefreshArguments(Array(arguments.dropFirst()))
         guard let sourcePath = parsed.sourcePath else { throw CommandError.missingBlocksSource }
-        let sourceURL = resolveWorkspaceFile(sourcePath, root: root)
+
+        // Confine the source to the workspace before any read or write: reject absolute
+        // paths and `..` escapes so `--apply` cannot overwrite a file outside the root.
+        let resolved: (url: URL, relativePath: String)
+        do {
+            resolved = try root.containedFile(sourcePath)
+        } catch {
+            throw CommandError.sourceOutsideWorkspace(sourcePath)
+        }
+        let sourceURL = resolved.url
+        let relativePath = resolved.relativePath
         guard FileManager.default.fileExists(atPath: sourceURL.path) else {
             throw CommandError.sourceNotFound(sourcePath)
         }
 
         let markdown = try String(contentsOf: sourceURL, encoding: .utf8)
-        let tasks = try taskProjectionFromMarkdownFiles(root: root)
+        let reader = DailyMarkdownProjectionReader(root: root)
+        let tasks = try reader.allTasks()
+        let sources = try reader.allSources()
         let plan = try DynamicBlockPatchPlanner().plan(
             markdown: markdown,
-            sourcePath: sourcePath,
+            sourcePath: relativePath,
             tasks: tasks,
+            sources: sources,
             referenceDate: parsed.date
         )
 
         guard !plan.patches.isEmpty else {
-            print("No dynamic blocks found in \(sourcePath).")
+            print("No dynamic blocks found in \(relativePath).")
             return
         }
 
         if parsed.apply {
             let updated = try plan.apply(to: markdown)
             try AtomicFileWriter().write(updated, to: sourceURL)
-            try DynamicBlockCacheStore().record(patches: plan.patches, root: root)
-            print("Updated: \(sourcePath)")
+            print("Updated: \(relativePath)")
             for patch in plan.patches {
                 print("  \(patch.rawCommand) (line \(patch.commandLine), \(operationLabel(patch.operation)))")
+            }
+            // The note is already written; a cache failure must not fail the command,
+            // since the cache is rebuildable metadata (ADR-010), not the source of truth.
+            do {
+                try DynamicBlockCacheStore().record(patches: plan.patches, root: root)
+            } catch {
+                print("  warning: dynamic-block cache not recorded (\(error)); run `daymark rebuild` to refresh metadata")
             }
         } else {
             printBlocksPreview(plan)
@@ -711,36 +641,6 @@ struct DaymarkCLI {
         case .insert: return "insert"
         case .replacement: return "replacement"
         }
-    }
-
-    private static func taskProjectionFromMarkdownFiles(root: WorkspaceRoot) throws -> [TaskItem] {
-        let dailyRoot = root.expandedURL.appendingPathComponent("daily", isDirectory: true)
-        guard let enumerator = FileManager.default.enumerator(at: dailyRoot, includingPropertiesForKeys: nil) else {
-            return []
-        }
-
-        let parser = TaskParser()
-        var tasks: [TaskItem] = []
-        let files = enumerator.compactMap { $0 as? URL }
-            .filter { $0.pathExtension == "md" }
-            .sorted { $0.path < $1.path }
-        for url in files {
-            let markdown = try String(contentsOf: url, encoding: .utf8)
-            tasks.append(contentsOf: parser.parse(
-                markdown: DynamicBlockRegion.removingGeneratedRegions(from: markdown),
-                notePath: workspaceRelativePath(of: url, under: root)
-            ))
-        }
-        return tasks
-    }
-
-    private static func workspaceRelativePath(of url: URL, under root: WorkspaceRoot) -> String {
-        let rootPath = root.expandedURL.resolvingSymlinksInPath().path
-        let filePath = url.resolvingSymlinksInPath().path
-        if filePath.hasPrefix(rootPath + "/") {
-            return String(filePath.dropFirst(rootPath.count + 1))
-        }
-        return url.lastPathComponent
     }
 
     /// Runs a local full-text search over the index and prints matching notes.
@@ -933,6 +833,7 @@ struct DaymarkCLI {
         case unknownBlocksSubcommand(String)
         case unknownBlocksFlag(String)
         case missingBlocksSource
+        case sourceOutsideWorkspace(String)
         case sourceNotFound(String)
         case missingSearchQuery
         case missingRootValue
@@ -964,7 +865,8 @@ struct DaymarkCLI {
                 return "Usage: daymark context-bundle --task specs/tasks/<file>.md [--date yyyy-MM-dd] [--apply]"
             case .unknownBlocksSubcommand,
                  .unknownBlocksFlag,
-                 .missingBlocksSource:
+                 .missingBlocksSource,
+                 .sourceOutsideWorkspace:
                 return "Usage: daymark blocks refresh --source <path> [--date yyyy-MM-dd] [--apply]"
             case .unknownCommand:
                 return "Usage: daymark <doctor|init|index|rebuild|capture|rollover|end-of-day|open-loops|codex-task|context-bundle|blocks|search|today>"
@@ -1017,6 +919,8 @@ struct DaymarkCLI {
                 return "unknown blocks flag: \(flag)"
             case .missingBlocksSource:
                 return "--source is required"
+            case .sourceOutsideWorkspace(let path):
+                return "source is outside the workspace: \(path)"
             case .sourceNotFound(let path):
                 return "source not found: \(path)"
             case .missingSearchQuery:

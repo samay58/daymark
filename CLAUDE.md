@@ -29,6 +29,7 @@ swift run daymark end-of-day       # list today's still-open tasks
 swift run daymark open-loops       # list open tasks grouped into buckets (read-only)
 swift run daymark codex-task --source <path> --line <n>  # preview a Codex task draft (or --selection-file <path>; --apply writes under specs/tasks/)
 swift run daymark context-bundle --task specs/tasks/<file>.md  # preview a context bundle from a task file (--apply writes under artifacts/context-bundles/)
+swift run daymark blocks refresh --source <path>   # preview /daymark open-loops or /daymark source-list #tag output (--apply writes one idempotent region + .daymark/dynamic-blocks.json)
 swift run daymark search <q>       # full-text search the index
 ```
 
@@ -37,6 +38,8 @@ CLI subcommands live in `Sources/daymark/DaymarkCLI.swift`; run `swift run dayma
 The `scripts/*.sh` wrappers (`build.sh`, `test.sh`, `build_and_run.sh`, `doctor.sh`) just call the commands above.
 
 Build note (observed in this environment): after editing a source file, an incremental `swift test` can fail to relink the `@main` executables (`Undefined symbols: _DaymarkAppShell_main` / `_DaymarkCLI_main`). Run `swift package clean` before `swift test` when that happens. `swift build` links the executables fine; only the test build hits it.
+
+CLI test harness: the `DaymarkCLITests` classes (all named `*CommandTests`) do not link the CLI target. They launch the prebuilt `.build/.../daymark` binary as a subprocess, and `DaymarkCLITests` declares no SwiftPM dependency on `DaymarkCLI`. So `swift test --filter SomeCommandTests` does not rebuild `daymark` first and runs against a stale or missing binary. The canonical flow (mirrored in `docs/PROGRESS.md` "Required Checks") is: run the library suite with `swift test --skip CommandTests`, then for the CLI tests `swift build --product daymark` followed by `xcrun xctest .build/arm64-apple-macosx/debug/DaymarkPackageTests.xctest` (optionally scoped with `-XCTest DaymarkCLITests.CodexTaskCommandTests,...`).
 
 ## Package and directory layout
 

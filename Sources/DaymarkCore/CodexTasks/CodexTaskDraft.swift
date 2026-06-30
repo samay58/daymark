@@ -48,13 +48,7 @@ public struct CodexTaskDraft: Equatable, Sendable {
         ]
 
         if !clean(sourceExcerpt).isEmpty {
-            sections.append("""
-            ## Source Excerpt
-
-            ```md
-            \(clean(sourceExcerpt))
-            ```
-            """)
+            sections.append("## Source Excerpt\n\n" + MarkdownCodeFence.wrap(clean(sourceExcerpt), info: "md"))
         }
 
         let cleanConstraints = constraints.map(clean).filter { !$0.isEmpty }
@@ -82,6 +76,49 @@ public struct CodexTaskDraft: Equatable, Sendable {
         }
 
         return sections.joined(separator: "\n\n") + "\n"
+    }
+
+    /// Parses a task file produced by `markdown()` back into a draft. Fence-aware, so a
+    /// Source Excerpt that contains `## ` headings or its own code fences round-trips
+    /// verbatim. The parser lives beside the writer so the two formats cannot drift.
+    /// `suggestedFilePath` is set to the file the draft was read from.
+    public static func parse(taskMarkdown: String, taskRelativePath: String) -> CodexTaskDraft {
+        let lines = normalizedLines(taskMarkdown)
+        let sourceBody = sectionBodyLines("Source", in: lines).map { $0.trimmingCharacters(in: .whitespaces) }
+        let range = sourceBody.compactMap { sourceLineRange(from: $0) }.first
+        return CodexTaskDraft(
+            title: documentTitle(in: lines),
+            goal: sectionBodyLines("Goal", in: lines).joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines),
+            sourcePath: sourceBody.compactMap { sourceValue(prefix: "Path:", line: $0) }.first ?? "",
+            sourceLine: range?.start,
+            sourceEndLine: range?.end,
+            sourceBlock: sourceBody.compactMap { sourceValue(prefix: "Block:", line: $0) }.first,
+            sourceExcerpt: fencedSectionBody("Source Excerpt", in: lines),
+            constraints: cleanedListItems(sectionBodyLines("Constraints", in: lines)),
+            suggestedFilePath: taskRelativePath,
+            acceptanceCriteria: cleanedListItems(sectionBodyLines("Acceptance Criteria", in: lines))
+        )
+    }
+
+    /// Whether the draft has the content and a valid task path required to write a file.
+    /// `CodexTaskFileWriter.validate` derives its granular errors from the same checks, so
+    /// the UI can ask for writability without constructing a writer.
+    public var isWritable: Bool {
+        hasRequiredContent && Self.isTaskPath(suggestedFilePath)
+    }
+
+    public var hasRequiredContent: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !sourceExcerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !sourcePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public static func isTaskPath(_ path: String) -> Bool {
+        path.hasPrefix("specs/tasks/")
+            && path.hasSuffix(".md")
+            && !path.contains("..")
+            && !path.hasPrefix("/")
     }
 
     public func withSuggestedFilePath(_ relativePath: String) -> CodexTaskDraft {
@@ -215,6 +252,95 @@ public struct CodexTaskDraft: Equatable, Sendable {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    // MARK: - Parsing helpers (fence-aware, mirror the markdown() writer format)
+
+    private static func normalizedLines(_ text: String) -> [String] {
+        text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
+    }
+
+    /// The first level-1 heading outside any fenced code block.
+    private static func documentTitle(in lines: [String]) -> String {
+        var fence = MarkdownFenceScanner()
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if fence.consume(trimmedLine: trimmed) { continue }
+            if fence.isInsideFence { continue }
+            if trimmed.hasPrefix("# "), !trimmed.hasPrefix("## ") {
+                return String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return ""
+    }
+
+    /// Body lines of a top-level `## name` section. Fence-aware: a `## ` line inside a fenced
+    /// code block neither starts nor ends a section, so an excerpt with headings is whole.
+    private static func sectionBodyLines(_ name: String, in lines: [String]) -> [String] {
+        let heading = "## \(name)"
+        var fence = MarkdownFenceScanner()
+        var collecting = false
+        var body: [String] = []
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let isDelimiter = fence.consume(trimmedLine: trimmed)
+            let insideFence = fence.isInsideFence || isDelimiter
+            if collecting {
+                if !insideFence, trimmed.hasPrefix("## ") { break }
+                body.append(line)
+            } else if !insideFence, trimmed == heading {
+                collecting = true
+            }
+        }
+        return body
+    }
+
+    /// The content of the first fenced code block within a section (any fence length),
+    /// trimmed. Falls back to the trimmed section body if no fence is present.
+    private static func fencedSectionBody(_ name: String, in lines: [String]) -> String {
+        let body = sectionBodyLines(name, in: lines)
+        var fence = MarkdownFenceScanner()
+        var capturing = false
+        var sawFence = false
+        var content: [String] = []
+        for line in body {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if fence.consume(trimmedLine: trimmed) {
+                if fence.isInsideFence {
+                    capturing = true
+                    sawFence = true
+                } else {
+                    break
+                }
+                continue
+            }
+            if capturing { content.append(line) }
+        }
+        let captured = sawFence ? content : body
+        return captured.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func sourceValue(prefix: String, line: String) -> String? {
+        guard line.hasPrefix(prefix) else { return nil }
+        let raw = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.hasPrefix("`"), raw.hasSuffix("`"), raw.count >= 2 {
+            return String(raw.dropFirst().dropLast())
+        }
+        return raw.isEmpty ? nil : raw
+    }
+
+    private static func sourceLineRange(from line: String) -> (start: Int, end: Int?)? {
+        if let value = sourceValue(prefix: "Line:", line: line), let number = Int(value) {
+            return (number, nil)
+        }
+        guard let value = sourceValue(prefix: "Lines:", line: line) else { return nil }
+        let parts = value.split(separator: "-", maxSplits: 1)
+        guard let start = parts.first.flatMap({ Int($0) }) else { return nil }
+        let end = parts.dropFirst().first.flatMap { Int($0) }
+        return (start, end)
+    }
+
     private static func dateFormatter(calendar: Calendar) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.calendar = calendar
@@ -250,21 +376,14 @@ public struct CodexTaskFileWriter {
     }
 
     public func validate(_ draft: CodexTaskDraft) throws {
-        guard !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !draft.goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !draft.sourceExcerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !draft.sourcePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw Error.blankDraft
-        }
-        guard isTaskPath(draft.suggestedFilePath) else {
-            throw Error.invalidPath
-        }
+        guard draft.hasRequiredContent else { throw Error.blankDraft }
+        guard CodexTaskDraft.isTaskPath(draft.suggestedFilePath) else { throw Error.invalidPath }
     }
 
     public func write(_ draft: CodexTaskDraft, root: WorkspaceRoot) throws -> CodexTaskWriteResult {
         try validate(draft)
         let relativePath = collisionSafePath(preferredPath: draft.suggestedFilePath, root: root)
-        guard isTaskPath(relativePath) else { throw Error.invalidPath }
+        guard CodexTaskDraft.isTaskPath(relativePath) else { throw Error.invalidPath }
         let fileURL = root.expandedURL.appendingPathComponent(relativePath)
         let finalDraft = draft.withSuggestedFilePath(relativePath)
         try atomicWriter.write(finalDraft.markdown(), to: fileURL, fileManager: fileManager)
@@ -276,12 +395,5 @@ public struct CodexTaskFileWriter {
             preferredPath: preferredPath,
             existingRelativePaths: root.existingMarkdownRelativePaths(under: "specs/tasks", fileManager: fileManager)
         )
-    }
-
-    private func isTaskPath(_ path: String) -> Bool {
-        path.hasPrefix("specs/tasks/")
-            && path.hasSuffix(".md")
-            && !path.contains("..")
-            && !path.hasPrefix("/")
     }
 }

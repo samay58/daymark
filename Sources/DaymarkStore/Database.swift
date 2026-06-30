@@ -102,6 +102,9 @@ public actor Database {
         handle = connection
         try exec("PRAGMA journal_mode=WAL;")
         try exec("PRAGMA foreign_keys=ON;")
+        // Independent connections (app + CLI) can write concurrently under WAL. Wait briefly
+        // for a contended writer instead of failing immediately with SQLITE_BUSY.
+        try exec("PRAGMA busy_timeout=5000;")
     }
 
     public func close() {
@@ -154,6 +157,32 @@ public actor Database {
 
     public func tableNames() throws -> [String] {
         try queryStrings("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
+    }
+
+    /// Projects a note's row, search index, blocks, and tasks as one atomic unit. The
+    /// whole upsert runs in a single transaction so a mid-sequence failure rolls back
+    /// instead of leaving SQLite internally inconsistent (a note without its blocks, or
+    /// a stale FTS row). The consistency boundary lives here in the actor, not in the
+    /// repository facade. Reprojection stays idempotent: blocks and tasks are replaced,
+    /// never appended.
+    public func replaceNoteProjection(
+        relativePath: String,
+        title: String?,
+        content: String,
+        modifiedAt: Date?,
+        blocks: [Block],
+        tasks: [TaskItem]
+    ) throws {
+        try withTransaction {
+            let id = try upsertNote(
+                relativePath: relativePath,
+                title: title,
+                content: content,
+                modifiedAt: modifiedAt
+            )
+            try replaceBlocks(noteID: id, blocks: blocks)
+            try replaceTasks(noteID: id, tasks: tasks)
+        }
     }
 
     /// Upserts a note row keyed by its workspace-relative path, preserving the row id
@@ -395,6 +424,12 @@ public actor Database {
         try queryInts("SELECT COUNT(*) FROM notes;").first ?? 0
     }
 
+    /// All indexed note paths, used to reconcile the projection against the files on disk
+    /// (a rebuild prunes rows whose Markdown file no longer exists).
+    public func noteRelativePaths() throws -> [String] {
+        try queryStrings("SELECT rel_path FROM notes ORDER BY rel_path;")
+    }
+
     public func blockCount() throws -> Int {
         try queryInts("SELECT COUNT(*) FROM blocks;").first ?? 0
     }
@@ -418,23 +453,24 @@ public actor Database {
         )
     }
 
-    /// Removes a note, its blocks (via cascade), and its search row. Used when a Markdown
-    /// file disappears from the workspace so the projection matches the files on disk.
+    /// Removes a note, its blocks and tasks (via cascade), and its search row. Used when a
+    /// Markdown file disappears from the workspace so the projection matches the files on
+    /// disk. The note delete and the FTS delete run in one transaction so a failure cannot
+    /// orphan a search row pointing at a deleted note.
     public func deleteNote(relativePath: String) throws {
-        let connection = try requireHandle()
-        let deleteNote = try prepare("DELETE FROM notes WHERE rel_path = ?;")
-        sqlite3_bind_text(deleteNote, 1, relativePath, -1, SQLITE_TRANSIENT)
-        let noteResult = sqlite3_step(deleteNote)
-        sqlite3_finalize(deleteNote)
-        guard noteResult == SQLITE_DONE else {
-            throw StoreError.sql(String(cString: sqlite3_errmsg(connection)))
+        try withTransaction {
+            try deleteRows(table: "notes", relativePath: relativePath)
+            try deleteRows(table: "notes_fts", relativePath: relativePath)
         }
+    }
 
-        let deleteSearch = try prepare("DELETE FROM notes_fts WHERE rel_path = ?;")
-        sqlite3_bind_text(deleteSearch, 1, relativePath, -1, SQLITE_TRANSIENT)
-        let searchResult = sqlite3_step(deleteSearch)
-        sqlite3_finalize(deleteSearch)
-        guard searchResult == SQLITE_DONE else {
+    /// Deletes rows matching `rel_path` from a fixed, non-user-supplied table name.
+    private func deleteRows(table: String, relativePath: String) throws {
+        let connection = try requireHandle()
+        let statement = try prepare("DELETE FROM \(table) WHERE rel_path = ?;")
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, relativePath, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
             throw StoreError.sql(String(cString: sqlite3_errmsg(connection)))
         }
     }
@@ -453,6 +489,20 @@ public actor Database {
     private func requireHandle() throws -> OpaquePointer {
         guard let handle else { throw StoreError.notOpen }
         return handle
+    }
+
+    /// Runs `body` inside a single SQLite transaction, committing on success and rolling
+    /// back on any thrown error. Mirrors the control flow used by `migrate()`.
+    private func withTransaction<T>(_ body: () throws -> T) throws -> T {
+        try exec("BEGIN;")
+        do {
+            let result = try body()
+            try exec("COMMIT;")
+            return result
+        } catch {
+            try? exec("ROLLBACK;")
+            throw error
+        }
     }
 
     private func exec(_ sql: String) throws {

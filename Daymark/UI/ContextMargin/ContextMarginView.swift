@@ -14,6 +14,7 @@ struct ContextMarginView: View {
                 CodexTaskComposerView(
                     draft: appState.codexTaskDraft,
                     message: appState.codexTaskMessage,
+                    canCreate: appState.canCreateCodexTaskFile,
                     onTitleChange: { appState.updateCodexTaskDraftTitle($0) },
                     onGoalChange: { appState.updateCodexTaskDraftGoal($0) },
                     onConstraintsChange: { appState.updateCodexTaskDraftConstraints($0) },
@@ -26,6 +27,7 @@ struct ContextMarginView: View {
                         taskRelativePath: appState.createdCodexTaskRelativePath,
                         bundle: appState.codexContextBundle,
                         message: appState.codexContextBundleMessage,
+                        canCreate: appState.canCreateCodexContextBundle,
                         onPreview: { appState.previewCodexContextBundle() },
                         onCreate: { appState.createCodexContextBundle() },
                         onCancel: { appState.dismissCodexContextBundle() }

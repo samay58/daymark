@@ -113,6 +113,34 @@ final class OpenLoopsCommandTests: XCTestCase {
         XCTAssertTrue(result.output.contains("No date"), result.output)
     }
 
+    func testOpenLoopsReflectsMarkdownWithoutPriorRebuild() throws {
+        try skipIfBinaryMissing()
+        let root = tempRoot()
+        try writeDaily("## Capture\n\n- [ ] fresh open task\n", named: "2026-06-28.md", in: root)
+        // No `rebuild` first: open-loops now reads fresh from the Markdown files.
+        let result = try runDaymark(["open-loops", "--root", root])
+        XCTAssertEqual(result.status, 0, result.output)
+        XCTAssertTrue(result.output.contains("fresh open task"),
+                      "open-loops should reflect the files on disk without a prior rebuild: \(result.output)")
+    }
+
+    func testOpenLoopsDropsTaskAfterSourceNoteDeleted() throws {
+        try skipIfBinaryMissing()
+        let root = tempRoot()
+        try writeDaily("## Capture\n\n- [ ] keep this\n", named: "2026-06-27.md", in: root)
+        try writeDaily("## Capture\n\n- [ ] remove this\n", named: "2026-06-28.md", in: root)
+
+        let before = try runDaymark(["open-loops", "--root", root])
+        XCTAssertTrue(before.output.contains("keep this"), before.output)
+        XCTAssertTrue(before.output.contains("remove this"), before.output)
+
+        try FileManager.default.removeItem(atPath: "\(root)/daily/2026/06/2026-06-28.md")
+        let after = try runDaymark(["open-loops", "--root", root])
+        XCTAssertTrue(after.output.contains("keep this"), after.output)
+        XCTAssertFalse(after.output.contains("remove this"),
+                       "a deleted note's task must not appear: \(after.output)")
+    }
+
     func testOpenLoopsReportsWhenNothingIsOpen() throws {
         try skipIfBinaryMissing()
         let root = tempRoot()
