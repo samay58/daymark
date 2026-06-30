@@ -67,22 +67,22 @@ public struct CodexContextBundle: Equatable, Sendable {
 
     public func markdown() -> String {
         var sections = [
-            "# Context Bundle: \(clean(title))",
+            "# Context Bundle: \(CodexTaskDraft.clean(title))",
             """
             ## Task
 
-            Task: `\(clean(taskRelativePath))`
+            Task: `\(CodexTaskDraft.clean(taskRelativePath))`
             """,
             """
             ## Goal
 
-            \(clean(goal))
+            \(CodexTaskDraft.clean(goal))
             """,
-            sourceSection()
+            CodexTaskDraft.sourceSection(path: sourcePath, line: sourceLine, endLine: sourceEndLine, block: sourceBlock)
         ]
 
-        if !clean(sourceExcerpt).isEmpty {
-            sections.append("## Source Excerpt\n\n" + MarkdownCodeFence.wrap(clean(sourceExcerpt), info: "md"))
+        if !CodexTaskDraft.clean(sourceExcerpt).isEmpty {
+            sections.append("## Source Excerpt\n\n" + MarkdownCodeFence.wrap(CodexTaskDraft.clean(sourceExcerpt), info: "md"))
         }
 
         let cleanConstraints = CodexTaskDraft.cleanedListItems(constraints)
@@ -94,18 +94,19 @@ public struct CodexContextBundle: Equatable, Sendable {
             """)
         }
 
-        let cleanCriteria = mergedCriteria().map { "- [ ] \($0)" }.joined(separator: "\n")
+        let cleanCriteria = CodexTaskDraft.mergeCriteria(acceptanceCriteria, defaults: Self.acceptanceCriteriaDefaults)
+            .map { "- [ ] \($0)" }.joined(separator: "\n")
         sections.append("""
         ## Acceptance Criteria
 
         \(cleanCriteria)
         """)
 
-        if !clean(suggestedFilePath).isEmpty {
+        if !CodexTaskDraft.clean(suggestedFilePath).isEmpty {
             sections.append("""
             ## Bundle File
 
-            `\(clean(suggestedFilePath))`
+            `\(CodexTaskDraft.clean(suggestedFilePath))`
             """)
         }
 
@@ -117,7 +118,7 @@ public struct CodexContextBundle: Equatable, Sendable {
         date: Date,
         calendar: Calendar = Calendar(identifier: .gregorian)
     ) -> String {
-        let datePrefix = dateFormatter(calendar: calendar).string(from: date)
+        let datePrefix = ISODate.string(from: date, calendar: calendar)
         let slug = CodexTaskDraft.slugify(title)
         return "artifacts/context-bundles/\(datePrefix)-\(slug.isEmpty ? "codex-task" : slug)-context.md"
     }
@@ -151,52 +152,13 @@ public struct CodexContextBundle: Equatable, Sendable {
         return copy
     }
 
-    private func sourceSection() -> String {
-        var lines = ["Path: `\(clean(sourcePath))`"]
-        if let sourceLine {
-            if let sourceEndLine, sourceEndLine > sourceLine {
-                lines.append("Lines: \(sourceLine)-\(sourceEndLine)")
-            } else {
-                lines.append("Line: \(sourceLine)")
-            }
-        }
-        if let sourceBlock = sourceBlock.map(clean), !sourceBlock.isEmpty {
-            lines.append("Block: \(sourceBlock)")
-        }
-        return """
-        ## Source
+    /// Acceptance criteria that markdown() appends to every bundle file.
+    static let acceptanceCriteriaDefaults = [
+        "Source note remains unchanged",
+        "Task file remains unchanged",
+        "Bundle file is readable Markdown"
+    ]
 
-        \(lines.joined(separator: "\n"))
-        """
-    }
-
-    private func mergedCriteria() -> [String] {
-        var seen: Set<String> = []
-        var output: [String] = []
-        let defaults = ["Source note remains unchanged", "Task file remains unchanged", "Bundle file is readable Markdown"]
-        for criterion in acceptanceCriteria + defaults {
-            let cleaned = clean(criterion)
-            guard !cleaned.isEmpty else { continue }
-            let key = cleaned.lowercased()
-            if seen.insert(key).inserted {
-                output.append(cleaned)
-            }
-        }
-        return output
-    }
-
-    private func clean(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func dateFormatter(calendar: Calendar) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }
 }
 
 public struct CodexContextBundleWriteResult: Equatable, Sendable {
@@ -233,18 +195,16 @@ public struct CodexContextBundleWriter {
 
     public func write(_ bundle: CodexContextBundle, root: WorkspaceRoot) throws -> CodexContextBundleWriteResult {
         try validate(bundle)
-        let relativePath = collisionSafePath(preferredPath: bundle.suggestedFilePath, root: root)
-        guard CodexContextBundle.isBundlePath(relativePath) else { throw Error.invalidPath }
-        let fileURL = root.expandedURL.appendingPathComponent(relativePath)
-        let finalBundle = bundle.withSuggestedFilePath(relativePath)
-        try atomicWriter.write(finalBundle.markdown(), to: fileURL, fileManager: fileManager)
-        return CodexContextBundleWriteResult(relativePath: relativePath, url: fileURL)
-    }
-
-    private func collisionSafePath(preferredPath: String, root: WorkspaceRoot) -> String {
-        CodexTaskDraft.collisionSafeRelativePath(
-            preferredPath: preferredPath,
-            existingRelativePaths: root.existingMarkdownRelativePaths(under: "artifacts/context-bundles", fileManager: fileManager)
+        let written = try writeCodexArtifact(
+            preferredRelativePath: bundle.suggestedFilePath,
+            directory: "artifacts/context-bundles",
+            isValidPath: CodexContextBundle.isBundlePath,
+            invalidPathError: { Error.invalidPath },
+            makeMarkdown: { bundle.withSuggestedFilePath($0).markdown() },
+            root: root,
+            fileManager: fileManager,
+            atomicWriter: atomicWriter
         )
+        return CodexContextBundleWriteResult(relativePath: written.relativePath, url: written.url)
     }
 }

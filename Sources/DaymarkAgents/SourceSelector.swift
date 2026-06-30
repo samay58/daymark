@@ -1,4 +1,5 @@
 import Foundation
+import DaymarkCore
 
 public struct SourceSelection: Equatable, Sendable {
     public var excerpt: String
@@ -85,8 +86,7 @@ public struct SourceSelector {
     }
 
     private func normalize(_ text: String) -> String {
-        text.replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
+        text.normalizedNewlines
     }
 
     private func normalizeLocation(_ location: Int, in original: String) -> Int {
@@ -134,22 +134,19 @@ public struct SourceSelector {
     }
 
     private func fencedRange(containing index: Int, lines: [LineRecord]) -> Range<Int>? {
+        var scanner = MarkdownFenceScanner()
         var fenceStart: Int?
-        var marker: String?
-        for offset in 0...index {
+        for offset in lines.indices {
             let trimmed = lines[offset].text.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
-                let current = String(trimmed.prefix(3))
-                if marker == nil {
-                    marker = current
-                    fenceStart = offset
-                } else if marker == current {
-                    if let start = fenceStart, index >= start, index <= offset {
-                        return start..<(offset + 1)
-                    }
-                    marker = nil
-                    fenceStart = nil
+            let wasInside = scanner.isInsideFence
+            guard scanner.consume(trimmedLine: trimmed) else { continue }
+            if !wasInside {
+                fenceStart = offset
+            } else if let start = fenceStart {
+                if index >= start, index <= offset {
+                    return start..<(offset + 1)
                 }
+                fenceStart = nil
             }
         }
         return nil
@@ -158,9 +155,6 @@ public struct SourceSelector {
     private func listRange(containing index: Int, lines: [LineRecord]) -> Range<Int> {
         var start = index
         while start > 0, isIndentedContinuation(lines[start].text) {
-            start -= 1
-        }
-        while start > 0, !isListLike(lines[start].text), isIndentedContinuation(lines[start].text) {
             start -= 1
         }
 
@@ -212,21 +206,14 @@ public struct SourceSelector {
 
     private func heading(beforeOrAt lineNumber: Int?, lines: [LineRecord]) -> String? {
         guard let lineNumber else { return nil }
-        var currentFence: String?
+        var scanner = MarkdownFenceScanner()
         var heading: String?
         for line in lines where line.number <= lineNumber {
             let trimmed = line.text.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
-                let marker = String(trimmed.prefix(3))
-                currentFence = currentFence == nil ? marker : nil
-                continue
-            }
-            guard currentFence == nil, isHeading(line.text) else { continue }
-            heading = trimmed.replacingOccurrences(
-                of: #"^#{1,6}\s+"#,
-                with: "",
-                options: .regularExpression
-            )
+            if scanner.consume(trimmedLine: trimmed) { continue }
+            if scanner.isInsideFence { continue }
+            guard isHeading(line.text) else { continue }
+            heading = MarkdownHeading.strippingMarker(trimmed)
         }
         return heading
     }
@@ -237,7 +224,7 @@ public struct SourceSelector {
     }
 
     private func isHeading(_ line: String) -> Bool {
-        line.range(of: #"^\s{0,3}#{1,6}\s+"#, options: .regularExpression) != nil
+        MarkdownHeading.isHeading(line)
     }
 
     private func isListLike(_ line: String) -> Bool {

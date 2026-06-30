@@ -96,8 +96,6 @@ public struct TaskParser {
     }
 
     private static func normalizingNewlines(_ text: String) -> String {
-        text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
+        text.normalizedNewlines
     }
 }

@@ -524,4 +524,27 @@ final class DynamicBlockTests: XCTestCase {
         XCTAssertEqual(records.count, 1)
         XCTAssertEqual(records[0].rawCommand, "/daymark open-loops")
     }
+
+    func testContainsKnownCommandIgnoresUnsupportedAlongsideValid() {
+        // A note with a valid command and an unsupported one must still report true; parse()
+        // throws on the unsupported line, so the gating detector cannot route through it.
+        let markdown = """
+        # Today
+
+        /daymark not-a-real-command
+        /daymark open-loops
+        """
+        XCTAssertTrue(DynamicBlockParser().containsKnownCommand(in: markdown))
+    }
+
+    func testContainsKnownCommandIgnoresCommandsInsideFences() {
+        let markdown = """
+        # Today
+
+        ```
+        /daymark open-loops
+        ```
+        """
+        XCTAssertFalse(DynamicBlockParser().containsKnownCommand(in: markdown))
+    }
 }

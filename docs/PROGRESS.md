@@ -939,6 +939,46 @@ central safety rule.
 - Milestone 5 is ready to close after this app refresh slice is committed and pushed.
 - Keep automatic app refresh, arbitrary-note refresh, app rollover preview/approval, source-note backlinking, Codex execution, model calls, network calls, app-bundle work, and global hotkey work parked.
 
+## 2026-06-30: M4/M5 adversarial review remediation
+
+Resolved all 20 verified findings from the adversarial review of the M4 Codex
+handoff and M5 Dynamic Blocks work. The theme was reducing layers and removing
+duplication without changing behavior, plus two real reliability fixes (a crash
+and a silent edit-loss window). Work is on branch `m5-review-remediation`, one
+logical fix per commit. The pre-existing uncommitted in-app refresh slice was
+committed first as a labeled WIP baseline so the remediation commits land on top
+of it without clobbering parallel work.
+
+### What changed (committed files)
+
+- SourceSelector now routes fence detection through the shared `MarkdownFenceScanner` (length-aware, fixes nested and 4-plus-backtick cases) and the dead second loop in `listRange` is gone.
+- `Database.upsertNote`, `replaceBlocks`, and `replaceTasks` are private; `replaceNoteProjection` and `deleteNote` are the only public mutation entry points, so no caller can reproduce a partial projection.
+- The trapping `Dictionary(uniqueKeysWithValues:)` builds in the weekly-review renderer and the projection reader now merge last-wins, removing a crash on two symlinked notes with the same basename.
+- `CodexTaskDraft.parse` strips the injected acceptance-criteria defaults, so a context bundle built from a written task file no longer inherits a task default as user content; written files stay byte-identical.
+- Shared helpers replaced duplication: a single-tag guard for `source-list`/`codex-context`, `String.normalizedNewlines` (nine CRLF-to-LF sites), one `ISODate` `yyyy-MM-dd` formatter (fixed a UTC-vs-calendar timezone inconsistency), and `MarkdownHeading` for the ATX heading regex.
+- Dynamic-block apply detects the dominant line ending by count instead of "any CRLF wins", so a mostly-LF note with a stray CRLF is not fully rewritten.
+- `blankingGeneratedRegions` preserves line count before task parsing, so `path:line` references stay correct once a note has a generated region above its tasks; the indexer and reader share `projection()` so they stay in agreement.
+- The near-duplicate Codex artifact layer collapsed: `sourceSection`, `clean`, and `mergeCriteria` are shared statics, and one `writeCodexArtifact` free function backs both writers with `makeMarkdown` invoked after collision resolution.
+
+### What changed (in-flight refresh slice)
+
+- Dynamic-block command detection moved to a non-throwing `DynamicBlockParser.containsKnownCommand`; the duplicated AppState statics are gone.
+- AppState memoizes the content hash and command-present flag once per buffer mutation, so the context-margin gating getters no longer re-scan and re-hash the whole note on every body pass.
+- Apply now records the self-write before the disk write and routes to the conflict path if the buffer diverged during apply, instead of silently discarding a keystroke; `runRolloverIfSafe` already guarded this way.
+- One refresh reads the vault once: `allCodexContexts(sources:)` reuses the `allSources` scan and `sourceTagsByRelativePath` is gone.
+- The four `updateCodexTaskDraft` setters collapsed onto one helper; the five CLI flag parsers collapsed onto one `scanFlags` scanner with per-command error factories; `codex-task --selection-file` now throws the same clean missing-path error as `--source`.
+
+### Verification
+
+- Library suite: `swift package clean && swift test --skip CommandTests`, 194 tests, 0 failures.
+- Full prebuilt bundle (library plus CLI subprocess tests): `swift build --build-tests`, `swift build --product daymark` last, `xcrun xctest`, 233 tests, 0 failures. Two new Core tests cover the mixed valid-plus-unsupported command note and an in-fence command.
+- `swift build` clean; `daymark doctor` read-only passed against `~/phoenix`.
+- Slop guard: no em dashes in any remediation commit message or changed Swift file.
+
+### Remaining
+
+- Branch `m5-review-remediation` is ready for review and merge to `main`. No findings deferred; every Batch A and Batch B item is applied.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone

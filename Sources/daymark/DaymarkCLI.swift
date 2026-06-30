@@ -251,27 +251,46 @@ struct DaymarkCLI {
         }
     }
 
+    /// One declarative entry per flag a command accepts.
+    private enum FlagSpec {
+        /// A switch with no value, e.g. `--apply`.
+        case boolean(() -> Void)
+        /// A flag that consumes the next token; `missing` is thrown when that value is absent.
+        case value(missing: CommandError, apply: (String) throws -> Void)
+    }
+
+    /// Scans `arguments` against a flag table, owning the value-presence guard and index
+    /// advancement that every command parser used to repeat. `unknown` builds the command's
+    /// own error for any token not in the table, so each command's CommandError stays exact.
+    private static func scanFlags(
+        _ arguments: [String],
+        _ flags: [String: FlagSpec],
+        unknown: (String) -> CommandError
+    ) throws {
+        var index = 0
+        while index < arguments.count {
+            let token = arguments[index]
+            switch flags[token] {
+            case .boolean(let action):
+                action()
+                index += 1
+            case .value(let missing, let apply):
+                guard index + 1 < arguments.count else { throw missing }
+                try apply(arguments[index + 1])
+                index += 2
+            case nil:
+                throw unknown(token)
+            }
+        }
+    }
+
     private static func parseRolloverArguments(_ arguments: [String]) throws -> ParsedRolloverArguments {
         var date = Date()
         var apply = false
-        var index = 0
-
-        while index < arguments.count {
-            switch arguments[index] {
-            case "--apply":
-                apply = true
-                index += 1
-            case "--date":
-                guard index + 1 < arguments.count else { throw CommandError.missingDateValue }
-                date = try parseISODate(arguments[index + 1])
-                index += 2
-            case let flag where flag.hasPrefix("--"):
-                throw CommandError.unknownRolloverFlag(flag)
-            default:
-                throw CommandError.unknownRolloverFlag(arguments[index])
-            }
-        }
-
+        try scanFlags(arguments, [
+            "--apply": .boolean { apply = true },
+            "--date": .value(missing: .missingDateValue) { date = try parseISODate($0) }
+        ], unknown: CommandError.unknownRolloverFlag)
         return ParsedRolloverArguments(date: date, apply: apply)
     }
 
@@ -304,21 +323,9 @@ struct DaymarkCLI {
         usageError: (String) -> CommandError
     ) throws -> Date {
         var date = Date()
-        var index = 0
-
-        while index < arguments.count {
-            switch arguments[index] {
-            case "--date":
-                guard index + 1 < arguments.count else { throw CommandError.missingDateValue }
-                date = try parseISODate(arguments[index + 1])
-                index += 2
-            case let flag where flag.hasPrefix("--"):
-                throw usageError(flag)
-            default:
-                throw usageError(arguments[index])
-            }
-        }
-
+        try scanFlags(arguments, [
+            "--date": .value(missing: .missingDateValue) { date = try parseISODate($0) }
+        ], unknown: usageError)
         return date
     }
 
@@ -382,6 +389,9 @@ struct DaymarkCLI {
 
         let selection: SourceSelection
         if let selectionFile = parsed.selectionFile {
+            guard FileManager.default.fileExists(atPath: selectionFile) else {
+                throw CommandError.sourceNotFound(selectionFile)
+            }
             let selectedText = try String(contentsOfFile: selectionFile, encoding: .utf8)
             let sourceLine = parsed.line
             selection = SourceSelection(
@@ -420,38 +430,16 @@ struct DaymarkCLI {
 
     private static func parseCodexTaskArguments(_ arguments: [String]) throws -> ParsedCodexTaskArguments {
         var parsed = ParsedCodexTaskArguments()
-        var index = 0
-
-        while index < arguments.count {
-            switch arguments[index] {
-            case "--source":
-                guard index + 1 < arguments.count else { throw CommandError.missingCodexTaskSource }
-                parsed.sourcePath = arguments[index + 1]
-                index += 2
-            case "--line":
-                guard index + 1 < arguments.count, let line = Int(arguments[index + 1]), line > 0 else {
-                    throw CommandError.invalidLineValue(arguments[safe: index + 1] ?? "")
-                }
+        try scanFlags(arguments, [
+            "--source": .value(missing: .missingCodexTaskSource) { parsed.sourcePath = $0 },
+            "--line": .value(missing: .invalidLineValue("")) { value in
+                guard let line = Int(value), line > 0 else { throw CommandError.invalidLineValue(value) }
                 parsed.line = line
-                index += 2
-            case "--selection-file":
-                guard index + 1 < arguments.count else { throw CommandError.missingSelectionFile }
-                parsed.selectionFile = arguments[index + 1]
-                index += 2
-            case "--date":
-                guard index + 1 < arguments.count else { throw CommandError.missingDateValue }
-                parsed.date = try parseISODate(arguments[index + 1])
-                index += 2
-            case "--apply":
-                parsed.apply = true
-                index += 1
-            case let flag where flag.hasPrefix("--"):
-                throw CommandError.unknownCodexTaskFlag(flag)
-            default:
-                throw CommandError.unknownCodexTaskFlag(arguments[index])
-            }
-        }
-
+            },
+            "--selection-file": .value(missing: .missingSelectionFile) { parsed.selectionFile = $0 },
+            "--date": .value(missing: .missingDateValue) { parsed.date = try parseISODate($0) },
+            "--apply": .boolean { parsed.apply = true }
+        ], unknown: CommandError.unknownCodexTaskFlag)
         return parsed
     }
 
@@ -477,10 +465,7 @@ struct DaymarkCLI {
     }
 
     private static func lineCount(in text: String) -> Int {
-        max(1, text.replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: "\n")
-            .count)
+        max(1, text.normalizedNewlines.components(separatedBy: "\n").count)
     }
 
     private static func runContextBundle(arguments: [String], root: WorkspaceRoot) throws {
@@ -516,28 +501,11 @@ struct DaymarkCLI {
 
     private static func parseContextBundleArguments(_ arguments: [String]) throws -> ParsedContextBundleArguments {
         var parsed = ParsedContextBundleArguments()
-        var index = 0
-
-        while index < arguments.count {
-            switch arguments[index] {
-            case "--task":
-                guard index + 1 < arguments.count else { throw CommandError.missingContextBundleTask }
-                parsed.taskPath = arguments[index + 1]
-                index += 2
-            case "--date":
-                guard index + 1 < arguments.count else { throw CommandError.missingDateValue }
-                parsed.date = try parseISODate(arguments[index + 1])
-                index += 2
-            case "--apply":
-                parsed.apply = true
-                index += 1
-            case let flag where flag.hasPrefix("--"):
-                throw CommandError.unknownContextBundleFlag(flag)
-            default:
-                throw CommandError.unknownContextBundleFlag(arguments[index])
-            }
-        }
-
+        try scanFlags(arguments, [
+            "--task": .value(missing: .missingContextBundleTask) { parsed.taskPath = $0 },
+            "--date": .value(missing: .missingDateValue) { parsed.date = try parseISODate($0) },
+            "--apply": .boolean { parsed.apply = true }
+        ], unknown: CommandError.unknownContextBundleFlag)
         return parsed
     }
 
@@ -597,28 +565,11 @@ struct DaymarkCLI {
 
     private static func parseBlocksRefreshArguments(_ arguments: [String]) throws -> ParsedBlocksRefreshArguments {
         var parsed = ParsedBlocksRefreshArguments()
-        var index = 0
-
-        while index < arguments.count {
-            switch arguments[index] {
-            case "--source":
-                guard index + 1 < arguments.count else { throw CommandError.missingBlocksSource }
-                parsed.sourcePath = arguments[index + 1]
-                index += 2
-            case "--date":
-                guard index + 1 < arguments.count else { throw CommandError.missingDateValue }
-                parsed.date = try parseISODate(arguments[index + 1])
-                index += 2
-            case "--apply":
-                parsed.apply = true
-                index += 1
-            case let flag where flag.hasPrefix("--"):
-                throw CommandError.unknownBlocksFlag(flag)
-            default:
-                throw CommandError.unknownBlocksFlag(arguments[index])
-            }
-        }
-
+        try scanFlags(arguments, [
+            "--source": .value(missing: .missingBlocksSource) { parsed.sourcePath = $0 },
+            "--date": .value(missing: .missingDateValue) { parsed.date = try parseISODate($0) },
+            "--apply": .boolean { parsed.apply = true }
+        ], unknown: CommandError.unknownBlocksFlag)
         return parsed
     }
 

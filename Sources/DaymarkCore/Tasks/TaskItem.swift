@@ -85,11 +85,6 @@ public struct TaskItem: Equatable, Sendable {
               parts.allSatisfy({ $0.allSatisfy(\.isNumber) }) else {
             return false
         }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "UTC")
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.isLenient = false
-        return formatter.date(from: value) != nil
+        return ISODate.date(from: value) != nil
     }
 }

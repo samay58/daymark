@@ -68,12 +68,13 @@ public struct DynamicBlockRefreshService {
             markdown: markdown,
             sourcePath: sourcePath
         )
+        let sources = try reader.allSources(fileManager: fileManager)
         let plan = try planner.plan(
             markdown: markdown,
             sourcePath: sourcePath,
             tasks: tasks,
-            sources: try reader.allSources(fileManager: fileManager),
-            codexContexts: try reader.allCodexContexts(fileManager: fileManager),
+            sources: sources,
+            codexContexts: try reader.allCodexContexts(sources: sources, fileManager: fileManager),
             referenceDate: referenceDate,
             calendar: calendar
         )

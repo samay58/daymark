@@ -46,7 +46,7 @@ public struct DailyMarkdownProjectionReader {
             title: parser.title(from: content),
             blocks: parser.blocks(from: content),
             tasks: taskParser.parse(
-                markdown: DynamicBlockRegion.removingGeneratedRegions(from: content),
+                markdown: DynamicBlockRegion.blankingGeneratedRegions(from: content),
                 notePath: relativePath
             ),
             modifiedAt: modifiedAt
@@ -89,13 +89,34 @@ public struct DailyMarkdownProjectionReader {
     /// source notes. This does not create or refresh task specs or bundles; it only projects
     /// readable files already present in the workspace.
     public func allCodexContexts(fileManager: FileManager = .default) throws -> [DynamicBlockCodexContextArtifact] {
-        let sourceTagsByPath = try sourceTagsByRelativePath(fileManager: fileManager)
+        try allCodexContexts(sources: allSources(fileManager: fileManager), fileManager: fileManager)
+    }
+
+    /// Codex artifacts resolved against an already-computed source list, so a caller that also
+    /// needs `allSources` (the dynamic-block refresh does) pays for the full-vault scan once
+    /// instead of scanning every note again to rebuild the same per-path tags. A referenced
+    /// source path that is absent from `sources` (untagged, missing, or under .daymark/)
+    /// resolves to no tags, preserving the previous silent fallback.
+    public func allCodexContexts(
+        sources: [DynamicBlockSource],
+        fileManager: FileManager = .default
+    ) throws -> [DynamicBlockCodexContextArtifact] {
+        let sourceTagsByPath = Dictionary(
+            sources.map { ($0.relativePath, $0.tags) },
+            uniquingKeysWith: { _, latest in latest }
+        )
         let taskArtifacts = try codexTaskArtifacts(
             sourceTagsByPath: sourceTagsByPath,
             fileManager: fileManager
         )
-        let taskTagsByPath = Dictionary(uniqueKeysWithValues: taskArtifacts.map { ($0.relativePath, $0.tags) })
-        let taskSourcePathsByPath = Dictionary(uniqueKeysWithValues: taskArtifacts.map { ($0.relativePath, $0.sourcePaths) })
+        let taskTagsByPath = Dictionary(
+            taskArtifacts.map { ($0.relativePath, $0.tags) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        let taskSourcePathsByPath = Dictionary(
+            taskArtifacts.map { ($0.relativePath, $0.sourcePaths) },
+            uniquingKeysWith: { _, latest in latest }
+        )
         let bundleArtifacts = try codexBundleArtifacts(
             sourceTagsByPath: sourceTagsByPath,
             taskTagsByPath: taskTagsByPath,
@@ -114,16 +135,6 @@ public struct DailyMarkdownProjectionReader {
         Self.markdownFiles(under: root.expandedURL, fileManager: fileManager)
             .map { Self.relativePath(of: $0, under: root) }
             .filter { !$0.hasPrefix(".daymark/") }
-    }
-
-    private func sourceTagsByRelativePath(fileManager: FileManager) throws -> [String: [String]] {
-        var tagsByPath: [String: [String]] = [:]
-        for relativePath in workspaceMarkdownRelativePaths(fileManager: fileManager) {
-            let url = root.expandedURL.appendingPathComponent(relativePath)
-            let content = try String(contentsOf: url, encoding: .utf8)
-            tagsByPath[relativePath] = Self.sourceTags(in: content)
-        }
-        return tagsByPath
     }
 
     private func codexTaskArtifacts(
@@ -221,10 +232,7 @@ public struct DailyMarkdownProjectionReader {
 
     private static func sourceTags(in markdown: String) -> [String] {
         let stripped = DynamicBlockRegion.removingGeneratedRegions(from: markdown)
-        let lines = stripped
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: "\n")
+        let lines = stripped.normalizedNewlines.components(separatedBy: "\n")
         var fence = MarkdownFenceScanner()
         var tags: Set<String> = []
 

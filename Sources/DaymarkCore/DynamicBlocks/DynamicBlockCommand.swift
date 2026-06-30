@@ -131,10 +131,26 @@ public struct DynamicBlockParser: Sendable {
         return invocations
     }
 
+    /// Whether the markdown contains at least one known `/daymark` command outside a fenced
+    /// code block. Non-throwing: an unsupported command name is skipped, not treated as an
+    /// error, so a note with a valid command alongside an unsupported one still returns true.
+    /// Used for UI gating, where parse()'s throw-on-unknown would wrongly report "no commands".
+    public func containsKnownCommand(in markdown: String) -> Bool {
+        let lines = Self.normalized(markdown).components(separatedBy: "\n")
+        var fence = MarkdownFenceScanner()
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if fence.consume(trimmedLine: trimmed) { continue }
+            if fence.isInsideFence { continue }
+            let parts = trimmed.split { $0 == " " || $0 == "\t" }.map(String.init)
+            guard parts.count >= 2, parts.first == "/daymark" else { continue }
+            if DynamicBlockCommand(rawValue: parts[1]) != nil { return true }
+        }
+        return false
+    }
+
     static func normalized(_ markdown: String) -> String {
-        markdown
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
+        markdown.normalizedNewlines
     }
 }
 
@@ -212,18 +228,27 @@ public struct DynamicBlockRenderer: Sendable {
         return lines.joined(separator: "\n") + "\n"
     }
 
-    private func renderSourceList(
-        invocation: DynamicBlockInvocation,
-        sources: [DynamicBlockSource]
-    ) throws -> String {
-        guard let tag = invocation.arguments.first else {
-            return "### Source List\n\nAdd a tag argument, for example `#project/daymark`.\n"
-        }
+    /// The single `#tag` argument that source-list and codex-context both require. Returns
+    /// nil when there are no arguments so the caller can emit its own placeholder, and throws
+    /// `unsupportedArgument` when the lone argument is not a single tag. open-loops (multiple
+    /// tags) and weekly-review (zero args) have different rules and do not use this.
+    private func singleTag(_ invocation: DynamicBlockInvocation) throws -> String? {
+        guard let tag = invocation.arguments.first else { return nil }
         guard tag.hasPrefix("#"), invocation.arguments.count == 1 else {
             let argument = invocation.arguments.first(where: { !$0.hasPrefix("#") })
                 ?? invocation.arguments.dropFirst().first
                 ?? tag
             throw DynamicBlockError.unsupportedArgument(command: invocation.command, argument: argument)
+        }
+        return tag
+    }
+
+    private func renderSourceList(
+        invocation: DynamicBlockInvocation,
+        sources: [DynamicBlockSource]
+    ) throws -> String {
+        guard let tag = try singleTag(invocation) else {
+            return "### Source List\n\nAdd a tag argument, for example `#project/daymark`.\n"
         }
 
         let matches = sources
@@ -249,14 +274,8 @@ public struct DynamicBlockRenderer: Sendable {
         invocation: DynamicBlockInvocation,
         contexts: [DynamicBlockCodexContextArtifact]
     ) throws -> String {
-        guard let tag = invocation.arguments.first else {
+        guard let tag = try singleTag(invocation) else {
             return "### Codex Context\n\nAdd a tag argument, for example `#project/daymark`.\n"
-        }
-        guard tag.hasPrefix("#"), invocation.arguments.count == 1 else {
-            let argument = invocation.arguments.first(where: { !$0.hasPrefix("#") })
-                ?? invocation.arguments.dropFirst().first
-                ?? tag
-            throw DynamicBlockError.unsupportedArgument(command: invocation.command, argument: argument)
         }
 
         let matches = contexts
@@ -330,7 +349,7 @@ public struct DynamicBlockRenderer: Sendable {
                 if lhs.kind == rhs.kind { return lhs.relativePath < rhs.relativePath }
                 return lhs.kind == .taskSpec
             }
-        let sourceTitles = Dictionary(uniqueKeysWithValues: sources.map { ($0.relativePath, $0.title) })
+        let sourceTitles = Dictionary(sources.map { ($0.relativePath, $0.title) }, uniquingKeysWith: { _, latest in latest })
         let sourcePaths = Array(Set(recentContexts.flatMap(\.sourcePaths))).sorted()
 
         var lines = ["### Weekly Review", ""]
@@ -420,12 +439,7 @@ private struct WeekWindow {
     }
 
     private static func date(fromISO iso: String, calendar: Calendar) -> Date? {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.isLenient = false
-        return formatter.date(from: iso)
+        ISODate.date(from: iso, calendar: calendar)
     }
 }
 
@@ -453,10 +467,13 @@ public struct DynamicBlockPatchPlan: Equatable, Sendable {
     public var patches: [DynamicBlockPatch]
 
     public func apply(to markdown: String) throws -> String {
-        // Patch on LF internally, but re-emit with the file's existing dominant line
-        // ending so untouched lines outside the generated region are never silently
-        // rewritten (a CRLF note stays CRLF; an LF note stays LF).
-        let lineEnding = markdown.contains("\r\n") ? "\r\n" : "\n"
+        // Patch on LF internally, but re-emit with the file's dominant line ending so
+        // untouched lines outside the generated region keep their bytes (a mostly-CRLF
+        // note stays CRLF, a mostly-LF note stays LF). Ties favor LF. Mixed-ending notes
+        // are rare enough that per-line terminator tracking is not worth the complexity.
+        let crlfCount = markdown.components(separatedBy: "\r\n").count - 1
+        let bareLFCount = (markdown.components(separatedBy: "\n").count - 1) - crlfCount
+        let lineEnding = crlfCount > bareLFCount ? "\r\n" : "\n"
         var lines = DynamicBlockParser.normalized(markdown).components(separatedBy: "\n")
         for patch in patches.sorted(by: { $0.startLineIndex > $1.startLineIndex }) {
             let replacementLines = patch.replacementMarkdown.components(separatedBy: "\n")
@@ -608,5 +625,31 @@ public enum DynamicBlockRegion {
         }
 
         return kept.joined(separator: "\n")
+    }
+
+    /// Like `removingGeneratedRegions`, but replaces each line of a complete region with an
+    /// empty string instead of deleting it, so the surrounding lines keep their on-disk line
+    /// numbers. Used before task parsing, where the renderer prints `path:line` verbatim: a
+    /// deleted region above a note's tasks would shift every later task's reported line. A
+    /// blanked line yields no task, so ADR-009 (generated checklists never feed Open Loops)
+    /// still holds. Incomplete regions are preserved verbatim, matching the removing variant.
+    public static func blankingGeneratedRegions(from markdown: String) -> String {
+        let lines = DynamicBlockParser.normalized(markdown).components(separatedBy: "\n")
+        var output: [String] = []
+        var index = 0
+
+        while index < lines.count {
+            let line = lines[index]
+            if let beginHash = GeneratedRegionMarker.beginHash(in: line),
+               let endIndex = GeneratedRegionMarker.endIndex(afterBegin: index, hash: beginHash, in: lines) {
+                for _ in index...endIndex { output.append("") }
+                index = endIndex + 1
+                continue
+            }
+            output.append(line)
+            index += 1
+        }
+
+        return output.joined(separator: "\n")
     }
 }

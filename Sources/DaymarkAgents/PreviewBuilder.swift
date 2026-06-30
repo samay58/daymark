@@ -74,11 +74,7 @@ public struct PreviewBuilder {
 
     private func stripMarkdownPrefix(_ line: String) -> String {
         var output = line
-        output = output.replacingOccurrences(
-            of: #"^\s{0,3}#{1,6}\s+"#,
-            with: "",
-            options: .regularExpression
-        )
+        output = MarkdownHeading.strippingMarker(output)
         output = output.replacingOccurrences(
             of: #"^\s{0,3}[-*+]\s+\[[ xX]\]\s+"#,
             with: "",

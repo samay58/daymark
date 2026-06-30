@@ -9,7 +9,7 @@ public enum CaptureFormatter {
     }
 
     public static func dayHeading(for date: Date, calendar: Calendar = .current) -> String {
-        "## " + formatter(calendar: calendar, format: "yyyy-MM-dd").string(from: date)
+        "## " + ISODate.string(from: date, calendar: calendar)
     }
 
     /// A timestamped slip/capture bullet, for example `- 09:30 buy milk`.

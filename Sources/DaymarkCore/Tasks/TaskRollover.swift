@@ -69,9 +69,7 @@ public enum TaskRollover {
     }
 
     private static func normalized(_ markdown: String) -> String {
-        let text = markdown
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
+        let text = markdown.normalizedNewlines
         return text.hasSuffix("\n") ? text : text + "\n"
     }
 }

@@ -76,10 +76,6 @@ public enum OpenLoops {
     }
 
     private static func isoString(for date: Date, calendar: Calendar) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        ISODate.string(from: date, calendar: calendar)
     }
 }

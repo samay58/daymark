@@ -70,7 +70,7 @@ public enum MarkdownSection {
     // MARK: - Helpers
 
     private static func normalizingNewlines(_ text: String) -> String {
-        text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        text.normalizedNewlines
     }
 
     /// The ATX heading level of a line (`## Foo` is 2), or nil when the line is not a heading.

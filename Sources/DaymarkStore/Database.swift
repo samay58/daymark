@@ -188,7 +188,7 @@ public actor Database {
     /// Upserts a note row keyed by its workspace-relative path, preserving the row id
     /// (and therefore its blocks) on update. Returns the note id.
     @discardableResult
-    public func upsertNote(
+    private func upsertNote(
         relativePath: String,
         title: String?,
         content: String,
@@ -294,7 +294,7 @@ public actor Database {
     }
 
     /// Replaces all blocks for a note. Reprojecting a note never appends.
-    public func replaceBlocks(noteID: Int64, blocks: [Block]) throws {
+    private func replaceBlocks(noteID: Int64, blocks: [Block]) throws {
         let connection = try requireHandle()
         let delete = try prepare("DELETE FROM blocks WHERE note_id = ?;")
         sqlite3_bind_int64(delete, 1, noteID)
@@ -324,7 +324,7 @@ public actor Database {
 
     /// Replaces all task rows for a note. Like `replaceBlocks`, reprojecting a note never
     /// appends, so the tasks table stays a rebuildable projection of the Markdown.
-    public func replaceTasks(noteID: Int64, tasks: [TaskItem]) throws {
+    private func replaceTasks(noteID: Int64, tasks: [TaskItem]) throws {
         let connection = try requireHandle()
         let delete = try prepare("DELETE FROM tasks WHERE note_id = ?;")
         sqlite3_bind_int64(delete, 1, noteID)

@@ -19,7 +19,14 @@ struct CreatedCodexTask: Equatable {
 @Observable
 final class AppState {
     var workspaceRoot: WorkspaceRoot
-    var todayText: String
+    var todayText: String {
+        didSet { recomputeBufferDerivations() }
+    }
+    /// Derivations of the editor buffer, memoized once per mutation in todayText.didSet so the
+    /// dynamic-block gating getters never re-scan and re-hash the whole note during a
+    /// context-margin body pass (which reads three of those getters per keystroke).
+    private(set) var todayContentHash = ""
+    private(set) var todayHasDynamicBlockCommand = false
     var selectedSidebarItem: SidebarItem = .today
     var isContextMarginVisible = true
     var isCommandPalettePresented = false
@@ -48,17 +55,17 @@ final class AppState {
     var canCreateCodexTaskFile: Bool { codexTaskDraft?.isWritable ?? false }
     var canCreateCodexContextBundle: Bool { codexContextBundle?.isWritable ?? false }
     var canRefreshDynamicBlocks: Bool {
-        didLoadToday && Self.containsVisibleDynamicBlockCommand(in: todayText)
+        didLoadToday && todayHasDynamicBlockCommand
     }
     var canApplyDynamicBlocks: Bool {
         guard let preview = dynamicBlockPreview else { return false }
-        return ContentHasher.hash(todayText) == preview.sourceContentHash
+        return todayContentHash == preview.sourceContentHash
             && !isPlanningDynamicBlocks
             && !isApplyingDynamicBlocks
     }
     var isDynamicBlockPreviewStale: Bool {
         guard let preview = dynamicBlockPreview else { return false }
-        return ContentHasher.hash(todayText) != preview.sourceContentHash
+        return todayContentHash != preview.sourceContentHash
     }
 
     /// Local full-text search results for the current command-palette query.
@@ -110,6 +117,7 @@ final class AppState {
         self.calendar = calendar
         self.todayText = SampleData.todayDocument
         self.lastSavedText = SampleData.todayDocument
+        recomputeBufferDerivations()
         observeTermination()
     }
 
@@ -274,6 +282,13 @@ final class AppState {
         selfWrittenHashes.insert(ContentHasher.hash(content))
     }
 
+    /// Recomputes the memoized buffer derivations the dynamic-block gating reads. Called once
+    /// per todayText mutation (didSet) and once at init, so the gating getters stay O(1).
+    private func recomputeBufferDerivations() {
+        todayContentHash = ContentHasher.hash(todayText)
+        todayHasDynamicBlockCommand = DynamicBlockParser().containsKnownCommand(in: todayText)
+    }
+
     // MARK: - External edits and conflict resolution
 
     private func handleExternalChanges(_ paths: [String]) {
@@ -380,7 +395,7 @@ final class AppState {
             isContextMarginVisible = true
             return
         }
-        guard Self.containsVisibleDynamicBlockCommand(in: todayText) else {
+        guard todayHasDynamicBlockCommand else {
             dynamicBlockPreview = nil
             dynamicBlockMessage = "No dynamic block commands in this note."
             isContextMarginVisible = true
@@ -429,7 +444,7 @@ final class AppState {
             isContextMarginVisible = true
             return
         }
-        guard ContentHasher.hash(todayText) == preview.sourceContentHash else {
+        guard todayContentHash == preview.sourceContentHash else {
             dynamicBlockMessage = "Preview is stale. Refresh the preview before applying."
             return
         }
@@ -439,6 +454,20 @@ final class AppState {
         dynamicBlockMessage = nil
         let root = workspaceRoot
         let markdown = todayText
+
+        // Compute the applied Markdown on the main actor and record it as our own write before
+        // the disk write, matching scheduleAutosave's echo-guard ordering so a watcher event
+        // racing the write is recognized as an echo. The detached task runs the same
+        // deterministic apply() and performs the workspace-confined write.
+        let updated: String
+        do {
+            updated = try preview.plan.apply(to: markdown)
+        } catch {
+            isApplyingDynamicBlocks = false
+            dynamicBlockMessage = Self.message(for: error)
+            return
+        }
+        recordSelfWrite(updated)
 
         let result = await Task.detached(priority: .userInitiated) {
             Result {
@@ -453,13 +482,22 @@ final class AppState {
         isApplyingDynamicBlocks = false
         switch result {
         case .success(let result):
-            recordSelfWrite(result.updatedMarkdown)
-            lastSavedText = result.updatedMarkdown
-            todayText = result.updatedMarkdown
             dynamicBlockPreview = nil
-            dynamicBlockMessage = result.cacheWarning == nil
-                ? "Updated dynamic blocks."
-                : "Updated dynamic blocks. Cache metadata will rebuild later."
+            // A keystroke may have landed between the snapshot above and here. Adopt the
+            // applied Markdown only if the buffer still matches what was previewed; otherwise
+            // the user has unsaved edits and the freshly-written disk version is a conflict to
+            // resolve, not a buffer to clobber.
+            if todayContentHash == preview.sourceContentHash {
+                lastSavedText = result.updatedMarkdown
+                todayText = result.updatedMarkdown
+                dynamicBlockMessage = result.cacheWarning == nil
+                    ? "Updated dynamic blocks."
+                    : "Updated dynamic blocks. Cache metadata will rebuild later."
+            } else {
+                externalDiskVersion = result.updatedMarkdown
+                hasExternalConflict = true
+                dynamicBlockMessage = "Note changed during refresh. Resolve the conflict to keep the update."
+            }
             if let indexer {
                 try? await indexer.indexToday()
             }
@@ -515,52 +553,30 @@ final class AppState {
         }
     }
 
-    func updateCodexTaskDraftTitle(_ title: String) {
-        updateCodexTaskDraft { draft in
-            draft.withEditedFields(
-                title: title,
-                goal: draft.goal,
-                constraints: draft.constraints,
-                acceptanceCriteria: draft.acceptanceCriteria,
-                date: codexTaskDateBasis ?? Date(),
-                existingRelativePaths: codexTaskPathBasis
-            )
-        }
-    }
-
-    func updateCodexTaskDraftGoal(_ goal: String) {
-        updateCodexTaskDraft { draft in
-            draft.withEditedFields(
-                title: draft.title,
-                goal: goal,
-                constraints: draft.constraints,
-                acceptanceCriteria: draft.acceptanceCriteria,
-                date: codexTaskDateBasis ?? Date(),
-                existingRelativePaths: codexTaskPathBasis
-            )
-        }
-    }
-
+    func updateCodexTaskDraftTitle(_ title: String) { editCodexTaskDraftFields(title: title) }
+    func updateCodexTaskDraftGoal(_ goal: String) { editCodexTaskDraftFields(goal: goal) }
     func updateCodexTaskDraftConstraints(_ text: String) {
-        updateCodexTaskDraft { draft in
-            draft.withEditedFields(
-                title: draft.title,
-                goal: draft.goal,
-                constraints: Self.lines(from: text),
-                acceptanceCriteria: draft.acceptanceCriteria,
-                date: codexTaskDateBasis ?? Date(),
-                existingRelativePaths: codexTaskPathBasis
-            )
-        }
+        editCodexTaskDraftFields(constraints: Self.lines(from: text))
+    }
+    func updateCodexTaskDraftAcceptanceCriteria(_ text: String) {
+        editCodexTaskDraftFields(acceptanceCriteria: Self.lines(from: text))
     }
 
-    func updateCodexTaskDraftAcceptanceCriteria(_ text: String) {
+    /// Threads the date and path basis once and rewrites only the supplied field(s); a nil
+    /// field keeps the draft's current value. Swift default args cannot reference the runtime
+    /// draft, so each unset field resolves against the draft inside the edit closure.
+    private func editCodexTaskDraftFields(
+        title: String? = nil,
+        goal: String? = nil,
+        constraints: [String]? = nil,
+        acceptanceCriteria: [String]? = nil
+    ) {
         updateCodexTaskDraft { draft in
             draft.withEditedFields(
-                title: draft.title,
-                goal: draft.goal,
-                constraints: draft.constraints,
-                acceptanceCriteria: Self.lines(from: text),
+                title: title ?? draft.title,
+                goal: goal ?? draft.goal,
+                constraints: constraints ?? draft.constraints,
+                acceptanceCriteria: acceptanceCriteria ?? draft.acceptanceCriteria,
                 date: codexTaskDateBasis ?? Date(),
                 existingRelativePaths: codexTaskPathBasis
             )
@@ -731,28 +747,6 @@ final class AppState {
 
     private static func lines(from text: String) -> [String] {
         text.components(separatedBy: CharacterSet.newlines)
-    }
-
-    private static func containsVisibleDynamicBlockCommand(in markdown: String) -> Bool {
-        let lines = normalizedMarkdown(markdown).components(separatedBy: "\n")
-        var fence = MarkdownFenceScanner()
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: CharacterSet.whitespaces)
-            if fence.consume(trimmedLine: trimmed) { continue }
-            if fence.isInsideFence { continue }
-            let parts = trimmed
-                .split(whereSeparator: { character in character == " " || character == "\t" })
-                .map(String.init)
-            guard parts.count >= 2, parts[0] == "/daymark" else { continue }
-            if DynamicBlockCommand(rawValue: parts[1]) != nil { return true }
-        }
-        return false
-    }
-
-    private static func normalizedMarkdown(_ markdown: String) -> String {
-        markdown
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
     }
 
     private static func message(for error: Error) -> String {

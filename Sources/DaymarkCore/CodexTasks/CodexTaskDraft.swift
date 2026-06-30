@@ -38,20 +38,20 @@ public struct CodexTaskDraft: Equatable, Sendable {
 
     public func markdown() -> String {
         var sections = [
-            "# \(clean(title))",
+            "# \(Self.clean(title))",
             """
             ## Goal
 
-            \(clean(goal))
+            \(Self.clean(goal))
             """,
-            sourceSection()
+            Self.sourceSection(path: sourcePath, line: sourceLine, endLine: sourceEndLine, block: sourceBlock)
         ]
 
-        if !clean(sourceExcerpt).isEmpty {
-            sections.append("## Source Excerpt\n\n" + MarkdownCodeFence.wrap(clean(sourceExcerpt), info: "md"))
+        if !Self.clean(sourceExcerpt).isEmpty {
+            sections.append("## Source Excerpt\n\n" + MarkdownCodeFence.wrap(Self.clean(sourceExcerpt), info: "md"))
         }
 
-        let cleanConstraints = constraints.map(clean).filter { !$0.isEmpty }
+        let cleanConstraints = constraints.map(Self.clean).filter { !$0.isEmpty }
         if !cleanConstraints.isEmpty {
             sections.append("""
             ## Constraints
@@ -60,18 +60,19 @@ public struct CodexTaskDraft: Equatable, Sendable {
             """)
         }
 
-        let criteria = mergedCriteria().map { "- [ ] \($0)" }.joined(separator: "\n")
+        let criteria = Self.mergeCriteria(acceptanceCriteria, defaults: Self.acceptanceCriteriaDefaults)
+            .map { "- [ ] \($0)" }.joined(separator: "\n")
         sections.append("""
         ## Acceptance Criteria
 
         \(criteria)
         """)
 
-        if !clean(suggestedFilePath).isEmpty {
+        if !Self.clean(suggestedFilePath).isEmpty {
             sections.append("""
             ## Suggested File
 
-            `\(clean(suggestedFilePath))`
+            `\(Self.clean(suggestedFilePath))`
             """)
         }
 
@@ -96,7 +97,7 @@ public struct CodexTaskDraft: Equatable, Sendable {
             sourceExcerpt: fencedSectionBody("Source Excerpt", in: lines),
             constraints: cleanedListItems(sectionBodyLines("Constraints", in: lines)),
             suggestedFilePath: taskRelativePath,
-            acceptanceCriteria: cleanedListItems(sectionBodyLines("Acceptance Criteria", in: lines))
+            acceptanceCriteria: userAcceptanceCriteria(in: lines)
         )
     }
 
@@ -136,11 +137,11 @@ public struct CodexTaskDraft: Equatable, Sendable {
         existingRelativePaths: Set<String>,
         calendar: Calendar = Calendar(identifier: .gregorian)
     ) -> CodexTaskDraft {
-        let cleanedTitle = clean(title)
+        let cleanedTitle = Self.clean(title)
         let preferredPath = Self.suggestedRelativePath(title: cleanedTitle, date: date, calendar: calendar)
         var copy = self
         copy.title = cleanedTitle
-        copy.goal = clean(goal)
+        copy.goal = Self.clean(goal)
         copy.constraints = Self.cleanedListItems(constraints)
         copy.acceptanceCriteria = Self.cleanedListItems(acceptanceCriteria)
         copy.suggestedFilePath = Self.collisionSafeRelativePath(
@@ -169,12 +170,20 @@ public struct CodexTaskDraft: Equatable, Sendable {
         }
     }
 
+    /// Acceptance criteria as the user authored them, with the defaults markdown() injects
+    /// filtered back out so parse(markdown()) does not promote a default to user content.
+    private static func userAcceptanceCriteria(in lines: [String]) -> [String] {
+        let defaults = Set(acceptanceCriteriaDefaults.map { $0.lowercased() })
+        return cleanedListItems(sectionBodyLines("Acceptance Criteria", in: lines))
+            .filter { !defaults.contains($0.lowercased()) }
+    }
+
     public static func suggestedRelativePath(
         title: String,
         date: Date,
         calendar: Calendar = Calendar(identifier: .gregorian)
     ) -> String {
-        let datePrefix = dateFormatter(calendar: calendar).string(from: date)
+        let datePrefix = ISODate.string(from: date, calendar: calendar)
         let slug = slugify(title)
         return "specs/tasks/\(datePrefix)-\(slug.isEmpty ? "codex-task" : slug).md"
     }
@@ -214,17 +223,19 @@ public struct CodexTaskDraft: Equatable, Sendable {
         return output.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
-    private func sourceSection() -> String {
-        var lines = ["Path: `\(clean(sourcePath))`"]
-        if let sourceLine {
-            if let sourceEndLine, sourceEndLine > sourceLine {
-                lines.append("Lines: \(sourceLine)-\(sourceEndLine)")
+    /// The `## Source` section shared by the task file and the context bundle. Static so both
+    /// types render it from identical code.
+    static func sourceSection(path: String, line: Int?, endLine: Int?, block: String?) -> String {
+        var lines = ["Path: `\(clean(path))`"]
+        if let line {
+            if let endLine, endLine > line {
+                lines.append("Lines: \(line)-\(endLine)")
             } else {
-                lines.append("Line: \(sourceLine)")
+                lines.append("Line: \(line)")
             }
         }
-        if let sourceBlock = sourceBlock.map(clean), !sourceBlock.isEmpty {
-            lines.append("Block: \(sourceBlock)")
+        if let block = block.map(clean), !block.isEmpty {
+            lines.append("Block: \(block)")
         }
         return """
         ## Source
@@ -233,11 +244,16 @@ public struct CodexTaskDraft: Equatable, Sendable {
         """
     }
 
-    private func mergedCriteria() -> [String] {
+    /// Acceptance criteria that markdown() appends to every task file. Kept as one constant
+    /// so parse() can strip them back out and the round-trip stays lossless.
+    static let acceptanceCriteriaDefaults = ["Source note remains unchanged", "Task file is readable Markdown"]
+
+    /// User criteria plus the given defaults, cleaned and de-duplicated case-insensitively.
+    /// Shared so the task file and the context bundle merge criteria identically.
+    static func mergeCriteria(_ criteria: [String], defaults: [String]) -> [String] {
         var seen: Set<String> = []
         var output: [String] = []
-        let defaults = ["Source note remains unchanged", "Task file is readable Markdown"]
-        for criterion in acceptanceCriteria + defaults {
+        for criterion in criteria + defaults {
             let cleaned = clean(criterion)
             guard !cleaned.isEmpty else { continue }
             let key = cleaned.lowercased()
@@ -248,17 +264,14 @@ public struct CodexTaskDraft: Equatable, Sendable {
         return output
     }
 
-    private func clean(_ value: String) -> String {
+    static func clean(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Parsing helpers (fence-aware, mirror the markdown() writer format)
 
     private static func normalizedLines(_ text: String) -> [String] {
-        text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: "\n")
+        text.normalizedNewlines.components(separatedBy: "\n")
     }
 
     /// The first level-1 heading outside any fenced code block.
@@ -341,14 +354,6 @@ public struct CodexTaskDraft: Equatable, Sendable {
         return (start, end)
     }
 
-    private static func dateFormatter(calendar: Calendar) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }
 }
 
 public struct CodexTaskWriteResult: Equatable, Sendable {
@@ -359,6 +364,31 @@ public struct CodexTaskWriteResult: Equatable, Sendable {
         self.relativePath = relativePath
         self.url = url
     }
+}
+
+/// Resolves a collision-safe path under `directory`, validates it, and atomically writes a
+/// Codex artifact. `makeMarkdown` is invoked with the FINAL relative path AFTER collision
+/// resolution, so the path embedded in the file body matches the filename actually written;
+/// passing a pre-built String would embed the pre-collision path on a name collision. Each
+/// writer keeps its own validate(), typed Error, and result struct.
+func writeCodexArtifact(
+    preferredRelativePath: String,
+    directory: String,
+    isValidPath: (String) -> Bool,
+    invalidPathError: () -> Swift.Error,
+    makeMarkdown: (String) -> String,
+    root: WorkspaceRoot,
+    fileManager: FileManager,
+    atomicWriter: AtomicFileWriter
+) throws -> (relativePath: String, url: URL) {
+    let relativePath = CodexTaskDraft.collisionSafeRelativePath(
+        preferredPath: preferredRelativePath,
+        existingRelativePaths: root.existingMarkdownRelativePaths(under: directory, fileManager: fileManager)
+    )
+    guard isValidPath(relativePath) else { throw invalidPathError() }
+    let fileURL = root.expandedURL.appendingPathComponent(relativePath)
+    try atomicWriter.write(makeMarkdown(relativePath), to: fileURL, fileManager: fileManager)
+    return (relativePath, fileURL)
 }
 
 public struct CodexTaskFileWriter {
@@ -382,18 +412,16 @@ public struct CodexTaskFileWriter {
 
     public func write(_ draft: CodexTaskDraft, root: WorkspaceRoot) throws -> CodexTaskWriteResult {
         try validate(draft)
-        let relativePath = collisionSafePath(preferredPath: draft.suggestedFilePath, root: root)
-        guard CodexTaskDraft.isTaskPath(relativePath) else { throw Error.invalidPath }
-        let fileURL = root.expandedURL.appendingPathComponent(relativePath)
-        let finalDraft = draft.withSuggestedFilePath(relativePath)
-        try atomicWriter.write(finalDraft.markdown(), to: fileURL, fileManager: fileManager)
-        return CodexTaskWriteResult(relativePath: relativePath, url: fileURL)
-    }
-
-    private func collisionSafePath(preferredPath: String, root: WorkspaceRoot) -> String {
-        CodexTaskDraft.collisionSafeRelativePath(
-            preferredPath: preferredPath,
-            existingRelativePaths: root.existingMarkdownRelativePaths(under: "specs/tasks", fileManager: fileManager)
+        let written = try writeCodexArtifact(
+            preferredRelativePath: draft.suggestedFilePath,
+            directory: "specs/tasks",
+            isValidPath: CodexTaskDraft.isTaskPath,
+            invalidPathError: { Error.invalidPath },
+            makeMarkdown: { draft.withSuggestedFilePath($0).markdown() },
+            root: root,
+            fileManager: fileManager,
+            atomicWriter: atomicWriter
         )
+        return CodexTaskWriteResult(relativePath: written.relativePath, url: written.url)
     }
 }
