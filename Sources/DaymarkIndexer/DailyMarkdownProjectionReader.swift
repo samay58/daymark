@@ -85,12 +85,112 @@ public struct DailyMarkdownProjectionReader {
         return sources
     }
 
+    /// Existing Codex handoff artifacts, tagged from their own Markdown and from linked
+    /// source notes. This does not create or refresh task specs or bundles; it only projects
+    /// readable files already present in the workspace.
+    public func allCodexContexts(fileManager: FileManager = .default) throws -> [DynamicBlockCodexContextArtifact] {
+        let sourceTagsByPath = try sourceTagsByRelativePath(fileManager: fileManager)
+        let taskArtifacts = try codexTaskArtifacts(
+            sourceTagsByPath: sourceTagsByPath,
+            fileManager: fileManager
+        )
+        let taskTagsByPath = Dictionary(uniqueKeysWithValues: taskArtifacts.map { ($0.relativePath, $0.tags) })
+        let taskSourcePathsByPath = Dictionary(uniqueKeysWithValues: taskArtifacts.map { ($0.relativePath, $0.sourcePaths) })
+        let bundleArtifacts = try codexBundleArtifacts(
+            sourceTagsByPath: sourceTagsByPath,
+            taskTagsByPath: taskTagsByPath,
+            taskSourcePathsByPath: taskSourcePathsByPath,
+            fileManager: fileManager
+        )
+
+        return (taskArtifacts + bundleArtifacts).sorted { lhs, rhs in
+            lhs.relativePath < rhs.relativePath
+        }
+    }
+
     // MARK: - Helpers (single home for daily enumeration + relative-path computation)
 
     private func workspaceMarkdownRelativePaths(fileManager: FileManager) -> [String] {
         Self.markdownFiles(under: root.expandedURL, fileManager: fileManager)
             .map { Self.relativePath(of: $0, under: root) }
             .filter { !$0.hasPrefix(".daymark/") }
+    }
+
+    private func sourceTagsByRelativePath(fileManager: FileManager) throws -> [String: [String]] {
+        var tagsByPath: [String: [String]] = [:]
+        for relativePath in workspaceMarkdownRelativePaths(fileManager: fileManager) {
+            let url = root.expandedURL.appendingPathComponent(relativePath)
+            let content = try String(contentsOf: url, encoding: .utf8)
+            tagsByPath[relativePath] = Self.sourceTags(in: content)
+        }
+        return tagsByPath
+    }
+
+    private func codexTaskArtifacts(
+        sourceTagsByPath: [String: [String]],
+        fileManager: FileManager
+    ) throws -> [DynamicBlockCodexContextArtifact] {
+        try codexArtifactRelativePaths(under: "specs/tasks", fileManager: fileManager).map { relativePath in
+            let content = try String(
+                contentsOf: root.expandedURL.appendingPathComponent(relativePath),
+                encoding: .utf8
+            )
+            let stripped = DynamicBlockRegion.removingGeneratedRegions(from: content)
+            let sourcePaths = Self.markdownReferencePaths(in: stripped)
+                .filter { !$0.hasPrefix("specs/tasks/") && !$0.hasPrefix("artifacts/context-bundles/") }
+            let tags = Self.mergedTags(
+                Self.sourceTags(in: content),
+                sourcePaths.flatMap { sourceTagsByPath[$0] ?? [] }
+            )
+            return DynamicBlockCodexContextArtifact(
+                kind: .taskSpec,
+                title: parser.title(from: content) ?? relativePath,
+                relativePath: relativePath,
+                tags: tags,
+                sourcePaths: sourcePaths,
+                taskPaths: []
+            )
+        }
+    }
+
+    private func codexBundleArtifacts(
+        sourceTagsByPath: [String: [String]],
+        taskTagsByPath: [String: [String]],
+        taskSourcePathsByPath: [String: [String]],
+        fileManager: FileManager
+    ) throws -> [DynamicBlockCodexContextArtifact] {
+        try codexArtifactRelativePaths(under: "artifacts/context-bundles", fileManager: fileManager).map { relativePath in
+            let content = try String(
+                contentsOf: root.expandedURL.appendingPathComponent(relativePath),
+                encoding: .utf8
+            )
+            let stripped = DynamicBlockRegion.removingGeneratedRegions(from: content)
+            let references = Self.markdownReferencePaths(in: stripped)
+            let taskPaths = references.filter { $0.hasPrefix("specs/tasks/") }
+            let directSourcePaths = references
+                .filter { !$0.hasPrefix("specs/tasks/") && !$0.hasPrefix("artifacts/context-bundles/") }
+            let inheritedSourcePaths = taskPaths.flatMap { taskSourcePathsByPath[$0] ?? [] }
+            let sourcePaths = Self.uniqueSorted(directSourcePaths + inheritedSourcePaths)
+            let tags = Self.mergedTags(
+                Self.sourceTags(in: content),
+                taskPaths.flatMap { taskTagsByPath[$0] ?? [] },
+                sourcePaths.flatMap { sourceTagsByPath[$0] ?? [] }
+            )
+            return DynamicBlockCodexContextArtifact(
+                kind: .contextBundle,
+                title: parser.title(from: content) ?? relativePath,
+                relativePath: relativePath,
+                tags: tags,
+                sourcePaths: sourcePaths,
+                taskPaths: taskPaths
+            )
+        }
+    }
+
+    private func codexArtifactRelativePaths(under relativeDirectory: String, fileManager: FileManager) -> [String] {
+        let directory = root.expandedURL.appendingPathComponent(relativeDirectory, isDirectory: true)
+        return Self.markdownFiles(under: directory, fileManager: fileManager)
+            .map { Self.relativePath(of: $0, under: root) }
     }
 
     static func markdownFiles(under directory: URL, fileManager: FileManager) -> [URL] {
@@ -135,11 +235,35 @@ public struct DailyMarkdownProjectionReader {
             if trimmed.hasPrefix("/daymark ") || trimmed == "/daymark" { continue }
 
             for word in trimmed.split(whereSeparator: { $0 == " " || $0 == "\t" }) {
-                guard word.hasPrefix("#"), word.count > 1 else { continue }
-                tags.insert(String(word))
+                let tag = String(word).trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?)]}"))
+                guard tag.hasPrefix("#"), tag.count > 1 else { continue }
+                tags.insert(tag)
             }
         }
 
         return tags.sorted()
+    }
+
+    private static func markdownReferencePaths(in markdown: String) -> [String] {
+        let stripped = DynamicBlockRegion.removingGeneratedRegions(from: markdown)
+        let pattern = #"`([^`]+\.md)`"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let range = NSRange(stripped.startIndex..<stripped.endIndex, in: stripped)
+        var paths: [String] = []
+        for match in regex.matches(in: stripped, range: range) {
+            guard let capture = Range(match.range(at: 1), in: stripped) else { continue }
+            let path = String(stripped[capture])
+            guard !path.hasPrefix("/"), !path.contains("..") else { continue }
+            paths.append(path)
+        }
+        return uniqueSorted(paths)
+    }
+
+    private static func mergedTags(_ groups: [String]...) -> [String] {
+        uniqueSorted(groups.flatMap { $0 })
+    }
+
+    private static func uniqueSorted(_ values: [String]) -> [String] {
+        Array(Set(values)).sorted()
     }
 }

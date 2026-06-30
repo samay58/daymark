@@ -89,4 +89,61 @@ final class DailyMarkdownProjectionReaderTests: XCTestCase {
             "Daymark Project"
         )
     }
+
+    func testAllCodexContextsMatchesArtifactsByTagAndTaggedSourcePath() throws {
+        let root = try makeBootstrappedWorkspace()
+        try write("""
+        # Daymark Project
+
+        Build dynamic handoff blocks. #project/daymark
+        """, relativePath: "projects/daymark.md", root: root)
+        try write("""
+        # Ship beta handoff
+
+        ## Goal
+
+        Finish the local renderer.
+
+        ## Source
+
+        Path: `projects/daymark.md`
+        """, relativePath: "specs/tasks/2026-06-29-ship-beta.md", root: root)
+        try write("""
+        # Direct tag handoff
+
+        This task is tagged #project/daymark.
+        """, relativePath: "specs/tasks/2026-06-29-direct.md", root: root)
+        try write("""
+        # Generated-only task
+
+        <!-- daymark:block-begin abc -->
+        #project/daymark
+        <!-- daymark:block-end abc -->
+        """, relativePath: "specs/tasks/2026-06-29-generated.md", root: root)
+        try write("""
+        # Context Bundle: Ship beta handoff
+
+        ## Task
+
+        Task: `specs/tasks/2026-06-29-ship-beta.md`
+        """, relativePath: "artifacts/context-bundles/2026-06-29-ship-beta-context.md", root: root)
+
+        let contexts = try DailyMarkdownProjectionReader(root: root).allCodexContexts()
+        let daymark = contexts.filter { $0.tags.contains("#project/daymark") }
+
+        XCTAssertEqual(daymark.map(\.relativePath), [
+            "artifacts/context-bundles/2026-06-29-ship-beta-context.md",
+            "specs/tasks/2026-06-29-direct.md",
+            "specs/tasks/2026-06-29-ship-beta.md"
+        ])
+        XCTAssertEqual(
+            daymark.first { $0.relativePath == "specs/tasks/2026-06-29-ship-beta.md" }?.sourcePaths,
+            ["projects/daymark.md"]
+        )
+        XCTAssertEqual(
+            daymark.first { $0.relativePath == "artifacts/context-bundles/2026-06-29-ship-beta-context.md" }?.taskPaths,
+            ["specs/tasks/2026-06-29-ship-beta.md"]
+        )
+        XCTAssertFalse(daymark.map(\.relativePath).contains("specs/tasks/2026-06-29-generated.md"))
+    }
 }

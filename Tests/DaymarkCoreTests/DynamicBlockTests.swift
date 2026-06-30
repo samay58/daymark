@@ -147,6 +147,98 @@ final class DynamicBlockTests: XCTestCase {
         }
     }
 
+    func testCodexContextRendererListsMatchingTaskSpecsAndBundles() throws {
+        let invocation = DynamicBlockInvocation(
+            sourcePath: "daily/today.md",
+            lineNumber: 1,
+            rawText: "/daymark codex-context #project/daymark",
+            command: .codexContext,
+            arguments: ["#project/daymark"],
+            ordinal: 1
+        )
+        let contexts = [
+            DynamicBlockCodexContextArtifact(
+                kind: .contextBundle,
+                title: "Context Bundle: Ship beta",
+                relativePath: "artifacts/context-bundles/2026-06-29-ship-beta-context.md",
+                tags: ["#project/daymark"],
+                sourcePaths: ["projects/daymark.md"],
+                taskPaths: ["specs/tasks/2026-06-29-ship-beta.md"]
+            ),
+            DynamicBlockCodexContextArtifact(
+                kind: .taskSpec,
+                title: "Ship beta",
+                relativePath: "specs/tasks/2026-06-29-ship-beta.md",
+                tags: ["#project/daymark"],
+                sourcePaths: ["projects/daymark.md"],
+                taskPaths: []
+            ),
+            DynamicBlockCodexContextArtifact(
+                kind: .taskSpec,
+                title: "Other task",
+                relativePath: "specs/tasks/2026-06-29-other.md",
+                tags: ["#project/other"],
+                sourcePaths: [],
+                taskPaths: []
+            )
+        ]
+
+        let rendered = try DynamicBlockRenderer().render(
+            invocation: invocation,
+            tasks: [],
+            sources: [],
+            codexContexts: contexts,
+            referenceDate: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertTrue(rendered.contains("### Codex Context: #project/daymark"))
+        XCTAssertTrue(rendered.contains("#### Task Specs"))
+        XCTAssertTrue(rendered.contains("- Ship beta (`specs/tasks/2026-06-29-ship-beta.md`) source: `projects/daymark.md`"))
+        XCTAssertTrue(rendered.contains("#### Context Bundles"))
+        XCTAssertTrue(rendered.contains("- Context Bundle: Ship beta (`artifacts/context-bundles/2026-06-29-ship-beta-context.md`) task: `specs/tasks/2026-06-29-ship-beta.md`; source: `projects/daymark.md`"))
+        XCTAssertFalse(rendered.contains("Other task"))
+    }
+
+    func testCodexContextRendererRejectsMalformedArgumentsAndShowsPlainEmptyState() throws {
+        let renderer = DynamicBlockRenderer()
+        let missingArgument = DynamicBlockInvocation(
+            sourcePath: "daily/today.md",
+            lineNumber: 1,
+            rawText: "/daymark codex-context",
+            command: .codexContext,
+            ordinal: 1
+        )
+        let empty = try renderer.render(
+            invocation: missingArgument,
+            tasks: [],
+            sources: [],
+            codexContexts: [],
+            referenceDate: Date(timeIntervalSince1970: 0)
+        )
+        XCTAssertEqual(empty, "### Codex Context\n\nAdd a tag argument, for example `#project/daymark`.\n")
+
+        let malformed = DynamicBlockInvocation(
+            sourcePath: "daily/today.md",
+            lineNumber: 1,
+            rawText: "/daymark codex-context project/daymark",
+            command: .codexContext,
+            arguments: ["project/daymark"],
+            ordinal: 1
+        )
+        XCTAssertThrowsError(try renderer.render(
+            invocation: malformed,
+            tasks: [],
+            sources: [],
+            codexContexts: [],
+            referenceDate: Date(timeIntervalSince1970: 0)
+        )) { error in
+            XCTAssertEqual(
+                (error as? DynamicBlockError)?.errorDescription,
+                "unsupported argument for codex-context: project/daymark"
+            )
+        }
+    }
+
     func testPatchPlanInsertsGeneratedRegionAndThenReplacesItIdempotently() throws {
         let markdown = """
         Before

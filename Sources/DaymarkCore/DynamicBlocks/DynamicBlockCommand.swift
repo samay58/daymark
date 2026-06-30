@@ -48,6 +48,36 @@ public struct DynamicBlockSource: Equatable, Sendable {
     }
 }
 
+public enum DynamicBlockCodexContextKind: String, Equatable, Sendable {
+    case taskSpec
+    case contextBundle
+}
+
+public struct DynamicBlockCodexContextArtifact: Equatable, Sendable {
+    public var kind: DynamicBlockCodexContextKind
+    public var title: String
+    public var relativePath: String
+    public var tags: [String]
+    public var sourcePaths: [String]
+    public var taskPaths: [String]
+
+    public init(
+        kind: DynamicBlockCodexContextKind,
+        title: String,
+        relativePath: String,
+        tags: [String],
+        sourcePaths: [String] = [],
+        taskPaths: [String] = []
+    ) {
+        self.kind = kind
+        self.title = title
+        self.relativePath = relativePath
+        self.tags = tags
+        self.sourcePaths = sourcePaths
+        self.taskPaths = taskPaths
+    }
+}
+
 public enum DynamicBlockError: LocalizedError, Equatable {
     case unsupportedCommand(name: String, line: Int)
     case unsupportedRenderer(DynamicBlockCommand)
@@ -115,6 +145,7 @@ public struct DynamicBlockRenderer: Sendable {
         invocation: DynamicBlockInvocation,
         tasks: [TaskItem],
         sources: [DynamicBlockSource] = [],
+        codexContexts: [DynamicBlockCodexContextArtifact] = [],
         referenceDate: Date,
         calendar: Calendar = .current
     ) throws -> String {
@@ -128,7 +159,9 @@ public struct DynamicBlockRenderer: Sendable {
             )
         case .sourceList:
             return try renderSourceList(invocation: invocation, sources: sources)
-        case .codexContext, .weeklyReview:
+        case .codexContext:
+            return try renderCodexContext(invocation: invocation, contexts: codexContexts)
+        case .weeklyReview:
             throw DynamicBlockError.unsupportedRenderer(invocation.command)
         }
     }
@@ -204,6 +237,66 @@ public struct DynamicBlockRenderer: Sendable {
         }
         return lines.joined(separator: "\n") + "\n"
     }
+
+    private func renderCodexContext(
+        invocation: DynamicBlockInvocation,
+        contexts: [DynamicBlockCodexContextArtifact]
+    ) throws -> String {
+        guard let tag = invocation.arguments.first else {
+            return "### Codex Context\n\nAdd a tag argument, for example `#project/daymark`.\n"
+        }
+        guard tag.hasPrefix("#"), invocation.arguments.count == 1 else {
+            let argument = invocation.arguments.first(where: { !$0.hasPrefix("#") })
+                ?? invocation.arguments.dropFirst().first
+                ?? tag
+            throw DynamicBlockError.unsupportedArgument(command: invocation.command, argument: argument)
+        }
+
+        let matches = contexts
+            .filter { $0.tags.contains(tag) }
+            .sorted { lhs, rhs in
+                if lhs.kind == rhs.kind {
+                    return lhs.relativePath < rhs.relativePath
+                }
+                return lhs.kind == .taskSpec
+            }
+        let taskSpecs = matches.filter { $0.kind == .taskSpec }
+        let bundles = matches.filter { $0.kind == .contextBundle }
+
+        var lines = ["### Codex Context: \(tag)", ""]
+        guard !matches.isEmpty else {
+            lines.append("No Codex context found for \(tag).")
+            return lines.joined(separator: "\n") + "\n"
+        }
+
+        if !taskSpecs.isEmpty {
+            lines.append("#### Task Specs")
+            for artifact in taskSpecs {
+                lines.append("- \(artifact.title) (`\(artifact.relativePath)`)\(referenceSuffix(for: artifact))")
+            }
+        }
+
+        if !bundles.isEmpty {
+            if !taskSpecs.isEmpty { lines.append("") }
+            lines.append("#### Context Bundles")
+            for artifact in bundles {
+                lines.append("- \(artifact.title) (`\(artifact.relativePath)`)\(referenceSuffix(for: artifact))")
+            }
+        }
+
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func referenceSuffix(for artifact: DynamicBlockCodexContextArtifact) -> String {
+        var parts: [String] = []
+        if let taskPath = artifact.taskPaths.first {
+            parts.append("task: `\(taskPath)`")
+        }
+        if let sourcePath = artifact.sourcePaths.first {
+            parts.append("source: `\(sourcePath)`")
+        }
+        return parts.isEmpty ? "" : " " + parts.joined(separator: "; ")
+    }
 }
 
 public enum DynamicBlockPatchOperation: Equatable, Sendable {
@@ -262,6 +355,7 @@ public struct DynamicBlockPatchPlanner: Sendable {
         sourcePath: String,
         tasks: [TaskItem],
         sources: [DynamicBlockSource] = [],
+        codexContexts: [DynamicBlockCodexContextArtifact] = [],
         referenceDate: Date,
         calendar: Calendar = .current
     ) throws -> DynamicBlockPatchPlan {
@@ -275,6 +369,7 @@ public struct DynamicBlockPatchPlanner: Sendable {
                 invocation: invocation,
                 tasks: tasks,
                 sources: sources,
+                codexContexts: codexContexts,
                 referenceDate: referenceDate,
                 calendar: calendar
             )

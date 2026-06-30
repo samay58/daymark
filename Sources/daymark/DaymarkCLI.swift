@@ -566,11 +566,13 @@ struct DaymarkCLI {
         let reader = DailyMarkdownProjectionReader(root: root)
         let tasks = try reader.allTasks()
         let sources = try reader.allSources()
+        let codexContexts = try reader.allCodexContexts()
         let plan = try DynamicBlockPatchPlanner().plan(
             markdown: markdown,
             sourcePath: relativePath,
             tasks: tasks,
             sources: sources,
+            codexContexts: codexContexts,
             referenceDate: parsed.date
         )
 

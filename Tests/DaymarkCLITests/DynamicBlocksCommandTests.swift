@@ -255,4 +255,70 @@ final class DynamicBlocksCommandTests: XCTestCase {
         XCTAssertEqual(repeatApply.status, 0, repeatApply.output)
         XCTAssertEqual(try read(sourcePath, root: root), applied)
     }
+
+    func testBlocksRefreshCodexContextDryRunApplyAndRepeatApplyAreIdempotent() throws {
+        try skipIfBinaryMissing()
+        let root = tempRoot()
+        let sourcePath = "daily/2026/06/2026-06-29.md"
+        try write("""
+        # Today
+
+        Intro stays.
+        /daymark codex-context #project/daymark
+        Outro stays.
+        """, relativePath: sourcePath, root: root)
+        try write("""
+        # Daymark Project
+
+        Build local Codex handoff views. #project/daymark
+        """, relativePath: "projects/daymark.md", root: root)
+        try write("""
+        # Ship beta handoff
+
+        ## Source
+
+        Path: `projects/daymark.md`
+        """, relativePath: "specs/tasks/2026-06-29-ship-beta.md", root: root)
+        try write("""
+        # Context Bundle: Ship beta handoff
+
+        ## Task
+
+        Task: `specs/tasks/2026-06-29-ship-beta.md`
+        """, relativePath: "artifacts/context-bundles/2026-06-29-ship-beta-context.md", root: root)
+        try write("""
+        # Generated Only
+
+        <!-- daymark:block-begin abc -->
+        #project/daymark
+        <!-- daymark:block-end abc -->
+        """, relativePath: "specs/tasks/2026-06-29-generated.md", root: root)
+
+        let original = try read(sourcePath, root: root)
+        let dryRun = try runDaymark(["blocks", "refresh", "--root", root, "--source", sourcePath])
+        XCTAssertEqual(dryRun.status, 0, dryRun.output)
+        XCTAssertTrue(dryRun.output.contains("### Codex Context: #project/daymark"), dryRun.output)
+        XCTAssertTrue(dryRun.output.contains("- Ship beta handoff (`specs/tasks/2026-06-29-ship-beta.md`) source: `projects/daymark.md`"), dryRun.output)
+        XCTAssertTrue(dryRun.output.contains("- Context Bundle: Ship beta handoff (`artifacts/context-bundles/2026-06-29-ship-beta-context.md`) task: `specs/tasks/2026-06-29-ship-beta.md`; source: `projects/daymark.md`"), dryRun.output)
+        XCTAssertFalse(dryRun.output.contains("Generated Only"), dryRun.output)
+        XCTAssertEqual(try read(sourcePath, root: root), original)
+        let cachePath = "\(root)/.daymark/dynamic-blocks.json"
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cachePath))
+
+        let apply = try runDaymark(["blocks", "refresh", "--root", root, "--source", sourcePath, "--apply"])
+        XCTAssertEqual(apply.status, 0, apply.output)
+        let applied = try read(sourcePath, root: root)
+        XCTAssertTrue(applied.contains("Intro stays."))
+        XCTAssertTrue(applied.contains("/daymark codex-context #project/daymark"))
+        XCTAssertTrue(applied.contains("### Codex Context: #project/daymark"))
+        XCTAssertTrue(applied.contains("Outro stays."))
+        XCTAssertEqual(applied.components(separatedBy: "daymark:block-begin").count - 1, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cachePath))
+        let cache = try String(contentsOfFile: cachePath, encoding: .utf8)
+        XCTAssertTrue(cache.contains("\"rendererName\" : \"codex-context\""), cache)
+
+        let repeatApply = try runDaymark(["blocks", "refresh", "--root", root, "--source", sourcePath, "--apply"])
+        XCTAssertEqual(repeatApply.status, 0, repeatApply.output)
+        XCTAssertEqual(try read(sourcePath, root: root), applied)
+    }
 }

@@ -132,6 +132,85 @@ Expected result: dry-run writes nothing, apply updates the target note and recor
 
 Expected result: dry-run writes nothing, apply inserts one readable Source List region, generated-only matches are ignored, repeated apply is idempotent, and cache remains rebuildable metadata.
 
+## CLI `/daymark codex-context #tag` Preview and Apply
+
+1. Reuse a rebuilt CLI product:
+
+   ```bash
+   swift build --product daymark
+   ```
+
+2. Create a temp workspace with a tagged source note, one task spec, one context bundle, a generated-only false match, and a note containing the visible command:
+
+   ```bash
+   ROOT="$(mktemp -d /tmp/daymark-m5-codex-context.XXXXXX)"
+   mkdir -p "$ROOT/daily/2026/06" "$ROOT/projects" "$ROOT/specs/tasks" "$ROOT/artifacts/context-bundles"
+   cat > "$ROOT/daily/2026/06/2026-06-29.md" <<'EOF'
+   # Today
+
+   Intro stays.
+   /daymark codex-context #project/daymark
+   Outro stays.
+   EOF
+   cat > "$ROOT/projects/daymark.md" <<'EOF'
+   # Daymark Project
+
+   Build local Codex handoff views. #project/daymark
+   EOF
+   cat > "$ROOT/specs/tasks/2026-06-29-ship-beta.md" <<'EOF'
+   # Ship beta handoff
+
+   ## Source
+
+   Path: `projects/daymark.md`
+   EOF
+   cat > "$ROOT/artifacts/context-bundles/2026-06-29-ship-beta-context.md" <<'EOF'
+   # Context Bundle: Ship beta handoff
+
+   ## Task
+
+   Task: `specs/tasks/2026-06-29-ship-beta.md`
+   EOF
+   cat > "$ROOT/specs/tasks/2026-06-29-generated.md" <<'EOF'
+   # Generated Only
+
+   <!-- daymark:block-begin abc -->
+   #project/daymark
+   <!-- daymark:block-end abc -->
+   EOF
+   ```
+
+3. Preview and confirm the note is unchanged:
+
+   ```bash
+   BEFORE="$(shasum -a 256 "$ROOT/daily/2026/06/2026-06-29.md")"
+   .build/arm64-apple-macosx/debug/daymark blocks refresh --root "$ROOT" --source daily/2026/06/2026-06-29.md
+   AFTER="$(shasum -a 256 "$ROOT/daily/2026/06/2026-06-29.md")"
+   test "$BEFORE" = "$AFTER"
+   ```
+
+4. Apply and confirm one generated region, the existing task spec, the existing context bundle, and cache metadata:
+
+   ```bash
+   .build/arm64-apple-macosx/debug/daymark blocks refresh --root "$ROOT" --source daily/2026/06/2026-06-29.md --apply
+   grep -c "daymark:block-begin" "$ROOT/daily/2026/06/2026-06-29.md"
+   grep -n "Ship beta handoff" "$ROOT/daily/2026/06/2026-06-29.md"
+   grep -n '"rendererName" : "codex-context"' "$ROOT/.daymark/dynamic-blocks.json"
+   ```
+
+5. Apply again, then delete `.daymark` and apply once more. The note should stay idempotent and cache metadata should be recreated:
+
+   ```bash
+   .build/arm64-apple-macosx/debug/daymark blocks refresh --root "$ROOT" --source daily/2026/06/2026-06-29.md --apply
+   grep -c "daymark:block-begin" "$ROOT/daily/2026/06/2026-06-29.md"
+   rm -rf "$ROOT/.daymark"
+   .build/arm64-apple-macosx/debug/daymark blocks refresh --root "$ROOT" --source daily/2026/06/2026-06-29.md --apply
+   grep -c "daymark:block-begin" "$ROOT/daily/2026/06/2026-06-29.md"
+   test -f "$ROOT/.daymark/dynamic-blocks.json"
+   ```
+
+Expected result: dry-run writes nothing, apply inserts one readable Codex Context region, generated-only matches are ignored, existing task specs and context bundles are listed without copying large excerpts, repeated apply is idempotent, and cache remains rebuildable metadata.
+
 ## Safety and Idempotency Checks (2026-06-29 hardening)
 
 Automated coverage for these lives in `Tests/DaymarkCoreTests/DynamicBlockSafetyTests.swift`,
