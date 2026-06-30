@@ -50,13 +50,24 @@ enum SampleData {
     ]
 
     static let paletteCommands: [PaletteCommand] = [
-        PaletteCommand(title: "Open Today", symbol: "sun.max", shortcut: "⌘1"),
-        PaletteCommand(title: "Search Notes", symbol: "magnifyingglass", shortcut: nil),
-        PaletteCommand(title: "Show Open Loops", symbol: "circle.dashed", shortcut: nil),
-        PaletteCommand(title: "Create Codex Task from Selection", symbol: "doc.badge.plus", shortcut: "⇧⌘C"),
-        PaletteCommand(title: "Append Selection to Today", symbol: "text.append", shortcut: nil),
-        PaletteCommand(title: "Open Workspace in Finder", symbol: "folder", shortcut: nil),
-        PaletteCommand(title: "Run Doctor", symbol: "stethoscope", shortcut: nil)
+        PaletteCommand(action: .openToday, title: "Open Today", symbol: "sun.max", shortcut: "⌘1"),
+        PaletteCommand(action: .searchNotes, title: "Search Notes", symbol: "magnifyingglass", shortcut: nil),
+        PaletteCommand(action: .showOpenLoops, title: "Show Open Loops", symbol: "circle.dashed", shortcut: nil),
+        PaletteCommand(
+            action: .createCodexTask,
+            title: "Create Codex Task from Selection",
+            symbol: "doc.badge.plus",
+            shortcut: "⇧⌘C"
+        ),
+        PaletteCommand(
+            action: .refreshDynamicBlocks,
+            title: "Refresh Dynamic Blocks",
+            symbol: "arrow.triangle.2.circlepath",
+            shortcut: "⇧⌘R"
+        ),
+        PaletteCommand(action: .appendSelectionToToday, title: "Append Selection to Today", symbol: "text.append", shortcut: nil),
+        PaletteCommand(action: .openWorkspaceInFinder, title: "Open Workspace in Finder", symbol: "folder", shortcut: nil),
+        PaletteCommand(action: .runDoctor, title: "Run Doctor", symbol: "stethoscope", shortcut: nil)
     ]
 }
 
@@ -64,8 +75,20 @@ enum SidebarItem: Hashable {
     case today, notes, scratchpad, openLoops, calendar, archive, tags, settings
 }
 
+enum PaletteCommandAction: String {
+    case openToday
+    case searchNotes
+    case showOpenLoops
+    case createCodexTask
+    case refreshDynamicBlocks
+    case appendSelectionToToday
+    case openWorkspaceInFinder
+    case runDoctor
+}
+
 struct PaletteCommand: Identifiable {
-    let id = UUID()
+    var id: String { action.rawValue }
+    let action: PaletteCommandAction
     let title: String
     let symbol: String
     let shortcut: String?

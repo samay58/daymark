@@ -11,6 +11,20 @@ struct ContextMarginView: View {
                     onPreview: { appState.previewCodexTaskFromSelection() },
                     onDismiss: {}
                 )
+                if appState.showsDynamicBlockRefreshPanel {
+                    DynamicBlockRefreshView(
+                        preview: appState.dynamicBlockPreview,
+                        message: appState.dynamicBlockMessage,
+                        canPreview: appState.canRefreshDynamicBlocks,
+                        canApply: appState.canApplyDynamicBlocks,
+                        isStale: appState.isDynamicBlockPreviewStale,
+                        isPlanning: appState.isPlanningDynamicBlocks,
+                        isApplying: appState.isApplyingDynamicBlocks,
+                        onPreview: { Task { await appState.previewDynamicBlocksRefresh() } },
+                        onApply: { Task { await appState.applyDynamicBlocksRefresh() } },
+                        onCancel: { appState.dismissDynamicBlocksRefresh() }
+                    )
+                }
                 CodexTaskComposerView(
                     draft: appState.codexTaskDraft,
                     message: appState.codexTaskMessage,

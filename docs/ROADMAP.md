@@ -162,16 +162,16 @@ Goal: notes become dynamic without becoming dashboards.
 
 Why this matters: useful computed context should sit beside the source Markdown without replacing it. Dynamic blocks are local views, not a dashboard layer.
 
-Status: active. The CLI/domain slices are done for `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review`: Daymark parses visible commands, renders deterministic local Markdown from the workspace, previews the generated region, applies it idempotently only when `--apply` is passed, and records rebuildable `.daymark` render metadata on apply. App refresh stays in this milestone.
+Status: ready to close. The CLI/domain slices are done for `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review`: Daymark parses visible commands, renders deterministic local Markdown from the workspace, previews the generated region, applies it idempotently only when `--apply` is passed, and records rebuildable `.daymark` render metadata on apply. The app can preview the same refresh plan for Today's note in the right margin and applies it only after approval.
 
 Build:
 
 - Parse `/daymark ...` block commands from Markdown. Done for `open-loops`, `source-list`, `codex-context`, and `weekly-review`, including tag arguments where supported and fenced-code awareness.
 - Support conservative local commands first: `open-loops`, `source-list`, `codex-context`, and `weekly-review`. The CLI/domain renderers are implemented.
 - Cache rendered output metadata in `.daymark` as rebuildable state. Done for approved CLI apply; Markdown remains authoritative.
-- Show patch previews before writing rendered output back into notes. First slice done for CLI dry-run.
+- Show patch previews before writing rendered output back into notes. Done for CLI dry-run and the in-app right-margin approval surface.
 - Keep the source command visible and readable. The implemented renderers keep `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review` in the note and insert generated output in a marked region below the command.
-- Add a CLI refresh command before adding automatic app refresh. First slice done with `daymark blocks refresh --source <path>` and `--apply`.
+- Add a CLI refresh command before adding automatic app refresh. Done with `daymark blocks refresh --source <path>` / `--apply`, plus explicit in-app preview and approval. Automatic refresh remains out of scope.
 
 Non-goals:
 

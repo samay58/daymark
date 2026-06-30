@@ -906,18 +906,51 @@ the other M5 renderers. The renderer is a local review scaffold, not a narrative
 - Keep app rollover preview/approval as a separate product decision; the app launch path still auto-applies rollover to preserve Milestone 3 behavior.
 - Keep source-note backlinking, Codex execution, model calls, network calls, app-bundle work, and global hotkey work parked unless separately approved.
 
+## 2026-06-29: M5 in-app Dynamic Blocks refresh
+
+The app refresh affordance is implemented for Today's note. It uses the same
+Dynamic Blocks planner path as the CLI and keeps preview-before-write as the
+central safety rule.
+
+### What changed
+
+- Added `DynamicBlockRefreshService` in `DaymarkIndexer` so the CLI and app share projection loading, patch planning, atomic apply, stale-preview hashing, and rebuildable cache recording.
+- Routed `daymark blocks refresh` through that service without changing the user-facing CLI output or apply semantics.
+- Added an in-app `Refresh Dynamic Blocks` command in the Daymark menu and command palette. The action appears only when Today's editor buffer contains a visible supported `/daymark ...` command outside fenced code.
+- Added a right-margin Dynamic Blocks preview panel. It shows the target note, each command line, insert or replacement operation, and the exact Markdown region that will be written. `Cancel` writes nothing. `Apply Refresh` writes only after approval.
+- Protected unsaved editor edits: preview is built from the current in-memory editor buffer, pending autosave is cancelled before approved apply, and apply is disabled if the editor text changes after preview generation.
+- Kept cache metadata rebuildable. If cache recording fails after the note write, the app keeps the note update and surfaces a quiet cache warning.
+
+### Verification
+
+- Baseline before edits: `swift package clean && swift test --skip CommandTests`, 188 tests, 0 failures; `swift build --build-tests`, both products, rebuilt CLI, and read-only `daymark doctor` passed.
+- TDD red checks: `DynamicBlockRefreshServiceTests` first failed because the service did not exist; `testPreviewUsesCurrentMarkdownTasksBeforeAutosave` then failed because previews were using disk task projections instead of the current editor buffer.
+- Focused green checks: `DynamicBlockRefreshServiceTests`, 6 tests, 0 failures; `DynamicBlocksCommandTests`, 11 tests, 0 failures.
+- Hygiene: slopcheck passed for every changed source, test, and doc file; no em dashes in changed files; `git diff --check` clean.
+- Full library suite: `swift package clean && swift test --skip CommandTests`, 194 tests, 0 failures.
+- CLI command bundle: `swift build --build-tests`, `swift build --product daymark`, then `xcrun xctest` over Dynamic Blocks plus the core command regression slice, 37 tests, 0 failures.
+- Product builds: `swift build --product daymark` and `swift build --product Daymark` both linked.
+- Temp-workspace CLI end-to-end: one note containing `/daymark open-loops #project/daymark`, `/daymark source-list #project/daymark`, `/daymark codex-context #project/daymark`, and `/daymark weekly-review`; dry-run left the note unchanged and wrote no cache; apply wrote exactly four generated regions and cache records; repeat apply was byte-stable; user edits before and after generated regions were preserved; a generated task-looking checkbox injected inside a generated region did not feed back into preview output; deleting `.daymark` recreated cache metadata without changing note correctness.
+- App smoke: launched `Daymark` against a temp workspace containing two Dynamic Block commands. Launch wrote no generated regions and no `.daymark/dynamic-blocks.json`, confirming there is no automatic refresh on app launch. Full visual click-through was not automated in this shell.
+- Read-only doctor after rebuilding the CLI: `.build/arm64-apple-macosx/debug/daymark doctor` passed against `~/phoenix`.
+
+### Remaining in Milestone 5
+
+- Milestone 5 is ready to close after this app refresh slice is committed and pushed.
+- Keep automatic app refresh, arbitrary-note refresh, app rollover preview/approval, source-note backlinking, Codex execution, model calls, network calls, app-bundle work, and global hotkey work parked.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
 
-Milestone 5: Dynamic Blocks is active. The CLI/domain renderer set is now implemented for `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review` through the same preview, apply, marker, and cache path.
+Milestone 5: Dynamic Blocks is active and at the closeout gate. The CLI/domain renderer set is implemented for `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review` through the same preview, apply, marker, and cache path. The app now previews and applies Dynamic Blocks refresh for Today's note through the right margin, with stale-preview protection and no automatic refresh while typing.
 
 ### Start Here Next
 
-1. Run the full verification gate for the weekly-review slice if this session has not already completed it, then decide whether to commit and push the slice.
-2. Start the app refresh design/build slice only after a focused UX pass. It must preserve preview-before-write and must not refresh while typing.
+1. Commit and push the M5 app refresh slice on `main` if Samay asks to ship it.
+2. After the commit lands, mark Milestone 5 closed and move next to Milestone 6: Calendar and Meeting Prep.
 3. App rollover preview/approval is a separate, ADR-worthy product decision (see `docs/PARKING_LOT.md`); the launch path still auto-applies and that is intentional for now.
-4. Keep source-note backlinking, Codex execution, model calls, network calls, app-bundle work, and global hotkey work parked unless separately approved.
+4. Keep automatic Dynamic Blocks refresh, arbitrary-note refresh, source-note backlinking, Codex execution, model calls, network calls, app-bundle work, and global hotkey work parked unless separately approved.
 
 ### Current Truths
 
@@ -944,7 +977,7 @@ Milestone 5: Dynamic Blocks is active. The CLI/domain renderer set is now implem
 - `DailyMarkdownProjectionReader` (DaymarkIndexer) is the single daily-Markdown projection path used by both the indexer and the CLI. `rebuild` prunes projections for deleted daily notes. `daymark open-loops` reads fresh from Markdown without a prior `rebuild`.
 - Note projection is atomic: `Database.replaceNoteProjection` and `deleteNote` each run in one transaction.
 - The Codex task-file parser lives in `DaymarkCore` (`CodexTaskDraft.parse`) beside the writer and is fence-aware; excerpt fences widen to wrap any backtick content. `AppState` holds one `CreatedCodexTask`, and view button state uses `CodexTaskDraft.isWritable` / `CodexContextBundle.isWritable`.
-- App refresh remains the main M5 follow-up after the CLI/domain renderer set.
+- App refresh for Today's note is implemented through an explicit menu or command palette action and a right-margin preview/apply panel. It previews from the current editor buffer, disables stale applies after further edits, writes only after approval, and records rebuildable cache metadata after the note write.
 - The default workspace root is `~/phoenix`; ADR-005 is reversed.
 - Do not add Gmail, Calendar, AI, cloud sync, embeddings, Codex execution, app-bundle work, or global hotkey work while starting Milestone 5.
 

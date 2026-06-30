@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import DaymarkStore
 
@@ -8,9 +9,15 @@ struct CommandPaletteView: View {
     @State private var selectedIndex = 0
     @FocusState private var isFocused: Bool
 
+    private var availableCommands: [PaletteCommand] {
+        SampleData.paletteCommands.filter { command in
+            command.action != .refreshDynamicBlocks || appState.canRefreshDynamicBlocks
+        }
+    }
+
     private var commandResults: [PaletteCommand] {
-        guard !query.isEmpty else { return SampleData.paletteCommands }
-        return SampleData.paletteCommands.filter {
+        guard !query.isEmpty else { return availableCommands }
+        return availableCommands.filter {
             $0.title.localizedCaseInsensitiveContains(query)
         }
     }
@@ -49,7 +56,7 @@ struct CommandPaletteView: View {
                 .font(.system(size: 15))
                 .foregroundStyle(DesignTokens.textPrimary)
                 .focused($isFocused)
-                .onSubmit { isPresented = false }
+                .onSubmit { executeSelectedCommand() }
                 .onChange(of: query) { _, newValue in
                     selectedIndex = 0
                     if trimmedQuery.isEmpty {
@@ -102,7 +109,7 @@ struct CommandPaletteView: View {
             sectionHeader("ACTIONS")
             ForEach(Array(commandResults.enumerated()), id: \.element.id) { index, command in
                 CommandRow(command: command, isSelected: index == selectedIndex)
-                    .onTapGesture { isPresented = false }
+                    .onTapGesture { execute(command) }
                     .onHover { hovering in
                         if hovering { selectedIndex = index }
                     }
@@ -130,6 +137,32 @@ struct CommandPaletteView: View {
         default:
             break
         }
+    }
+
+    private func executeSelectedCommand() {
+        guard !commandResults.isEmpty, selectedIndex < commandResults.count else {
+            isPresented = false
+            return
+        }
+        execute(commandResults[selectedIndex])
+    }
+
+    private func execute(_ command: PaletteCommand) {
+        switch command.action {
+        case .openToday:
+            appState.selectedSidebarItem = .today
+        case .showOpenLoops:
+            appState.selectedSidebarItem = .openLoops
+        case .createCodexTask:
+            appState.previewCodexTaskFromSelection()
+        case .refreshDynamicBlocks:
+            Task { await appState.previewDynamicBlocksRefresh() }
+        case .openWorkspaceInFinder:
+            NSWorkspace.shared.open(appState.workspaceRoot.expandedURL)
+        case .searchNotes, .appendSelectionToToday, .runDoctor:
+            break
+        }
+        isPresented = false
     }
 }
 

@@ -2,6 +2,53 @@
 
 Use a temp workspace for every mutating check. Do not run apply against `~/phoenix` unless Samay explicitly asks.
 
+## App Refresh Preview and Apply
+
+1. Build the app product you are about to run:
+
+   ```bash
+   swift build --product Daymark
+   ```
+
+2. Launch the app against a temp workspace, not `~/phoenix`, and create Today's note with at least two visible commands:
+
+   ```bash
+   ROOT="$(mktemp -d /tmp/daymark-m5-app.XXXXXX)"
+   mkdir -p "$ROOT/daily/2026/06" "$ROOT/projects" "$ROOT/specs/tasks" "$ROOT/artifacts/context-bundles"
+   cat > "$ROOT/daily/2026/06/2026-06-28.md" <<'EOF'
+   # Yesterday
+
+   - [ ] ship the app refresh #project/daymark due:2026-06-29
+   - [x] close CLI renderer set
+   EOF
+   cat > "$ROOT/projects/daymark.md" <<'EOF'
+   # Daymark Project
+
+   Build local dynamic blocks. #project/daymark
+   EOF
+   cat > "$ROOT/daily/2026/06/2026-06-29.md" <<'EOF'
+   # Today
+
+   Intro stays.
+   /daymark open-loops #project/daymark
+   /daymark source-list #project/daymark
+   Outro stays.
+   EOF
+   DAYMARK_WORKSPACE_ROOT="$ROOT" .build/arm64-apple-macosx/debug/Daymark
+   ```
+
+3. Trigger `Refresh Dynamic Blocks` from the Daymark menu or command palette. Confirm the right margin shows a preview before any file changes.
+
+4. Click `Cancel`. Confirm the note is unchanged and `.daymark/dynamic-blocks.json` does not exist.
+
+5. Trigger `Refresh Dynamic Blocks` again, then click `Apply Refresh`. Confirm generated regions appear exactly once below each visible command and `.daymark/dynamic-blocks.json` is created.
+
+6. Edit text before and after the generated regions. Trigger preview again, then apply. Confirm the edits stay intact and the generated regions are replaced, not duplicated.
+
+7. Trigger preview, type one more local edit, and confirm `Apply Refresh` is disabled with the stale-preview message. Preview again before applying.
+
+Expected result: the app previews from the current editor buffer, writes nothing on preview or cancel, writes only after `Apply Refresh`, preserves text outside generated regions, and never refreshes while typing.
+
 ## CLI `/daymark open-loops` Preview and Apply
 
 1. Build the CLI product you are about to run:

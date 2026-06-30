@@ -4,7 +4,7 @@ Daymark is a high-craft, local-first macOS workspace centered on today's Markdow
 
 ## Status
 
-Milestones 0 (taste prototype), 1 (local workspace), 2 (Slip and capture), 3 (Tasks and Open Loops), and 4 (Codex Handoff) are complete. Milestone 5 is active. Tasks are parsed and projected into a rebuildable SQLite index, incomplete prior-day tasks roll forward into Today without duplicates, `daymark open-loops` and the in-app Open Loops view list open tasks read-only, and `daymark end-of-day` lists today's still-open tasks. Codex Handoff can preview and write one Codex task file from selected note text, edit the draft in app before approval, then preview and approve one context bundle from the created task file. The CLI also supports task and bundle dry-runs plus `--apply`. Dynamic Blocks now support visible `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review` commands with dry-run preview, explicit apply, and rebuildable `.daymark` render metadata. See `docs/PROGRESS.md` for the current state and `docs/ROADMAP.md` for the plan.
+Milestones 0 (taste prototype), 1 (local workspace), 2 (Slip and capture), 3 (Tasks and Open Loops), and 4 (Codex Handoff) are complete. Milestone 5 is active and ready for closeout. Tasks are parsed and projected into a rebuildable SQLite index, incomplete prior-day tasks roll forward into Today without duplicates, `daymark open-loops` and the in-app Open Loops view list open tasks read-only, and `daymark end-of-day` lists today's still-open tasks. Codex Handoff can preview and write one Codex task file from selected note text, edit the draft in app before approval, then preview and approve one context bundle from the created task file. The CLI also supports task and bundle dry-runs plus `--apply`. Dynamic Blocks support visible `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review` commands with dry-run preview, explicit apply, rebuildable `.daymark` render metadata, and an in-app preview and approval surface for Today's note. See `docs/PROGRESS.md` for the current state and `docs/ROADMAP.md` for the plan.
 
 ## Build and run
 
@@ -48,6 +48,8 @@ daymark blocks refresh --source daily/2026/06/2026-06-29.md --apply
 # In a note, write: /daymark weekly-review
 # Then preview or apply to insert a compact local weekly scaffold.
 ```
+
+In the app, use `Refresh Dynamic Blocks` from the Daymark menu or command palette when Today's note contains a visible `/daymark ...` command. Daymark shows the exact generated Markdown in the right margin and writes only after `Apply Refresh`.
 
 ## Layout
 

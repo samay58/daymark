@@ -26,6 +26,12 @@ struct MenuCommands: Commands {
             }
             .keyboardShortcut("c", modifiers: [.command, .shift])
 
+            Button("Refresh Dynamic Blocks") {
+                Task { await appState.previewDynamicBlocksRefresh() }
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(!appState.canRefreshDynamicBlocks)
+
             Divider()
 
             Button(appState.isContextMarginVisible ? "Hide Context Margin" : "Show Context Margin") {

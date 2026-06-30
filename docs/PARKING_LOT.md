@@ -43,8 +43,8 @@ Good ideas that are not part of the current milestone belong here.
 
 ## Milestone 5 follow-ups
 
-- App refresh affordance: not built in the first slice. Keep automatic app refresh parked until the CLI/domain path has proven safe and useful.
-- App Dynamic Blocks refresh design: the CLI/domain renderer set now includes `open-loops`, `source-list`, `codex-context`, and `weekly-review`. Design the app affordance separately so refresh still previews before write and never mutates notes while typing.
+- Automatic Dynamic Blocks refresh: the app now has an explicit preview and approval surface for Today's note. Do not add refresh on launch, note load, typing, autosave, file watch, or a background timer until there is a separate product decision and a stale-edit safety design.
+- Arbitrary-note app refresh: the first app surface refreshes Today's note because that is the only editor surface currently implemented. Refreshing any workspace note should wait for a real note-opening flow.
 - Broader tag filtering: the first slice supports exact task tag arguments such as `/daymark open-loops #deal/acme`. More expressive filters should wait for real note examples.
 
 ## Hardening pass follow-ups (2026-06-29)

@@ -563,40 +563,35 @@ struct DaymarkCLI {
         }
 
         let markdown = try String(contentsOf: sourceURL, encoding: .utf8)
-        let reader = DailyMarkdownProjectionReader(root: root)
-        let tasks = try reader.allTasks()
-        let sources = try reader.allSources()
-        let codexContexts = try reader.allCodexContexts()
-        let plan = try DynamicBlockPatchPlanner().plan(
+        let preview = try DynamicBlockRefreshService().preview(
             markdown: markdown,
             sourcePath: relativePath,
-            tasks: tasks,
-            sources: sources,
-            codexContexts: codexContexts,
+            root: root,
             referenceDate: parsed.date
         )
 
-        guard !plan.patches.isEmpty else {
+        guard !preview.plan.patches.isEmpty else {
             print("No dynamic blocks found in \(relativePath).")
             return
         }
 
         if parsed.apply {
-            let updated = try plan.apply(to: markdown)
-            try AtomicFileWriter().write(updated, to: sourceURL)
+            let result = try DynamicBlockRefreshService().apply(
+                preview: preview,
+                currentMarkdown: markdown,
+                root: root
+            )
             print("Updated: \(relativePath)")
-            for patch in plan.patches {
+            for patch in preview.plan.patches {
                 print("  \(patch.rawCommand) (line \(patch.commandLine), \(operationLabel(patch.operation)))")
             }
             // The note is already written; a cache failure must not fail the command,
             // since the cache is rebuildable metadata (ADR-010), not the source of truth.
-            do {
-                try DynamicBlockCacheStore().record(patches: plan.patches, root: root)
-            } catch {
-                print("  warning: dynamic-block cache not recorded (\(error)); run `daymark rebuild` to refresh metadata")
+            if let warning = result.cacheWarning {
+                print("  warning: \(warning); run `daymark rebuild` to refresh metadata")
             }
         } else {
-            printBlocksPreview(plan)
+            printBlocksPreview(preview.plan)
         }
     }
 

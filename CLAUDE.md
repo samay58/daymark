@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Daymark is
 
-A high-craft, local-first native macOS workspace centered on today's Markdown note. Markdown files in `~/phoenix` are the human-readable source of truth; SQLite at `~/phoenix/.daymark/daymark.db` is a rebuildable local index and projection. The app opens to Today, captures fast, and turns notes into tasks, open loops, dynamic blocks, and Codex-ready specs.
+A high-craft, local-first native macOS workspace centered on today's Markdown note. Markdown files in `~/phoenix` are the human-readable source of truth; SQLite at `~/phoenix/.daymark/daymark.db` is a rebuildable local index and projection. The app opens to Today, captures fast, and turns notes into tasks, open loops, approval-gated dynamic blocks, and Codex-ready specs.
 
 The repo has a working local substrate: an AppKit-backed editor, file watcher, FTS search, settings, a `Database` actor over the system SQLite3 C API (no third-party SQLite dependency), migrations, repositories, and an event log. Beyond that substrate, many product surfaces are still placeholders.
 
@@ -33,7 +33,9 @@ swift run daymark blocks refresh --source <path>   # preview /daymark open-loops
 swift run daymark search <q>       # full-text search the index
 ```
 
-CLI subcommands live in `Sources/daymark/DaymarkCLI.swift`; run `swift run daymark` with no args for the full list. Each subcommand has a test in `Tests/DaymarkCLITests/`.
+CLI subcommands live in `Sources/daymark/DaymarkCLI.swift`; run `swift run daymark` with no args for the full list. Every command accepts `--root <path>` (or reads `DAYMARK_WORKSPACE_ROOT`) to target a workspace other than `~/phoenix`; this is how the temp-workspace verification checks in `docs/PROGRESS.md` run against a scratch directory. CLI behavior is covered by six `*CommandTests` classes in `Tests/DaymarkCLITests/` (capture, codex-task, dynamic-blocks, end-of-day, open-loops, rollover), not one per subcommand.
+
+In-app Dynamic Blocks refresh routes through `DynamicBlockRefreshService`, the same planner path used by the CLI. The app previews from the current editor buffer, disables stale applies if the buffer changes, and writes only after `Apply Refresh`.
 
 The `scripts/*.sh` wrappers (`build.sh`, `test.sh`, `build_and_run.sh`, `doctor.sh`) just call the commands above.
 

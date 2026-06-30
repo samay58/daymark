@@ -29,6 +29,10 @@ final class AppState {
     var codexTaskMessage: String?
     var codexContextBundle: CodexContextBundle?
     var codexContextBundleMessage: String?
+    var dynamicBlockPreview: DynamicBlockRefreshPreview?
+    var dynamicBlockMessage: String?
+    var isPlanningDynamicBlocks = false
+    var isApplyingDynamicBlocks = false
     private var codexTaskPathBasis: Set<String> = []
     private var codexTaskDateBasis: Date?
     /// The created task file and the exact draft it was written from, kept together so the
@@ -43,6 +47,19 @@ final class AppState {
     /// single source of truth, shared with the writers' `validate`).
     var canCreateCodexTaskFile: Bool { codexTaskDraft?.isWritable ?? false }
     var canCreateCodexContextBundle: Bool { codexContextBundle?.isWritable ?? false }
+    var canRefreshDynamicBlocks: Bool {
+        didLoadToday && Self.containsVisibleDynamicBlockCommand(in: todayText)
+    }
+    var canApplyDynamicBlocks: Bool {
+        guard let preview = dynamicBlockPreview else { return false }
+        return ContentHasher.hash(todayText) == preview.sourceContentHash
+            && !isPlanningDynamicBlocks
+            && !isApplyingDynamicBlocks
+    }
+    var isDynamicBlockPreviewStale: Bool {
+        guard let preview = dynamicBlockPreview else { return false }
+        return ContentHasher.hash(todayText) != preview.sourceContentHash
+    }
 
     /// Local full-text search results for the current command-palette query.
     var searchResults: [SearchHit] = []
@@ -346,6 +363,119 @@ final class AppState {
         isRefreshingOpenLoops = false
     }
 
+    // MARK: - Dynamic Blocks
+
+    var showsDynamicBlockRefreshPanel: Bool {
+        canRefreshDynamicBlocks
+            || dynamicBlockPreview != nil
+            || dynamicBlockMessage != nil
+            || isPlanningDynamicBlocks
+            || isApplyingDynamicBlocks
+    }
+
+    func previewDynamicBlocksRefresh() async {
+        guard didLoadToday else {
+            dynamicBlockPreview = nil
+            dynamicBlockMessage = "Load today's note before refreshing dynamic blocks."
+            isContextMarginVisible = true
+            return
+        }
+        guard Self.containsVisibleDynamicBlockCommand(in: todayText) else {
+            dynamicBlockPreview = nil
+            dynamicBlockMessage = "No dynamic block commands in this note."
+            isContextMarginVisible = true
+            return
+        }
+
+        isPlanningDynamicBlocks = true
+        dynamicBlockMessage = nil
+        isContextMarginVisible = true
+        let root = workspaceRoot
+        let sourcePath = todayRelativePath
+        let markdown = todayText
+        let calendar = calendar
+
+        let result = await Task.detached(priority: .userInitiated) {
+            Result {
+                try DynamicBlockRefreshService().preview(
+                    markdown: markdown,
+                    sourcePath: sourcePath,
+                    root: root,
+                    referenceDate: Date(),
+                    calendar: calendar
+                )
+            }
+        }.value
+
+        isPlanningDynamicBlocks = false
+        switch result {
+        case .success(let preview):
+            if preview.plan.patches.isEmpty {
+                dynamicBlockPreview = nil
+                dynamicBlockMessage = "No dynamic block commands in this note."
+            } else {
+                dynamicBlockPreview = preview
+                dynamicBlockMessage = nil
+            }
+        case .failure(let error):
+            dynamicBlockPreview = nil
+            dynamicBlockMessage = Self.message(for: error)
+        }
+    }
+
+    func applyDynamicBlocksRefresh() async {
+        guard let preview = dynamicBlockPreview else {
+            dynamicBlockMessage = "Preview dynamic blocks before applying."
+            isContextMarginVisible = true
+            return
+        }
+        guard ContentHasher.hash(todayText) == preview.sourceContentHash else {
+            dynamicBlockMessage = "Preview is stale. Refresh the preview before applying."
+            return
+        }
+
+        autosaveTask?.cancel()
+        isApplyingDynamicBlocks = true
+        dynamicBlockMessage = nil
+        let root = workspaceRoot
+        let markdown = todayText
+
+        let result = await Task.detached(priority: .userInitiated) {
+            Result {
+                try DynamicBlockRefreshService().apply(
+                    preview: preview,
+                    currentMarkdown: markdown,
+                    root: root
+                )
+            }
+        }.value
+
+        isApplyingDynamicBlocks = false
+        switch result {
+        case .success(let result):
+            recordSelfWrite(result.updatedMarkdown)
+            lastSavedText = result.updatedMarkdown
+            todayText = result.updatedMarkdown
+            dynamicBlockPreview = nil
+            dynamicBlockMessage = result.cacheWarning == nil
+                ? "Updated dynamic blocks."
+                : "Updated dynamic blocks. Cache metadata will rebuild later."
+            if let indexer {
+                try? await indexer.indexToday()
+            }
+            await refreshOpenLoops()
+        case .failure(let error):
+            dynamicBlockMessage = Self.message(for: error)
+        }
+    }
+
+    func dismissDynamicBlocksRefresh() {
+        dynamicBlockPreview = nil
+        dynamicBlockMessage = nil
+        isPlanningDynamicBlocks = false
+        isApplyingDynamicBlocks = false
+    }
+
     // MARK: - Codex task handoff
 
     // True once a task file has been created, while a bundle is previewed, or when a bundle
@@ -601,5 +731,35 @@ final class AppState {
 
     private static func lines(from text: String) -> [String] {
         text.components(separatedBy: CharacterSet.newlines)
+    }
+
+    private static func containsVisibleDynamicBlockCommand(in markdown: String) -> Bool {
+        let lines = normalizedMarkdown(markdown).components(separatedBy: "\n")
+        var fence = MarkdownFenceScanner()
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: CharacterSet.whitespaces)
+            if fence.consume(trimmedLine: trimmed) { continue }
+            if fence.isInsideFence { continue }
+            let parts = trimmed
+                .split(whereSeparator: { character in character == " " || character == "\t" })
+                .map(String.init)
+            guard parts.count >= 2, parts[0] == "/daymark" else { continue }
+            if DynamicBlockCommand(rawValue: parts[1]) != nil { return true }
+        }
+        return false
+    }
+
+    private static func normalizedMarkdown(_ markdown: String) -> String {
+        markdown
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+    }
+
+    private static func message(for error: Error) -> String {
+        if let localized = error as? LocalizedError,
+           let description = localized.errorDescription {
+            return description
+        }
+        return "Could not refresh dynamic blocks."
     }
 }
