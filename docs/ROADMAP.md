@@ -162,7 +162,7 @@ Goal: notes become dynamic without becoming dashboards.
 
 Why this matters: useful computed context should sit beside the source Markdown without replacing it. Dynamic blocks are local views, not a dashboard layer.
 
-Status: ready to close. The CLI/domain slices are done for `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review`: Daymark parses visible commands, renders deterministic local Markdown from the workspace, previews the generated region, applies it idempotently only when `--apply` is passed, and records rebuildable `.daymark` render metadata on apply. The app can preview the same refresh plan for Today's note in the right margin and applies it only after approval.
+Status: closed. The CLI/domain slices are done for `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review`: Daymark parses visible commands, renders deterministic local Markdown from the workspace, previews the generated region, applies it idempotently only when `--apply` is passed, and records rebuildable `.daymark` render metadata on apply. The app can preview the same refresh plan for Today's note in the right margin and applies it only after approval.
 
 Build:
 
@@ -192,6 +192,8 @@ Acceptance:
 Goal: Daymark helps prep meetings using local notes plus calendar metadata.
 
 Why this matters: meeting prep should reduce context switching by connecting a calendar event to relevant notes, people, prior decisions, and open loops. It must stay permissioned and local-first.
+
+Status: active. Start with local event snapshot JSON to previewed meeting-prep Markdown export under `meetings/`. EventKit, account setup, app meeting picker, attendee resolution, and richer calendar automation remain parked until the local CLI/domain foundation is solid.
 
 Build:
 

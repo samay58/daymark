@@ -977,20 +977,45 @@ of it without clobbering parallel work.
 
 ### Remaining
 
-- Branch `m5-review-remediation` is ready for review and merge to `main`. No findings deferred; every Batch A and Batch B item is applied.
+- Branch `m5-review-remediation` landed on `main`. No findings deferred; every Batch A and Batch B item is applied.
+
+## 2026-06-30: Milestone 5 closed
+
+Milestone 5 is closed on `main`. The Dynamic Blocks renderer set now covers
+`/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context
+#tag`, and `/daymark weekly-review`; the app has an explicit right-margin
+preview/apply path for Today's note; and the adversarial M4/M5 remediation pass
+has landed.
+
+### Verification
+
+- `swift package clean && swift test --skip CommandTests`, 196 tests, 0 failures.
+- `swift build --build-tests` passed.
+- `swift build --product daymark` passed.
+- Prebuilt CLI regression slice passed, 37 tests, 0 failures.
+- `swift build --product Daymark` passed.
+- Rebuilt CLI, then `.build/arm64-apple-macosx/debug/daymark doctor` passed read-only against `~/phoenix`.
+- Slopcheck passed across the branch diff; no em dashes found; `git diff --check` clean.
+
+### Remaining
+
+- Start Milestone 6 with local meeting event snapshots to previewed meeting-prep Markdown export.
+- Keep EventKit, account setup, app meeting picker, Gmail, network calls, model calls, Codex execution, automatic Dynamic Blocks refresh, arbitrary-note refresh, and app rollover preview/approval parked.
 
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
 
-Milestone 5: Dynamic Blocks is active and at the closeout gate. The CLI/domain renderer set is implemented for `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review` through the same preview, apply, marker, and cache path. The app now previews and applies Dynamic Blocks refresh for Today's note through the right margin, with stale-preview protection and no automatic refresh while typing.
+Milestone 6: Calendar and Meeting Prep is active. Milestone 5 is closed on
+`main`: all four Dynamic Blocks renderers and the in-app preview/apply refresh
+surface are shipped, and the M4/M5 remediation pass has landed.
 
 ### Start Here Next
 
-1. Commit and push the M5 app refresh slice on `main` if Samay asks to ship it.
-2. After the commit lands, mark Milestone 5 closed and move next to Milestone 6: Calendar and Meeting Prep.
+1. Build the first M6 slice: local meeting event snapshot JSON to previewed `meetings/` Markdown export through the CLI.
+2. Keep the first slice local and deterministic: no EventKit, account setup, network, Gmail, model calls, Codex execution, app meeting picker, or automatic meeting notes.
 3. App rollover preview/approval is a separate, ADR-worthy product decision (see `docs/PARKING_LOT.md`); the launch path still auto-applies and that is intentional for now.
-4. Keep automatic Dynamic Blocks refresh, arbitrary-note refresh, source-note backlinking, Codex execution, model calls, network calls, app-bundle work, and global hotkey work parked unless separately approved.
+4. After the CLI/domain meeting-prep foundation is green, consider an approval-gated app surface as a later M6 slice.
 
 ### Current Truths
 
