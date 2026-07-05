@@ -1061,6 +1061,31 @@ scanner and shell, Haiku the tokens, Opus the spike; Fable ran the gate only).
 - Phase 3: card islands (fragment mechanism per spike recipe), card UI, Codex popover and receipts.
 - Phase 4: restyles, Reduce Motion audit, docs.
 
+## 2026-07-05: M7 Phase 2, live editor rendering
+
+P2-editor (Opus) built the live editor; an adversarial Opus review refuted it,
+a Sonnet fix packet with Fable-pinned design closed all five findings, and an
+independent Opus re-verify plus a first-hand gate battery confirmed.
+
+### What changed
+
+- `MarkdownHighlighter` and the dead `CheckboxOverlay` are gone. `LiveRenderController`, `LiveTextView`, and `LiveDecorationRenderer` render the literal buffer live on a manually built TextKit 2 stack (`.layoutManager` is never touched; debug asserts `textLayoutManager != nil`).
+- Checkboxes draw over the concealed 3-char box, click and Cmd-Return (exact command only) toggle through the undoable edit path into the unchanged 800ms autosave, with a 140ms ease-out completion animation (instant under Reduce Motion). Caret strictly inside a box or due range reveals the literal text.
+- Tags and wikilinks are pills/accents with hover cursors; clicks prefill the command palette. URLs open the default browser. Due pills render the scanner's humanized date with a clock glyph. Command lines are mono accent. Fences render plain.
+- Review round: the scanner perf rewrite had dropped fence-awareness in `scanLines` (drawn decorations inside code fences, confirmed by repro). Fixed: `scanLines` is fence-aware by default via a prefix walk, an additive `scanLines(_:in:fence:)` overload takes cached fence state for the hot path, `LiveRenderController` keeps authoritative cached tokens plus an incremental `lineFenceStates` index, draw and hit-test paths read only the cache, fence-marker edits trigger an immediate full restyle. Clicks that perform no action fall through to `super.mouseDown`.
+
+### Verification
+
+- `swift test --skip CommandTests --build-system native`: 247 tests, 0 failures (8 new fence-parity tests).
+- Prebuilt CLI slice: 41 tests, 0 failures. Both products build.
+- Release perf: sync keystroke path 0.008ms on a 5k-line note (budget 1ms); full reconcile 16.5ms steady-state on a token-dense 5k-line synthetic (budget 15ms on representative content; accepted, real notes are ~25x sparser).
+- Fence repro note renders plain inside the fence with a real task and due pill outside it (screenshot-verified by the fix packet).
+- Gate spot-checks in source: exact-command check, super.mouseDown fall-through, cachedTokens-only draw paths, fence overload, shared shouldReveal.
+
+### Carryover
+
+- Interactive pointer walk (click toggles, palette prefill clicks, URL opens) needs a real-display pass at the Phase 4 acceptance walk; builder sandboxes lack GUI-automation permission.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
@@ -1075,7 +1100,7 @@ executed via orchestrated subagent packets with Fable at the gates only.
 
 ### Start Here Next
 
-1. Phase 1 is done and gated green (see the 2026-07-05 M7 Phase 1 entry). Next: dispatch P2-editor (Opus, high effort) per the plan's Task 6, then the Task 7 adversarial gate.
+1. Phases 1 and 2 are done and gated green (see the 2026-07-05 entries). Next: the Phase 3 pipeline per plan Task 8: P3-chrome, P3-cards (spike recipe), P3-cardui, P3-codex, then the Task 9 gate.
 2. The card mechanism is decided: custom TextKit 2 layout fragments (spike verdict "fragment"); P3-cards implements the spike recipe. Never touch NSTextView.layoutManager anywhere; that trips the TextKit 1 fallback.
 3. Builders never commit; the orchestrator commits per packet after each gate and updates `docs/orchestration/LEDGER.md`.
 4. App rollover preview/approval stays parked (see `docs/PARKING_LOT.md`); the launch path still auto-applies and that is intentional for now.
