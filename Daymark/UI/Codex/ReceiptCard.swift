@@ -45,12 +45,7 @@ struct ReceiptCard: View {
         }
         .padding(14)
         .frame(width: 320, alignment: .leading)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
-                .stroke(DesignTokens.hairline.opacity(0.6), lineWidth: 1)
-        }
+        .glassSurface()
         .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: appState.isCodexBundleExpanded)
     }

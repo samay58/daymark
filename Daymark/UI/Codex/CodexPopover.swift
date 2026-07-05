@@ -65,7 +65,10 @@ struct CodexPopoverHost: NSViewRepresentable {
 
 /// The Codex composer field set, restyled from the retired margin composer into the
 /// selection-anchored popover. Same field set (Title, Goal, Constraints, Acceptance, source,
-/// Markdown) and the same collision-safe `AppState` create path.
+/// Markdown) and the same collision-safe `AppState` create path. Default state shows only
+/// Title, Goal, a compact source chip, and Create/Cancel; Constraints, Acceptance, the full
+/// source, and the Markdown preview sit behind the collapsed "Details" disclosure so the fast
+/// path stays two fields, not fewer approvals (spec "Codex popover, calmer and faster").
 private struct CodexComposerForm: View {
     let appState: AppState
 
@@ -103,6 +106,7 @@ private struct CodexComposerForm: View {
                         .buttonStyle(PrimaryButtonStyle())
                         .disabled(!appState.canCreateCodexTaskFile)
                         .opacity(appState.canCreateCodexTaskFile ? 1 : 0.55)
+                        .keyboardShortcut(.return, modifiers: .command)
                     Button("Cancel") { appState.dismissCodexTaskDraft() }
                         .buttonStyle(QuietButtonStyle())
                 }
@@ -110,7 +114,7 @@ private struct CodexComposerForm: View {
             .padding(16)
         }
         .frame(width: 380, height: 480)
-        .background(.regularMaterial)
+        .background(Color.clear)
     }
 
     private func fieldsIdentity(for draft: CodexTaskDraft) -> String {
@@ -126,10 +130,12 @@ private struct CodexDraftFields: View {
     var onConstraintsChange: (String) -> Void
     var onAcceptanceChange: (String) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var titleText: String
     @State private var goalText: String
     @State private var constraintsText: String
     @State private var acceptanceText: String
+    @State private var isDetailsExpanded = false
 
     init(
         draft: CodexTaskDraft,
@@ -152,11 +158,22 @@ private struct CodexDraftFields: View {
     var body: some View {
         field("Title", text: $titleText, onChange: onTitleChange)
         area("Goal", text: $goalText, lines: 3, onChange: onGoalChange)
-        area("Constraints", text: $constraintsText, lines: 3, onChange: onConstraintsChange)
-        area("Acceptance Criteria", text: $acceptanceText, lines: 4, onChange: onAcceptanceChange)
-        ReadOnlyField(label: "Source", value: sourceLabel(for: draft), mono: true)
-        ReadOnlyField(label: "Excerpt", value: draft.sourceExcerpt, lines: 3, mono: true)
-        ReadOnlyField(label: "Markdown", value: draft.markdown(), lines: 6, mono: true)
+        CodexSourceChip(label: sourceLabel(for: draft))
+        DisclosureGroup(isExpanded: $isDetailsExpanded) {
+            VStack(alignment: .leading, spacing: 14) {
+                area("Constraints", text: $constraintsText, lines: 3, onChange: onConstraintsChange)
+                area("Acceptance Criteria", text: $acceptanceText, lines: 4, onChange: onAcceptanceChange)
+                ReadOnlyField(label: "Source", value: sourceLabel(for: draft), mono: true)
+                ReadOnlyField(label: "Excerpt", value: draft.sourceExcerpt, lines: 3, mono: true)
+                ReadOnlyField(label: "Markdown", value: draft.markdown(), lines: 6, mono: true)
+            }
+            .padding(.top, 10)
+        } label: {
+            Text("Details")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(DesignTokens.textSecondary)
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isDetailsExpanded)
     }
 
     private func field(_ label: String, text: Binding<String>, onChange: @escaping (String) -> Void) -> some View {
@@ -221,5 +238,31 @@ private struct CodexDraftFields: View {
             return "\(draft.sourcePath):\(line)"
         }
         return draft.sourcePath
+    }
+}
+
+/// The collapsed default view's stand-in for the full read-only source display: one line,
+/// path and line range only, no excerpt. The excerpt reappears under Details.
+private struct CodexSourceChip: View {
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 10, weight: .medium))
+            Text(label)
+                .font(.system(size: 11, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .foregroundStyle(DesignTokens.textSecondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(DesignTokens.surface)
+        .clipShape(RoundedRectangle(cornerRadius: DesignMetrics.pillRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: DesignMetrics.pillRadius, style: .continuous)
+                .stroke(DesignTokens.hairline, lineWidth: 1)
+        }
     }
 }
