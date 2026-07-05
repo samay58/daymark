@@ -193,7 +193,7 @@ Goal: Daymark helps prep meetings using local notes plus calendar metadata.
 
 Why this matters: meeting prep should reduce context switching by connecting a calendar event to relevant notes, people, prior decisions, and open loops. It must stay permissioned and local-first.
 
-Status: active. The first CLI/domain slice is done: `daymark meeting-prep --event-file <path>` previews deterministic local prep Markdown from an explicit JSON event snapshot, and `--apply` writes one collision-safe file under `meetings/`. EventKit, account setup, app meeting picker, attendee resolution, and richer calendar automation remain parked until the local foundation has real usage.
+Status: paused after the first slice. `daymark meeting-prep --event-file <path>` previews deterministic local prep Markdown from an explicit JSON event snapshot, and `--apply` writes one collision-safe file under `meetings/`. EventKit, account setup, app meeting picker, attendee resolution, and richer calendar automation remain parked; the app meeting picker resumes after Milestone 7.
 
 Build:
 
@@ -217,7 +217,38 @@ Acceptance:
 - Exported prep is readable Markdown.
 - Failure to read calendar data never blocks Today or typing.
 
-## Milestone 7: Gmail Draft Preview
+## Milestone 7: Dynamic Note Surface
+
+Goal: the presentation layer catches up to the product idea; Today's note becomes a single-pane dynamic document.
+
+Why this matters: the deterministic engines from Milestones 2 through 5 are real, but the app still presents them through scaffolding chrome. The dynamic-document experience (live checkboxes, entity pills, inline generated-content cards with approval) is what makes Daymark useful daily.
+
+Status: active. Design: `docs/superpowers/specs/2026-07-05-dynamic-note-surface-design.md` (ADR-012). Plan: `docs/superpowers/plans/2026-07-05-dynamic-note-surface.md`.
+
+Build:
+
+- Retire the sidebar and right-margin panels; one editor column plus overlays.
+- Char-structure day header: date tile plus a brief strip (rolled over, open loops, save state).
+- Live-styled editor on the literal Markdown buffer: clickable checkboxes, tag/wikilink/URL/due pills, quiet visible markers.
+- Well-formed dynamic-block regions render as embedded interactive cards with on-card preview and approval; whole-note apply semantics stay.
+- Codex composer becomes a selection-anchored popover; approvals produce a receipt card; source notes stay untouched.
+- Open Loops becomes an overlay; capture slip and command palette restyle.
+
+Non-goals:
+
+- No AI, network, Gmail, or EventKit work.
+- No @people entities, marker concealment, or block-composite editing.
+- No per-card selective apply in v1.
+- No dark mode.
+
+Acceptance:
+
+- A checkbox click flips the literal Markdown on disk within the autosave window and undoes in one step.
+- A note with all four `/daymark` commands renders four cards; refresh previews on-card; apply stays idempotent; malformed markers degrade to literal text.
+- Typing latency stays flat on a 5,000-line note.
+- The full Codex chain works from selection to receipt with collision-safe writes.
+
+## Milestone 8: Gmail Draft Preview
 
 Goal: follow-up tasks can become draft emails with visible sources.
 
@@ -245,7 +276,7 @@ Acceptance:
 - The user can copy or discard the draft without side effects.
 - Any future mail-client write requires a separate explicit approval step.
 
-## Milestone 8: iOS Capture Companion
+## Milestone 9: iOS Capture Companion
 
 Goal: capture and review on iPhone.
 

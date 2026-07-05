@@ -1037,18 +1037,20 @@ or app meeting picker is involved.
 
 ### Active Milestone
 
-Milestone 6: Calendar and Meeting Prep is active. Milestone 5 is closed on
-`main`: all four Dynamic Blocks renderers and the in-app preview/apply refresh
-surface are shipped, and the M4/M5 remediation pass has landed. The first M6
-CLI/domain slice is implemented for local JSON event snapshots to previewed
-meeting prep Markdown under `meetings/`.
+Milestone 7: Dynamic Note Surface is active (ADR-012). Milestone 6 is paused
+after its first CLI/domain slice (local meeting-prep export, committed
+2026-07-05); the app meeting picker resumes after M7. Milestone 5 is closed on
+`main`. The M7 design is
+`docs/superpowers/specs/2026-07-05-dynamic-note-surface-design.md` and the
+packet plan is `docs/superpowers/plans/2026-07-05-dynamic-note-surface.md`,
+executed via orchestrated subagent packets with Fable at the gates only.
 
 ### Start Here Next
 
-1. Finish the M6 meeting-prep closeout: run slopcheck on changed files, commit, push, and append `~/.progress.jsonl`.
-2. Optional quick manual app perusal before commit: build and launch `Daymark`, open Today, try existing M5 app flows (`Refresh Dynamic Blocks`, Command Palette, Codex task composer). The M6 meeting-prep slice is CLI/domain only, so there is no app meeting picker yet.
-3. App rollover preview/approval is a separate, ADR-worthy product decision (see `docs/PARKING_LOT.md`); the launch path still auto-applies and that is intentional for now.
-4. After the CLI/domain meeting-prep slice is shipped, design the approval-gated app meeting picker as the next M6 slice.
+1. Execute the M7 plan phase by phase. Phase 1 packets: P1-scanner (NoteTokenScanner and TaskCheckboxToggler in Core), P1-tokens (design token additions), P1-shell (single-pane shell), P1-spike (card mechanism proof in a scratchpad prototype).
+2. The Phase 1 gate selects the card mechanism from the spike verdict; if neither mechanism passes, halt for a redesign conversation instead of shipping a degraded card.
+3. Builders never commit; the orchestrator commits per packet after each gate and updates `docs/orchestration/LEDGER.md`.
+4. App rollover preview/approval stays parked (see `docs/PARKING_LOT.md`); the launch path still auto-applies and that is intentional for now.
 
 ### Current Truths
 

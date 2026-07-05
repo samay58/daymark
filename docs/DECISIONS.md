@@ -340,3 +340,28 @@ The first slice does not discover meetings from a calendar account and does not 
 ### Mitigation
 
 EventKit, account setup, attendee resolution, ICS parsing, and app meeting selection stay parked until the local preview/apply path has real usage.
+
+## ADR-012: Dynamic Note Surface
+
+Status: Accepted
+Date: 2026-07-05
+
+### Context
+
+The app shell still looks like scaffolding: a placeholder sidebar, a right-margin control panel, and a plain-text editor, while `reference/mockups/` and the product spec describe rendered checkboxes, entity chips, and inline dynamic-block cards. Char (char.com) demonstrates the interaction model working end to end. Daymark already has deterministic local engines (rollover, open loops, dynamic blocks, Codex handoff) that need a presentation layer worthy of them.
+
+### Decision
+
+Milestone 7 rebuilds the presentation layer as a single-pane, note-centric surface. The sidebar and context margin retire. The editor stays one TextKit 2 `NSTextView` (ADR-001 stands) whose buffer is always the literal Markdown on disk; checkboxes become clickable controls, tags and links render as pills, and well-formed dynamic-block generated regions render as embedded interactive cards. The Codex composer becomes a selection-anchored popover with a receipt card. Warm light theme stays; AI stays parked; every write keeps its preview/approve gate. Gmail moves to Milestone 8 and iOS capture to Milestone 9. The full design is `docs/superpowers/specs/2026-07-05-dynamic-note-surface-design.md`.
+
+### Why
+
+The dynamic-document experience is the product idea; the mockups have specified it since Milestone 0. Building it on the existing engines adds no new write machinery, no network, and no schema change: the risk is concentrated in one rendering mechanism, which gets proven by an isolated spike before anything depends on it.
+
+### Risks
+
+Embedding interactive cards inside an editable text view can corrupt selection, undo, or copy semantics, and marker concealment can drift on emoji or CRLF content.
+
+### Mitigation
+
+A Phase 1 spike proves the card mechanism in a throwaway prototype first; range math lives in `DaymarkCore` behind unit tests; malformed regions always render as literal text; adversarial review gates cover the editor and card packets; if no mechanism passes the spike, the milestone halts for a redesign rather than shipping a degraded card.
