@@ -145,7 +145,9 @@ Phase 3 packets run serially and read the merged code of their predecessors; the
 - [ ] Adversarial review packet (Opus, effort high, read-only): refute P2-editor. Targets: buffer mutation from render paths, TextKit 1 fallback trips, range drift (emoji/CRLF), undo grouping, latency claims, spec-table deviations. Findings verified before acting; confirmed findings go back to P2-editor as a fix packet.
 - [ ] Mechanical battery; slopcheck; packet commit; ledger; PROGRESS entry.
 
-### Task 8: Phase 3 pipeline (serial: P3-cards then P3-cardui then P3-codex)
+### Task 8: Phase 3 pipeline (serial: P3-chrome then P3-cards then P3-cardui then P3-codex)
+
+**P3-chrome (Sonnet, medium).** Modify `Daymark/DaymarkApp.swift`, `Daymark/UI/RootView.swift`, `Daymark/UI/Today/TodayView.swift` (chrome only, no editor or overlay-content changes). Two deliverables from the spec's "Window and shell": the launch-frame guard (if the restored frame covers 90 percent or more of the screen's visible frame in width or height, reset to 860x720 centered; zoom works normally after launch) and the materials treatment (day header becomes a within-window `NSVisualEffectView` material band with warm tint at roughly 0.85 canvas opacity, content blurs beneath it on scroll, bottom hairline fades in only once scrolled; titlebar region transparent; Reduce Transparency degrades every material to opaque token fills). Manual matrix: zoom-quit-relaunch opens compact; modest size restores; scroll shows header blur plus hairline; Reduce Transparency on shows opaque header.
 
 **P3-cards (Opus, high).** Create `Daymark/Editor/CardIslands/` implementing the spike-proven mechanism: region collapse, hosted interactive card container, caret reveal/collapse, selection/copy literal-text rules. Consumes `NoteTokens.GeneratedRegion`. No degraded path for well-formed regions; malformed regions render literal (spec "Edge cases").
 
@@ -169,6 +171,8 @@ Phase 3 packets run serially and read the merged code of their predecessors; the
 **P4-cleanup.** Sweep dangling references to deleted views/metrics; audit every new animation against the spec motion table and Reduce Motion; run slopcheck across changed files. Delete only what the spec removed; report anything else.
 
 **P4-docs.** Update `docs/DESIGN_SYSTEM.md`, `docs/INTERACTION_SPEC.md`, `README.md`, `docs/PROGRESS.md` (dated entry + WHERE WE LEFT OFF), `docs/PARKING_LOT.md` (spec "Parking lot additions" list verbatim).
+
+**P4-polish (Opus, medium, serial after the other P4 packets).** Implements Fable's taste-gate findings from screenshots of the running app; behavior frozen, visual code anywhere under `Daymark/UI/` and `Daymark/Editor/`. Iterates until the taste gate passes. The bar: Char-level finish on Daymark's warm identity; floating surfaces on native material; the app reads as one continuous sheet, not stacked boxes.
 
 - [ ] Each packet: suite green where applicable, structured report.
 

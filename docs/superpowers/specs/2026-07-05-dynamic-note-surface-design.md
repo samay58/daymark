@@ -40,6 +40,8 @@ Out of scope for this milestone, enforced at review gates:
 - Sidebar (`SidebarView.swift`) is deleted. Its two functional destinations survive: Today is the root view; Open Loops becomes an overlay (⌘L). Settings stays in the `Settings` scene. The non-functional rows (Notes, Scratchpad, Calendar, Archive, Tags) are removed with their `SampleData` backing; they return only when a real milestone builds them.
 - Context margin (`ContextMarginView.swift`, `DynamicBlockRefreshView.swift` as a panel, margin-card Codex composer) is deleted. Its jobs move inline (dynamic block cards) and to the popover/receipt (Codex).
 - Window: default 860x720, minimum 620x520. Editor column max width stays 720 with 48pt top padding. Hidden titlebar and light-mode enforcement stay as they are.
+- Launch frame: the window NEVER opens maximized or zoomed. On launch, if the restored frame covers 90 percent or more of the screen's visible frame (width or height), reset to the default 860x720, centered on the active screen. A user resize during a session is respected and restored next launch only when it stays under that threshold. The zoom button keeps working normally after launch.
+- Materials and depth: the writing canvas stays opaque warm paper (no blur under body text, ever). Depth lives in the chrome. The day header is a material band (`NSVisualEffectView`, within-window blending, warm tint overlay at roughly 0.85 canvas opacity): note content visibly blurs beneath it as it scrolls under, and a hairline appears on its bottom edge only once content has scrolled. Every floating surface (command palette, capture slip, Open Loops overlay, receipt card, Codex popover) sits on native material (`.regularMaterial` or the AppKit equivalent) with hairline borders, not flat opaque fills; scrims dim the canvas as today. The titlebar region stays transparent so the window reads as one continuous sheet. When the system Reduce Transparency accessibility setting is on, every material degrades to its opaque token fill (header to canvas, panels to surface).
 - The custom top bar in `TodayView` is replaced by the day header below. Back/forward chevrons (currently dead) are removed. The bottom status bar is removed; save state moves into the brief strip. Word count is cut (parking lot: surface it in the palette).
 - The conflict banner stays, restyled as a card: `surface` background, `panelRadius`, hairline border, same actions.
 
@@ -261,7 +263,9 @@ Acceptance criteria per surface (the Phase 4 taste gate walks this list against 
 - A note with all four block commands renders four cards; refresh previews on-card; apply writes markers idempotently; repeat apply produces no duplicates; stale preview disables apply; view-source reveals literal text; malformed markers degrade to literal text.
 - Codex flow end to end: select, ⇧⌘C, edit fields, create, receipt appears, bundle creation from the receipt works, files land collision-safe, source note untouched.
 - Open Loops overlay opens from ⌘L, brief strip, and palette; Esc closes.
-- Reduce Motion honored across every new animation.
+- Reduce Motion honored across every new animation; Reduce Transparency degrades every material to its opaque token fill.
+- Window opening behavior: zoom the window, quit, relaunch; the window opens compact (860x720 centered), never maximized. A modest user size (for example 900x800) restores normally.
+- Header material: scroll a long note; content blurs beneath the header band and the bottom hairline fades in only after scroll begins.
 - No regression: capture slip flows, conflict banner, watcher reconciliation, palette search.
 
 ## Execution plan
@@ -299,6 +303,7 @@ Serial pipeline (shared `AppState` and editor surfaces):
 
 | Packet | Model, effort | Owns | Contract |
 |---|---|---|---|
+| P3-chrome | Sonnet, medium | `Daymark/DaymarkApp.swift`, `Daymark/UI/RootView.swift`, `Daymark/UI/Today/TodayView.swift` (chrome only) | The launch-frame guard (never opens maximized) and the materials spec: header material band with scroll blur and scroll-edge hairline, transparent titlebar region, Reduce Transparency fallbacks. Runs first in the pipeline |
 | P3-cards | Opus, high | `Daymark/Editor/CardIslands/*` (new) | Implements the mechanism the P1 spike proved: region collapse, hosted interactive card container, reveal-on-caret, selection/copy rules. No degraded rendering path for well-formed regions |
 | P3-cardui | Sonnet, medium | `Daymark/UI/Cards/DynamicBlockCardView.swift` (new), delete `DynamicBlockRefreshView.swift`, `AppState.swift` (refresh + overlay + receipt state) | Card states table; v1 whole-note refresh semantics |
 | P3-codex | Sonnet, medium | `Daymark/UI/Codex/*` (new popover + receipt), delete `ContextMarginView.swift`, `CodexTaskComposerView.swift`, `SuggestionCardView.swift` | Popover anchoring, receipt flow, bundle offer rules unchanged |
@@ -309,7 +314,8 @@ Gate: mechanical (suite, builds, temp-workspace Dynamic Blocks check) plus adver
 
 | Packet | Model, effort | Owns | Contract |
 |---|---|---|---|
-| P4-restyle | Sonnet, low | `SlipPanelView.swift`, `CommandPaletteView.swift` (visuals), `OpenLoopsView.swift` (overlay conversion + rows) | Restyle only; behavior frozen |
+| P4-restyle | Sonnet, low | `SlipPanelView.swift`, `CommandPaletteView.swift` (visuals), `OpenLoopsView.swift` (overlay conversion + rows) | Restyle only; behavior frozen. Floating surfaces adopt the materials spec (native material fills, hairline borders, opaque Reduce Transparency fallback) |
+| P4-polish | Opus, medium | Any visual code under `Daymark/UI/` and `Daymark/Editor/` (behavior frozen), serial after the other P4 packets | Implements Fable's taste-gate findings from screenshots; iterates until the taste gate passes. The bar is Char-level finish on Daymark's warm identity |
 | P4-cleanup | Haiku, low | Dead-code sweep of removed references, Reduce Motion audit against the motion table, slopcheck over changed files | Report findings; delete only what the spec removed |
 | P4-docs | Sonnet, low | `docs/DESIGN_SYSTEM.md`, `docs/INTERACTION_SPEC.md`, `README.md`, `docs/PROGRESS.md` (dated entry), `docs/PARKING_LOT.md` | Docs reflect the shipped surface; parking lot gains the items listed below |
 
