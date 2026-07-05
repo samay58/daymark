@@ -5,24 +5,93 @@ public enum NoteTokenScanner {
         scanFull(text)
     }
 
+    /// Scans only the requested line range, but stays fence-aware: fence state is derived by
+    /// walking every line from the document start up to the range, doing only trimmed-prefix
+    /// fence consumption (no classification, no inline scanning), so lines inside an open fence
+    /// classify as `.fence` exactly like `scan(_:)` would. Existing callers keep this signature
+    /// and keep getting correct output; callers that already track fence state (for example a
+    /// cache built from a prior full scan) should use the overload below to skip the walk.
     public static func scanLines(_ text: String, in lineRange: NSRange) -> NoteTokens {
-        let full = scanFull(text)
-        let expanded = expandedLineRange(text, around: lineRange)
-        let lines = full.lines.filter { NSIntersectionRange($0.range, expanded).length > 0 || $0.range.location == expanded.location + expanded.length }
-        let inlineTokens = full.inlineTokens.filter { NSIntersectionRange($0.range, expanded).length > 0 }
-        let regions = full.regions.filter { region in
-            region.range.location >= expanded.location && region.range.location + region.range.length <= expanded.location + expanded.length
-        }
-        return NoteTokens(lines: lines, inlineTokens: inlineTokens, regions: regions)
+        let nsText = text as NSString
+        let expanded = expandedLineRange(for: lineRange, in: nsText)
+        let fence = fenceState(upTo: expanded.location, in: nsText)
+        return scanLinesCore(nsText: nsText, expanded: expanded, fence: fence)
     }
 
-    private static func expandedLineRange(_ text: String, around range: NSRange) -> NSRange {
+    /// Same as `scanLines(_:in:)`, but takes caller-maintained fence state at the start of
+    /// `lineRange` instead of walking the document from the start to derive it. The caller is
+    /// responsible for keeping `fence` in sync with the document (for example by updating it
+    /// alongside a cached full scan). This does not change or replace the walking overload above.
+    public static func scanLines(_ text: String, in lineRange: NSRange, fence: MarkdownFenceScanner) -> NoteTokens {
         let nsText = text as NSString
-        return nsText.lineRange(for: range)
+        let expanded = expandedLineRange(for: lineRange, in: nsText)
+        return scanLinesCore(nsText: nsText, expanded: expanded, fence: fence)
+    }
+
+    private static func expandedLineRange(for lineRange: NSRange, in nsText: NSString) -> NSRange {
+        let clampedLocation = min(max(0, lineRange.location), nsText.length)
+        let clamped = NSRange(
+            location: clampedLocation,
+            length: max(0, min(lineRange.length, nsText.length - clampedLocation))
+        )
+        return nsText.lineRange(for: clamped)
+    }
+
+    /// Walks every line from the document start up to (but excluding) `location`, feeding only
+    /// the trimmed line prefix to the fence scanner. No classification or token scanning happens
+    /// here; this exists purely to reconstruct fence state cheaply for a mid-document range.
+    private static func fenceState(upTo location: Int, in nsText: NSString) -> MarkdownFenceScanner {
+        var fence = MarkdownFenceScanner()
+        guard location > 0 else { return fence }
+        let priorRange = NSRange(location: 0, length: location)
+        nsText.enumerateSubstrings(in: priorRange, options: .byLines) { substring, _, _, _ in
+            let content = substring ?? ""
+            let leadingCount = leadingWhitespaceCount(content)
+            let leftTrimmed = String(content.dropFirst(leadingCount))
+            _ = fence.consume(trimmedLine: leftTrimmed)
+        }
+        return fence
+    }
+
+    private static func scanLinesCore(
+        nsText: NSString,
+        expanded: NSRange,
+        fence: MarkdownFenceScanner
+    ) -> NoteTokens {
+        var fence = fence
+        let source = nsText as String
+        var lines: [NoteTokens.Line] = []
+        var inlineTokens: [NoteTokens.InlineToken] = []
+        nsText.enumerateSubstrings(in: expanded, options: .byLines) { substring, substringRange, _, _ in
+            let content = substring ?? ""
+            let leadingCount = leadingWhitespaceCount(content)
+            let markerStart = substringRange.location + leadingCount
+            let leftTrimmed = String(content.dropFirst(leadingCount))
+            let lineEnd = substringRange.location + substringRange.length
+
+            let wasDelimiter = fence.consume(trimmedLine: leftTrimmed)
+            if wasDelimiter || fence.isInsideFence {
+                lines.append(NoteTokens.Line(range: substringRange, kind: .fence))
+                return
+            }
+
+            let kind = classify(leftTrimmed: leftTrimmed, markerStart: markerStart, lineEnd: lineEnd)
+            lines.append(NoteTokens.Line(range: substringRange, kind: kind))
+            inlineTokens.append(contentsOf: lineInlineTokens(
+                for: kind,
+                text: source,
+                nsText: nsText,
+                rawRange: substringRange,
+                markerStart: markerStart,
+                lineEnd: lineEnd
+            ))
+        }
+        return NoteTokens(lines: lines, inlineTokens: inlineTokens, regions: [])
     }
 
     private static func scanFull(_ text: String) -> NoteTokens {
         let nsText = text as NSString
+        let source = nsText as String
         var rawLines: [(range: NSRange, content: String)] = []
         let fullRange = NSRange(location: 0, length: nsText.length)
         nsText.enumerateSubstrings(in: fullRange, options: .byLines) { substring, substringRange, _, _ in
@@ -51,37 +120,14 @@ public enum NoteTokenScanner {
                 lineEnd: lineEnd
             )
             lines.append(NoteTokens.Line(range: raw.range, kind: kind))
-
-            switch kind {
-            case .heading(_, let markerRange):
-                let titleStart = markerRange.location + markerRange.length + 1
-                if titleStart <= lineEnd {
-                    let titleRange = NSRange(location: titleStart, length: lineEnd - titleStart)
-                    inlineTokens.append(contentsOf: scanInline(in: nsText, range: titleRange, includeDue: false))
-                }
-            case .task(_, _, let boxRange, let textRange):
-                _ = boxRange
-                inlineTokens.append(contentsOf: scanInline(in: nsText, range: textRange, includeDue: true))
-            case .bullet(let markerRange):
-                let start = markerRange.location + markerRange.length
-                if start <= lineEnd {
-                    let bulletRange = NSRange(location: start, length: lineEnd - start)
-                    inlineTokens.append(contentsOf: scanInline(in: nsText, range: bulletRange, includeDue: false))
-                }
-            case .quote:
-                var start = markerStart + 1
-                if start <= lineEnd, nsText.length > start, nsText.character(at: start) == 0x20 {
-                    start += 1
-                }
-                if start <= lineEnd {
-                    let quoteRange = NSRange(location: start, length: lineEnd - start)
-                    inlineTokens.append(contentsOf: scanInline(in: nsText, range: quoteRange, includeDue: false))
-                }
-            case .body:
-                inlineTokens.append(contentsOf: scanInline(in: nsText, range: raw.range, includeDue: false))
-            case .commandLine, .fence, .blank:
-                break
-            }
+            inlineTokens.append(contentsOf: lineInlineTokens(
+                for: kind,
+                text: source,
+                nsText: nsText,
+                rawRange: raw.range,
+                markerStart: markerStart,
+                lineEnd: lineEnd
+            ))
         }
 
         let regions = scanRegions(nsText: nsText, rawLines: rawLines, lines: lines)
@@ -187,48 +233,116 @@ public enum NoteTokenScanner {
     private static let urlRegex = try! NSRegularExpression(pattern: "https?://[^\\s]+")
     private static let dueRegex = try! NSRegularExpression(pattern: "due:\\S+")
 
-    private static func scanInline(in nsText: NSString, range: NSRange, includeDue: Bool) -> [NoteTokens.InlineToken] {
+    private static func lineInlineTokens(
+        for kind: NoteTokens.LineKind,
+        text: String,
+        nsText: NSString,
+        rawRange: NSRange,
+        markerStart: Int,
+        lineEnd: Int
+    ) -> [NoteTokens.InlineToken] {
+        switch kind {
+        case .heading(_, let markerRange):
+            let titleStart = markerRange.location + markerRange.length + 1
+            guard titleStart <= lineEnd else { return [] }
+            let titleRange = NSRange(location: titleStart, length: lineEnd - titleStart)
+            return scanInline(text: text, nsText: nsText, range: titleRange, includeDue: false)
+        case .task(_, _, _, let textRange):
+            return scanInline(text: text, nsText: nsText, range: textRange, includeDue: true)
+        case .bullet(let markerRange):
+            let start = markerRange.location + markerRange.length
+            guard start <= lineEnd else { return [] }
+            let bulletRange = NSRange(location: start, length: lineEnd - start)
+            return scanInline(text: text, nsText: nsText, range: bulletRange, includeDue: false)
+        case .quote:
+            var start = markerStart + 1
+            if start <= lineEnd, nsText.length > start, nsText.character(at: start) == 0x20 {
+                start += 1
+            }
+            guard start <= lineEnd else { return [] }
+            let quoteRange = NSRange(location: start, length: lineEnd - start)
+            return scanInline(text: text, nsText: nsText, range: quoteRange, includeDue: false)
+        case .body:
+            return scanInline(text: text, nsText: nsText, range: rawRange, includeDue: false)
+        case .commandLine, .fence, .blank:
+            return []
+        }
+    }
+
+    private static func scanInline(text: String, nsText: NSString, range: NSRange, includeDue: Bool) -> [NoteTokens.InlineToken] {
         guard range.length > 0, range.location >= 0, range.location + range.length <= nsText.length else { return [] }
         var tokens: [NoteTokens.InlineToken] = []
 
-        tagRegex.enumerateMatches(in: nsText as String, options: [], range: range) { match, _, _ in
-            guard let match else { return }
-            tokens.append(NoteTokens.InlineToken(range: match.range, kind: .tag))
+        if contains(nsText, "#", in: range) {
+            tagRegex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
+                guard let match else { return }
+                tokens.append(NoteTokens.InlineToken(range: match.range, kind: .tag))
+            }
         }
-        wikilinkRegex.enumerateMatches(in: nsText as String, options: [], range: range) { match, _, _ in
-            guard let match else { return }
-            tokens.append(NoteTokens.InlineToken(range: match.range, kind: .wikilink))
+        if contains(nsText, "[[", in: range) {
+            wikilinkRegex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
+                guard let match else { return }
+                tokens.append(NoteTokens.InlineToken(range: match.range, kind: .wikilink))
+            }
         }
-        urlRegex.enumerateMatches(in: nsText as String, options: [], range: range) { match, _, _ in
-            guard let match else { return }
-            tokens.append(NoteTokens.InlineToken(range: match.range, kind: .url))
+        if contains(nsText, "http", in: range) {
+            urlRegex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
+                guard let match else { return }
+                tokens.append(NoteTokens.InlineToken(range: match.range, kind: .url))
+            }
         }
-        if includeDue {
-            dueRegex.enumerateMatches(in: nsText as String, options: [], range: range) { match, _, _ in
+        if includeDue, contains(nsText, "due:", in: range) {
+            dueRegex.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
                 guard let match else { return }
                 let tokenText = nsText.substring(with: match.range)
                 let value = String(tokenText.dropFirst("due:".count))
-                guard let due = TaskItem.Due(token: value) else { return }
-                tokens.append(NoteTokens.InlineToken(range: match.range, kind: .dueDate(display: humanize(due))))
+                guard let display = dueDisplay(for: value) else { return }
+                tokens.append(NoteTokens.InlineToken(range: match.range, kind: .dueDate(display: display)))
             }
         }
 
         return tokens
     }
 
+    private static let dueCacheLock = NSLock()
+    nonisolated(unsafe) private static var dueDisplayCache: [String: String?] = [:]
+
+    private static func dueDisplay(for value: String) -> String? {
+        dueCacheLock.lock()
+        if let cached = dueDisplayCache[value] {
+            dueCacheLock.unlock()
+            return cached
+        }
+        dueCacheLock.unlock()
+
+        let computed = TaskItem.Due(token: value).map(humanize)
+        dueCacheLock.lock()
+        dueDisplayCache[value] = computed
+        dueCacheLock.unlock()
+        return computed
+    }
+
+    private static func contains(_ nsText: NSString, _ needle: String, in range: NSRange) -> Bool {
+        nsText.range(of: needle, options: [], range: range).location != NSNotFound
+    }
+
+    private static let humanizeCalendar = Calendar(identifier: .gregorian)
+    private static let humanizeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = humanizeCalendar
+        formatter.timeZone = humanizeCalendar.timeZone
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
     private static func humanize(_ due: TaskItem.Due) -> String {
         switch due {
         case .today: return "Today"
         case .tomorrow: return "Tomorrow"
         case .date(let iso):
-            let calendar = Calendar(identifier: .gregorian)
-            guard let date = ISODate.date(from: iso, calendar: calendar) else { return iso }
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.calendar = calendar
-            formatter.timeZone = calendar.timeZone
-            formatter.dateFormat = "MMM d"
-            return formatter.string(from: date)
+            guard let date = ISODate.date(from: iso, calendar: humanizeCalendar) else { return iso }
+            return humanizeFormatter.string(from: date)
         }
     }
 

@@ -331,4 +331,136 @@ final class NoteTokenScannerTests: XCTestCase {
         let tokens = NoteTokenScanner.scanLines(markdown, in: secondLineRange)
         XCTAssertTrue(tokens.lines.contains { if case .task = $0.kind { return true } else { return false } })
     }
+
+    // MARK: - scanLines fence awareness (Finding 1)
+
+    private static let fenceHeavyDocument = """
+    - [ ] before the fence due:2026-07-08
+    #before-tag
+
+    ```
+    - [ ] sample
+    #tag-inside-fence
+    x due:2026-07-08
+    ```
+
+    - [ ] after the fence due:2026-07-09
+    #after-tag
+    """
+
+    private func nsLocation(of needle: String, in ns: NSString, file: StaticString = #filePath, line: UInt = #line) -> Int? {
+        let found = ns.range(of: needle, options: [])
+        guard found.location != NSNotFound else {
+            XCTFail("fixture missing expected line: \(needle)", file: file, line: line)
+            return nil
+        }
+        return found.location
+    }
+
+    func testScanLinesRangeStartingInsideFenceClassifiesFence() {
+        let markdown = Self.fenceHeavyDocument
+        let ns = markdown as NSString
+        // "- [ ] sample" is the first line inside the fence.
+        guard let sampleLocation = nsLocation(of: "- [ ] sample", in: ns) else { return }
+        let lineRange = ns.lineRange(for: NSRange(location: sampleLocation, length: 0))
+        let tokens = NoteTokenScanner.scanLines(markdown, in: lineRange)
+
+        XCTAssertEqual(tokens.lines.count, 1)
+        XCTAssertEqual(tokens.lines[0].kind, .fence)
+        XCTAssertTrue(tokens.inlineTokens.isEmpty)
+    }
+
+    func testScanLinesRangeStartingInsideFenceSuppressesTagAndDue() {
+        let markdown = Self.fenceHeavyDocument
+        let ns = markdown as NSString
+        guard let dueLocation = nsLocation(of: "x due:2026-07-08", in: ns) else { return }
+        let lineRange = ns.lineRange(for: NSRange(location: dueLocation, length: 0))
+        let tokens = NoteTokenScanner.scanLines(markdown, in: lineRange)
+        XCTAssertEqual(tokens.lines[0].kind, .fence)
+        XCTAssertTrue(tokens.inlineTokens.filter { if case .dueDate = $0.kind { return true } else { return false } }.isEmpty)
+
+        guard let tagLocation = nsLocation(of: "#tag-inside-fence", in: ns) else { return }
+        let tagLineRange = ns.lineRange(for: NSRange(location: tagLocation, length: 0))
+        let tagTokens = NoteTokenScanner.scanLines(markdown, in: tagLineRange)
+        XCTAssertEqual(tagTokens.lines[0].kind, .fence)
+        XCTAssertTrue(tagTokens.inlineTokens.filter { $0.kind == .tag }.isEmpty)
+    }
+
+    func testScanLinesRangeAfterFenceClassifiesNormally() {
+        let markdown = Self.fenceHeavyDocument
+        let ns = markdown as NSString
+        guard let afterLocation = nsLocation(of: "- [ ] after the fence due:2026-07-09", in: ns) else { return }
+        let lineRange = ns.lineRange(for: NSRange(location: afterLocation, length: 0))
+        let tokens = NoteTokenScanner.scanLines(markdown, in: lineRange)
+        guard case .task = tokens.lines[0].kind else {
+            return XCTFail("expected task after the fence, got \(tokens.lines[0].kind)")
+        }
+        XCTAssertTrue(tokens.inlineTokens.contains { if case .dueDate = $0.kind { return true } else { return false } })
+    }
+
+    func testScanLinesFenceOverloadWithSuppliedStateMatchesWalk() {
+        let markdown = Self.fenceHeavyDocument
+        let ns = markdown as NSString
+        guard let sampleLocation = nsLocation(of: "- [ ] sample", in: ns) else { return }
+        let lineRange = ns.lineRange(for: NSRange(location: sampleLocation, length: 0))
+
+        // Build the fence state a caller would maintain by consuming every prior trimmed line.
+        var fence = MarkdownFenceScanner()
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: lineRange.location), options: .byLines) { substring, _, _, _ in
+            _ = fence.consume(trimmedLine: (substring ?? "").trimmingCharacters(in: .whitespaces))
+        }
+
+        let walked = NoteTokenScanner.scanLines(markdown, in: lineRange)
+        let supplied = NoteTokenScanner.scanLines(markdown, in: lineRange, fence: fence)
+        XCTAssertEqual(walked, supplied)
+    }
+
+    func testScanFullAndScanLinesParityAcrossFenceHeavyDocument() {
+        let markdown = Self.fenceHeavyDocument
+        let ns = markdown as NSString
+        let full = NoteTokenScanner.scan(markdown)
+
+        var lineStarts: [Int] = []
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { _, range, _, _ in
+            lineStarts.append(range.location)
+        }
+
+        for start in lineStarts {
+            // Request via a zero-length range at the line start, same as callers (caret/click)
+            // do; `incremental.lines.first?.range` is the actual scanned line (terminator
+            // excluded, matching how `scan(_:)` records line ranges).
+            let incremental = NoteTokenScanner.scanLines(markdown, in: NSRange(location: start, length: 0))
+            guard let scannedRange = incremental.lines.first?.range else {
+                XCTFail("scanLines produced no line at \(start)")
+                continue
+            }
+            guard let fullLine = full.lines.first(where: { $0.range == scannedRange }) else {
+                XCTFail("no full-scan line for range \(scannedRange)")
+                continue
+            }
+            XCTAssertEqual(incremental.lines.first?.kind, fullLine.kind, "mismatch at \(scannedRange)")
+
+            let fullInlineInRange = full.inlineTokens.filter { NSIntersectionRange($0.range, scannedRange).length > 0 }
+            XCTAssertEqual(Set(incremental.inlineTokens.map(\.range)), Set(fullInlineInRange.map(\.range)), "inline mismatch at \(scannedRange)")
+        }
+    }
+
+    func testCRLFFenceParity() {
+        let markdown = "- [ ] before\r\n```\r\n- [ ] inside\r\n```\r\n- [ ] after\r\n"
+        let ns = markdown as NSString
+        let full = NoteTokenScanner.scan(markdown)
+
+        guard let insideLocation = nsLocation(of: "- [ ] inside", in: ns) else { return }
+        let incremental = NoteTokenScanner.scanLines(markdown, in: NSRange(location: insideLocation, length: 0))
+        XCTAssertEqual(incremental.lines[0].kind, .fence)
+        guard let scannedRange = incremental.lines.first?.range else {
+            return XCTFail("scanLines produced no line")
+        }
+        XCTAssertFalse(ns.substring(with: scannedRange).contains("\r"), "line range should exclude CRLF terminator")
+
+        guard let fullLine = full.lines.first(where: { $0.range == scannedRange }) else {
+            return XCTFail("no full-scan line for range \(scannedRange)")
+        }
+        XCTAssertEqual(fullLine.kind, .fence)
+    }
 }
