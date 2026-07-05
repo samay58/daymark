@@ -243,7 +243,7 @@ struct DaymarkCLI {
             return
         }
 
-        let action = result.applied ? "Rolled over" : "Would roll over"
+        let action = result.applied ? "Carried over" : "Would carry over"
         print("\(action) \(result.entries.count) task\(result.entries.count == 1 ? "" : "s") into \(result.targetNotePath)")
         for entry in result.entries {
             print("  \(entry.task.title)  (\(entry.task.notePath):\(entry.task.lineNumber))")

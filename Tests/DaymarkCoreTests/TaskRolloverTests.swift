@@ -33,7 +33,7 @@ final class TaskRolloverTests: XCTestCase {
         )
 
         XCTAssertEqual(plan.entries.count, 1)
-        XCTAssertTrue(plan.updatedMarkdown.contains("- Rolled over: follow up with Sarah #deal/acme"))
+        XCTAssertTrue(plan.updatedMarkdown.contains("- From yesterday: follow up with Sarah #deal/acme"))
         XCTAssertTrue(plan.updatedMarkdown.contains("from daily/2026/06/2026-06-27.md:5"))
         XCTAssertEqual(plan.updatedMarkdown.components(separatedBy: "## Brief").count - 1, 1)
         XCTAssertTrue(plan.updatedMarkdown.contains(TaskRollover.marker(for: task("follow up with Sarah #deal/acme", notePath: yesterdayPath))))
@@ -50,7 +50,7 @@ final class TaskRolloverTests: XCTestCase {
         )
 
         XCTAssertTrue(plan.entries.isEmpty)
-        XCTAssertFalse(plan.updatedMarkdown.contains("Rolled over:"))
+        XCTAssertFalse(plan.updatedMarkdown.contains("From yesterday:"))
     }
 
     func testDoesNotDuplicateRolloverAlreadyMarkedInTodayMarkdown() {
@@ -76,6 +76,53 @@ final class TaskRolloverTests: XCTestCase {
         XCTAssertEqual(plan.updatedMarkdown, today + "\n")
     }
 
+    func testDedupsAgainstPreExistingOldProseEntry() {
+        // Notes written before the copy change still have "Rolled over:" prose on disk.
+        // Dedup keys on the HTML comment marker hash, not the prose, so these must still
+        // be recognized and skipped.
+        let source = task("follow up with Sarah", notePath: yesterdayPath)
+        let marker = TaskRollover.marker(for: source)
+        let today = """
+        # Today
+
+        ## Brief
+
+        - Rolled over: follow up with Sarah (from daily/2026/06/2026-06-27.md:5) \(marker)
+
+        ## Capture
+        """
+
+        let plan = TaskRollover.plan(
+            tasks: [source],
+            todayMarkdown: today,
+            todayPath: todayPath
+        )
+
+        XCTAssertTrue(plan.entries.isEmpty)
+        XCTAssertEqual(plan.updatedMarkdown, today + "\n")
+    }
+
+    func testUsesWeekdayPrefixForTwoToSixDaysPrior() {
+        // 2026-06-28 is a Sunday; a task from Wednesday 2026-06-24 is four days prior.
+        let plan = TaskRollover.plan(
+            tasks: [task("send the deck", notePath: "daily/2026/06/2026-06-24.md")],
+            todayMarkdown: "# Today\n\n## Brief\n",
+            todayPath: todayPath
+        )
+
+        XCTAssertTrue(plan.updatedMarkdown.contains("- From Wednesday: send the deck"), plan.updatedMarkdown)
+    }
+
+    func testUsesMonthDayPrefixForOlderThanSixDays() {
+        let plan = TaskRollover.plan(
+            tasks: [task("renew the lease", notePath: "daily/2026/06/2026-06-18.md")],
+            todayMarkdown: "# Today\n\n## Brief\n",
+            todayPath: todayPath
+        )
+
+        XCTAssertTrue(plan.updatedMarkdown.contains("- From Jun 18: renew the lease"), plan.updatedMarkdown)
+    }
+
     func testRolloverKeepsTodayMarkdownReadable() {
         let plan = TaskRollover.plan(
             tasks: [task("review memo", notePath: yesterdayPath)],
@@ -83,7 +130,7 @@ final class TaskRolloverTests: XCTestCase {
             todayPath: todayPath
         )
 
-        XCTAssertTrue(plan.updatedMarkdown.contains("## Brief\n\n- Rolled over: review memo"))
+        XCTAssertTrue(plan.updatedMarkdown.contains("## Brief\n\n- From yesterday: review memo"))
         XCTAssertTrue(plan.updatedMarkdown.contains("<!-- daymark-rollover:"))
         XCTAssertTrue(plan.updatedMarkdown.contains("\n\n## Decisions\n"))
     }

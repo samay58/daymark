@@ -40,7 +40,8 @@ public enum TaskRollover {
         for task in tasks where shouldRoll(task, before: todayPath, in: normalizedToday) {
             let marker = marker(for: task)
             let source = "\(task.notePath):\(task.lineNumber)"
-            let line = "- Rolled over: \(task.title) (from \(source)) \(marker)"
+            let prefix = humanizedPrefix(sourcePath: task.notePath, targetPath: todayPath)
+            let line = "- \(prefix) \(task.title) (from \(source)) \(marker)"
             entries.append(RolloverEntry(task: task, marker: marker, markdownLine: line))
         }
 
@@ -66,6 +67,71 @@ public enum TaskRollover {
     private static func isDailyPath(_ path: String) -> Bool {
         let pattern = #"^daily/\d{4}/\d{2}/\d{4}-\d{2}-\d{2}\.md$"#
         return path.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    /// The human-facing prefix for a rollover line, derived entirely from the source and
+    /// target note dates so output stays deterministic regardless of wall-clock time.
+    static func humanizedPrefix(sourcePath: String, targetPath: String) -> String {
+        guard let sourceDate = dailyNoteDate(from: sourcePath),
+              let targetDate = dailyNoteDate(from: targetPath) else {
+            return "From \(sourcePath):"
+        }
+
+        let calendar = dateMathCalendar
+        let dayCount = calendar.dateComponents([.day], from: sourceDate, to: targetDate).day ?? 0
+
+        if dayCount == 1 {
+            return "From yesterday:"
+        }
+        if dayCount >= 2, dayCount <= 6 {
+            return "From \(weekdayFormatter.string(from: sourceDate)):"
+        }
+        return "From \(monthDayFormatter.string(from: sourceDate)):"
+    }
+
+    private static let dateMathCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .init(secondsFromGMT: 0)!
+        return calendar
+    }()
+
+    private static let weekdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = dateMathCalendar.timeZone
+        formatter.dateFormat = "EEEE"
+        return formatter
+    }()
+
+    private static let monthDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = dateMathCalendar.timeZone
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
+    /// Parses `daily/YYYY/MM/YYYY-MM-DD.md` into a UTC midnight `Date`. Returns `nil` for
+    /// anything that does not match the daily note path shape.
+    private static func dailyNoteDate(from path: String) -> Date? {
+        let pattern = #"^daily/(\d{4})/(\d{2})/(\d{4})-(\d{2})-(\d{2})\.md$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(path.startIndex..<path.endIndex, in: path)
+        guard let match = regex.firstMatch(in: path, range: range),
+              let yearRange = Range(match.range(at: 3), in: path),
+              let monthRange = Range(match.range(at: 4), in: path),
+              let dayRange = Range(match.range(at: 5), in: path),
+              let year = Int(path[yearRange]),
+              let month = Int(path[monthRange]),
+              let day = Int(path[dayRange]) else {
+            return nil
+        }
+
+        var components = DateComponents()
+        components.year = year
+        components.month = month
+        components.day = day
+        return dateMathCalendar.date(from: components)
     }
 
     private static func normalized(_ markdown: String) -> String {

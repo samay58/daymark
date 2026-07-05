@@ -88,14 +88,14 @@ final class RolloverCommandTests: XCTestCase {
 
         let first = try runDaymark(["rollover", "--date", "2026-06-28", "--apply", "--root", root])
         XCTAssertEqual(first.status, 0, first.output)
-        XCTAssertTrue(first.output.contains("Rolled over 1 task"), first.output)
+        XCTAssertTrue(first.output.contains("Carried over 1 task"), first.output)
 
         let second = try runDaymark(["rollover", "--date", "2026-06-28", "--apply", "--root", root])
         XCTAssertEqual(second.status, 0, second.output)
         XCTAssertTrue(second.output.contains("No tasks to roll over"), second.output)
 
         let today = try String(contentsOfFile: "\(root)/daily/2026/06/2026-06-28.md", encoding: .utf8)
-        XCTAssertEqual(today.components(separatedBy: "Rolled over: follow up with Sarah").count - 1, 1)
+        XCTAssertEqual(today.components(separatedBy: "From yesterday: follow up with Sarah").count - 1, 1)
         XCTAssertFalse(today.contains("already sent the report"))
         XCTAssertTrue(today.contains("<!-- daymark-rollover:"))
         XCTAssertEqual(try String(contentsOfFile: "\(root)/daily/2026/06/2026-06-27.md", encoding: .utf8), originalYesterday)
@@ -133,6 +133,6 @@ final class RolloverCommandTests: XCTestCase {
         XCTAssertTrue(second.output.contains("No tasks to roll over"), second.output)
 
         let today = try String(contentsOfFile: "\(root)/daily/2026/06/2026-06-28.md", encoding: .utf8)
-        XCTAssertEqual(today.components(separatedBy: "Rolled over: renew the vendor agreement").count - 1, 1)
+        XCTAssertEqual(today.components(separatedBy: "From yesterday: renew the vendor agreement").count - 1, 1)
     }
 }
