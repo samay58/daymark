@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct DateTile: View {
     let day: Int
@@ -152,4 +153,59 @@ private struct MarginPanel: ViewModifier {
 
 extension View {
     func marginPanel() -> some View { modifier(MarginPanel()) }
+}
+
+// Shared chrome for every floating surface (capture slip, command palette, Open Loops
+// overlay, and later the Codex popover): the same within-window system material and warm
+// tint the day header band uses, plus a hairline border and panelRadius, so all chrome reads
+// as one material system rather than separate blurs. Falls back to the opaque `surface` fill
+// when Reduce Transparency is on.
+struct GlassSurface: ViewModifier {
+    @State private var reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+
+    func body(content: Content) -> some View {
+        content
+            .background(fill)
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
+                    .stroke(DesignTokens.hairline.opacity(0.6), lineWidth: 1)
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(for: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification)
+            ) { _ in
+                reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            }
+    }
+
+    @ViewBuilder
+    private var fill: some View {
+        if reduceTransparency {
+            DesignTokens.surface
+        } else {
+            ZStack {
+                GlassMaterialView()
+                DesignTokens.canvas.opacity(DesignTokens.glassTintOpacity)
+            }
+        }
+    }
+}
+
+// Same NSVisualEffectView recipe as the day header band (within-window blending, .headerView
+// material) so every floating panel blurs identically to the header.
+private struct GlassMaterialView: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.blendingMode = .withinWindow
+        view.material = .headerView
+        view.state = .active
+        view.isEmphasized = false
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
+extension View {
+    func glassSurface() -> some View { modifier(GlassSurface()) }
 }

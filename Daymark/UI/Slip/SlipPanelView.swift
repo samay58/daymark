@@ -70,12 +70,7 @@ struct SlipPanelView: View {
         }
         .padding(16)
         .frame(width: 320)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
-                .stroke(DesignTokens.hairline.opacity(0.6), lineWidth: 1)
-        }
+        .glassSurface()
         .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
         .onExitCommand { handleDiscard() }
     }

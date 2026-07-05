@@ -76,12 +76,6 @@ private struct OpenLoopsOverlay: View {
                 OpenLoopsView()
                     .frame(width: 560)
                     .frame(maxHeight: proxy.size.height * 0.7)
-                    .background(DesignTokens.canvas)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
-                            .stroke(DesignTokens.hairline.opacity(0.6), lineWidth: 1)
-                    }
                     .shadow(color: .black.opacity(0.14), radius: 24, y: 12)
                     .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
 
