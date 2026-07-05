@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Daymark is
 
-A high-craft, local-first native macOS workspace centered on today's Markdown note. Markdown files in `~/phoenix` are the human-readable source of truth; SQLite at `~/phoenix/.daymark/daymark.db` is a rebuildable local index and projection. The app opens to Today, captures fast, and turns notes into tasks, open loops, approval-gated dynamic blocks, and Codex-ready specs.
+A high-craft, local-first native macOS workspace centered on today's Markdown note. Markdown files in `~/phoenix` are the human-readable source of truth; SQLite at `~/phoenix/.daymark/daymark.db` is a rebuildable local index and projection. The app opens to Today, captures fast, and turns notes into tasks, open loops, approval-gated dynamic blocks, Codex-ready specs, and previewed meeting prep exports.
 
 The repo has a working local substrate: an AppKit-backed editor, file watcher, FTS search, settings, a `Database` actor over the system SQLite3 C API (no third-party SQLite dependency), migrations, repositories, and an event log. Beyond that substrate, many product surfaces are still placeholders.
 
@@ -30,10 +30,11 @@ swift run daymark open-loops       # list open tasks grouped into buckets (read-
 swift run daymark codex-task --source <path> --line <n>  # preview a Codex task draft (or --selection-file <path>; --apply writes under specs/tasks/)
 swift run daymark context-bundle --task specs/tasks/<file>.md  # preview a context bundle from a task file (--apply writes under artifacts/context-bundles/)
 swift run daymark blocks refresh --source <path>   # preview /daymark open-loops, source-list, codex-context, or weekly-review output (--apply writes one idempotent region + .daymark/dynamic-blocks.json)
+swift run daymark meeting-prep --event-file /tmp/event.json  # preview local meeting prep Markdown (--apply writes one file under meetings/)
 swift run daymark search <q>       # full-text search the index
 ```
 
-CLI subcommands live in `Sources/daymark/DaymarkCLI.swift`; run `swift run daymark` with no args for the full list. Every command accepts `--root <path>` (or reads `DAYMARK_WORKSPACE_ROOT`) to target a workspace other than `~/phoenix`; this is how the temp-workspace verification checks in `docs/PROGRESS.md` run against a scratch directory. CLI behavior is covered by six `*CommandTests` classes in `Tests/DaymarkCLITests/` (capture, codex-task, dynamic-blocks, end-of-day, open-loops, rollover), not one per subcommand.
+CLI subcommands live in `Sources/daymark/DaymarkCLI.swift`; run `swift run daymark` with no args for the full list. Every command accepts `--root <path>` (or reads `DAYMARK_WORKSPACE_ROOT`) to target a workspace other than `~/phoenix`; this is how the temp-workspace verification checks in `docs/PROGRESS.md` run against a scratch directory. CLI behavior is covered by seven `*CommandTests` classes in `Tests/DaymarkCLITests/` (capture, codex-task, dynamic-blocks, end-of-day, meeting-prep, open-loops, rollover), not one per subcommand.
 
 In-app Dynamic Blocks refresh routes through `DynamicBlockRefreshService`, the same planner path used by the CLI. The app previews from the current editor buffer, disables stale applies if the buffer changes, and writes only after `Apply Refresh`.
 

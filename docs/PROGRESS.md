@@ -1002,20 +1002,53 @@ has landed.
 - Start Milestone 6 with local meeting event snapshots to previewed meeting-prep Markdown export.
 - Keep EventKit, account setup, app meeting picker, Gmail, network calls, model calls, Codex execution, automatic Dynamic Blocks refresh, arbitrary-note refresh, and app rollover preview/approval parked.
 
+## 2026-06-30: M6 first slice, local meeting-prep export
+
+Started Milestone 6 with a local-only meeting prep foundation. Samay can now
+provide a JSON event snapshot, preview deterministic meeting prep Markdown, and
+write one approved prep file under `meetings/` with collision-safe suffixing.
+No calendar account, EventKit permission, network read, model call, Gmail access,
+or app meeting picker is involved.
+
+### What changed
+
+- Added `MeetingEventSnapshot`, `MeetingPrepContext`, `MeetingPrepDraft`, and `MeetingPrepWriter` in `DaymarkCore`.
+- Added `DailyMarkdownProjectionReader.meetingPrepContext(for:)`, which matches exact event tags against local Markdown sources, open tasks, Codex task specs, context bundles, and question-like source lines while ignoring generated Dynamic Block regions.
+- Added `daymark meeting-prep --event-file <path>` for dry-run preview and `--apply` for approved one-file export under `meetings/`.
+- Added ADR-011 for the event snapshot JSON shape, meeting-prep export naming, and citation convention.
+- Added `docs/SELF_TEST_M6_MEETING_PREP.md` and updated README, CLAUDE, roadmap, progress, and parking lot surfaces.
+
+### Verification
+
+- TDD red checks: `MeetingPrepTests` first failed because the domain types did not exist; `DailyMarkdownProjectionReaderTests/testMeetingPrepContextMatchesTaggedNotesTasksQuestionsAndCodexArtifacts` first failed because the projection API did not exist; `MeetingPrepCommandTests` first failed because `meeting-prep` was an unknown command.
+- Focused green checks: `MeetingPrepTests`, 5 tests, 0 failures; meeting-prep projection test, 1 test, 0 failures; `MeetingPrepCommandTests`, 4 tests, 0 failures.
+- Full library suite: `swift package clean && swift test --skip CommandTests`, 202 tests, 0 failures.
+- CLI command bundle: `swift build --build-tests`, `swift build --product daymark`, then `xcrun xctest` over Meeting Prep plus the core command regression slice, 41 tests, 0 failures.
+- Product builds: `swift build --product daymark` and `swift build --product Daymark` both passed.
+- Temp-workspace end-to-end: event JSON outside the workspace; tagged project and daily notes; open and completed tasks; task spec and context bundle; dry-run wrote no files; apply wrote one `meetings/` prep file; repeat apply wrote a `-2` suffix; source notes, task specs, and context bundles stayed unchanged; malformed JSON failed clearly; deleting `.daymark` did not affect dry-run correctness.
+- Read-only doctor after rebuilding the CLI: `.build/arm64-apple-macosx/debug/daymark doctor` passed against `~/phoenix`.
+
+### Remaining in Milestone 6
+
+- App meeting picker and approval surface.
+- EventKit/account setup, ICS parsing, attendee matching, richer people resolution, and richer meeting context remain parked until the local JSON snapshot path has real usage.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
 
 Milestone 6: Calendar and Meeting Prep is active. Milestone 5 is closed on
 `main`: all four Dynamic Blocks renderers and the in-app preview/apply refresh
-surface are shipped, and the M4/M5 remediation pass has landed.
+surface are shipped, and the M4/M5 remediation pass has landed. The first M6
+CLI/domain slice is implemented for local JSON event snapshots to previewed
+meeting prep Markdown under `meetings/`.
 
 ### Start Here Next
 
-1. Build the first M6 slice: local meeting event snapshot JSON to previewed `meetings/` Markdown export through the CLI.
-2. Keep the first slice local and deterministic: no EventKit, account setup, network, Gmail, model calls, Codex execution, app meeting picker, or automatic meeting notes.
+1. Finish the M6 meeting-prep closeout: run slopcheck on changed files, commit, push, and append `~/.progress.jsonl`.
+2. Optional quick manual app perusal before commit: build and launch `Daymark`, open Today, try existing M5 app flows (`Refresh Dynamic Blocks`, Command Palette, Codex task composer). The M6 meeting-prep slice is CLI/domain only, so there is no app meeting picker yet.
 3. App rollover preview/approval is a separate, ADR-worthy product decision (see `docs/PARKING_LOT.md`); the launch path still auto-applies and that is intentional for now.
-4. After the CLI/domain meeting-prep foundation is green, consider an approval-gated app surface as a later M6 slice.
+4. After the CLI/domain meeting-prep slice is shipped, design the approval-gated app meeting picker as the next M6 slice.
 
 ### Current Truths
 

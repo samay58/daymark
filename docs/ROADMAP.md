@@ -193,7 +193,7 @@ Goal: Daymark helps prep meetings using local notes plus calendar metadata.
 
 Why this matters: meeting prep should reduce context switching by connecting a calendar event to relevant notes, people, prior decisions, and open loops. It must stay permissioned and local-first.
 
-Status: active. Start with local event snapshot JSON to previewed meeting-prep Markdown export under `meetings/`. EventKit, account setup, app meeting picker, attendee resolution, and richer calendar automation remain parked until the local CLI/domain foundation is solid.
+Status: active. The first CLI/domain slice is done: `daymark meeting-prep --event-file <path>` previews deterministic local prep Markdown from an explicit JSON event snapshot, and `--apply` writes one collision-safe file under `meetings/`. EventKit, account setup, app meeting picker, attendee resolution, and richer calendar automation remain parked until the local foundation has real usage.
 
 Build:
 
@@ -201,7 +201,7 @@ Build:
 - In v0, prefer local calendar reads or imported event snapshots over account-server coupling.
 - Link events to notes by date, attendees, project tags, and meeting-note paths.
 - Generate a read-only prep view with relevant notes, tasks, and unresolved questions.
-- Add a clean Markdown export under `meetings/` only after preview.
+- Add a clean Markdown export under `meetings/` only after preview. Done for the local event-snapshot CLI path.
 - Keep Today editable before and during prep loading.
 
 Non-goals:

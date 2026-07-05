@@ -294,3 +294,49 @@ Cache metadata can be stale if a note is edited outside Daymark or if `.daymark`
 ### Mitigation
 
 Refresh correctness never depends on the cache. Deleting or corrupting `.daymark/dynamic-blocks.json` leaves notes readable and the next approved apply can recreate metadata.
+
+## ADR-011: Meeting Prep Event Snapshots and Export Naming
+
+Status: Accepted
+Date: 2026-06-30
+
+### Context
+
+Milestone 6 starts meeting prep without account auth, EventKit permissions, network reads, or calendar server coupling. The first slice needs a stable local input shape and a readable export path that can be previewed before any workspace write.
+
+### Decision
+
+Meeting prep starts from an explicit local JSON event snapshot supplied to the CLI:
+
+```json
+{
+  "title": "Acme Partner Sync",
+  "startsAt": "2026-07-01T14:30:00Z",
+  "endsAt": "2026-07-01T15:00:00Z",
+  "attendees": ["Sarah Chen", "Maya Lee"],
+  "location": "Zoom",
+  "tags": ["#deal/acme"],
+  "notes": "Discuss renewal questions."
+}
+```
+
+`daymark meeting-prep --event-file <path>` previews the exact Markdown and target path. `--apply` writes one Markdown file under `meetings/`:
+
+```txt
+meetings/2026-07-01-acme-partner-sync.md
+meetings/2026-07-01-acme-partner-sync-2.md
+```
+
+The event file may live outside the workspace because it is read-only user-provided input. Writes are confined to `meetings/` and use collision-safe suffixes. Prep Markdown cites local paths for matched sources, open tasks, Codex task specs, context bundles, and unresolved question lines when available.
+
+### Why
+
+The snapshot keeps the first meeting-prep slice local, deterministic, and testable. The export path mirrors existing task and bundle naming: date prefix, readable slug, and numeric suffixes instead of overwrites.
+
+### Risks
+
+The first slice does not discover meetings from a calendar account and does not resolve attendees to people notes.
+
+### Mitigation
+
+EventKit, account setup, attendee resolution, ICS parsing, and app meeting selection stay parked until the local preview/apply path has real usage.

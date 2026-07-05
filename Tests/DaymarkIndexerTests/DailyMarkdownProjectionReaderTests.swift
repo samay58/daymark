@@ -146,4 +146,57 @@ final class DailyMarkdownProjectionReaderTests: XCTestCase {
         )
         XCTAssertFalse(daymark.map(\.relativePath).contains("specs/tasks/2026-06-29-generated.md"))
     }
+
+    func testMeetingPrepContextMatchesTaggedNotesTasksQuestionsAndCodexArtifacts() throws {
+        let root = try makeBootstrappedWorkspace()
+        try write("""
+        # Acme Project
+
+        Renewal notes. #deal/acme
+        What renewal risk changed?
+        <!-- daymark:block-begin abc -->
+        #deal/generated
+        - [ ] generated checkbox #deal/acme
+        <!-- daymark:block-end abc -->
+        """, relativePath: "projects/acme.md", root: root)
+        try write("""
+        # Daily
+
+        - [ ] Send model update #deal/acme
+        - [x] Completed old follow-up #deal/acme
+        """, relativePath: "daily/2026/06/2026-06-30.md", root: root)
+        try write("""
+        # Acme task
+
+        Path: `projects/acme.md`
+        """, relativePath: "specs/tasks/2026-06-30-acme-task.md", root: root)
+        try write("""
+        # Context Bundle: Acme task
+
+        Task: `specs/tasks/2026-06-30-acme-task.md`
+        """, relativePath: "artifacts/context-bundles/2026-06-30-acme-context.md", root: root)
+
+        let event = MeetingEventSnapshot(
+            title: "Acme Partner Sync",
+            startsAt: Date(timeIntervalSince1970: 1_782_916_200),
+            endsAt: Date(timeIntervalSince1970: 1_782_918_000),
+            tags: ["#deal/acme"],
+            sourceIdentifier: "/tmp/event.json"
+        )
+        let context = try DailyMarkdownProjectionReader(root: root).meetingPrepContext(for: event)
+
+        XCTAssertEqual(context.sources.map(\.relativePath), [
+            "daily/2026/06/2026-06-30.md",
+            "projects/acme.md"
+        ])
+        XCTAssertEqual(context.openTasks.map(\.title), ["Send model update #deal/acme"])
+        XCTAssertEqual(context.questions, [
+            MeetingPrepQuestion(text: "What renewal risk changed?", relativePath: "projects/acme.md", lineNumber: 4)
+        ])
+        XCTAssertEqual(context.codexArtifacts.map(\.relativePath), [
+            "artifacts/context-bundles/2026-06-30-acme-context.md",
+            "specs/tasks/2026-06-30-acme-task.md"
+        ])
+        XCTAssertFalse(context.sources.flatMap(\.tags).contains("#deal/generated"))
+    }
 }

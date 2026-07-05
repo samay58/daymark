@@ -129,6 +129,50 @@ public struct DailyMarkdownProjectionReader {
         }
     }
 
+    /// Local context for meeting prep, derived only from readable Markdown sources. Event
+    /// tags are matched exactly; generated dynamic-block regions are ignored before task and
+    /// question extraction, and the returned lists are stable for fixed filesystem contents.
+    public func meetingPrepContext(
+        for event: MeetingEventSnapshot,
+        fileManager: FileManager = .default
+    ) throws -> MeetingPrepContext {
+        let eventTags = Set(event.tags)
+        let sources = try allSources(fileManager: fileManager)
+        let matchedSources = sources
+            .filter { source in !eventTags.isEmpty && !Set(source.tags).isDisjoint(with: eventTags) }
+            .map { source in
+                MeetingPrepSource(
+                    title: source.title,
+                    relativePath: source.relativePath,
+                    tags: source.tags
+                )
+            }
+        let matchedSourcePaths = Set(matchedSources.map(\.relativePath))
+
+        let openTasks = try allTasks(fileManager: fileManager)
+            .filter { task in
+                task.status == .open
+                    && (!Set(task.tags).isDisjoint(with: eventTags) || matchedSourcePaths.contains(task.notePath))
+            }
+
+        let codexContexts = try allCodexContexts(sources: sources, fileManager: fileManager)
+            .filter { artifact in
+                !Set(artifact.tags).isDisjoint(with: eventTags)
+                    || !Set(artifact.sourcePaths).isDisjoint(with: matchedSourcePaths)
+            }
+
+        let questions = try matchedSources.flatMap { source in
+            try unresolvedQuestions(in: source.relativePath, fileManager: fileManager)
+        }
+
+        return MeetingPrepContext(
+            sources: matchedSources,
+            openTasks: openTasks,
+            codexArtifacts: codexContexts,
+            questions: questions
+        )
+    }
+
     // MARK: - Helpers (single home for daily enumeration + relative-path computation)
 
     private func workspaceMarkdownRelativePaths(fileManager: FileManager) -> [String] {
@@ -250,6 +294,34 @@ public struct DailyMarkdownProjectionReader {
         }
 
         return tags.sorted()
+    }
+
+    private func unresolvedQuestions(in relativePath: String, fileManager: FileManager) throws -> [MeetingPrepQuestion] {
+        let url = root.expandedURL.appendingPathComponent(relativePath)
+        let content = try String(contentsOf: url, encoding: .utf8)
+        let lines = DynamicBlockRegion.blankingGeneratedRegions(from: content)
+            .normalizedNewlines
+            .components(separatedBy: "\n")
+        var fence = MarkdownFenceScanner()
+        var questions: [MeetingPrepQuestion] = []
+
+        for (index, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if fence.consume(trimmedLine: trimmed) { continue }
+            if fence.isInsideFence { continue }
+            guard trimmed.hasSuffix("?") else { continue }
+            let text = trimmed
+                .replacingOccurrences(
+                    of: #"^\s*[-*+]\s+"#,
+                    with: "",
+                    options: .regularExpression
+                )
+                .trimmingCharacters(in: .whitespaces)
+            guard !text.isEmpty else { continue }
+            questions.append(MeetingPrepQuestion(text: text, relativePath: relativePath, lineNumber: index + 1))
+        }
+
+        return questions
     }
 
     private static func markdownReferencePaths(in markdown: String) -> [String] {

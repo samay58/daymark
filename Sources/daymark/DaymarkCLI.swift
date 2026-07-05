@@ -46,6 +46,8 @@ struct DaymarkCLI {
                 try runContextBundle(arguments: options, root: root)
             case "blocks":
                 try runBlocks(arguments: options, root: root)
+            case "meeting-prep":
+                try runMeetingPrep(arguments: options, root: root)
             case "search":
                 try await runSearch(arguments: options, root: root)
             case "today":
@@ -372,6 +374,11 @@ struct DaymarkCLI {
         var apply = false
     }
 
+    private struct ParsedMeetingPrepArguments {
+        var eventFile: String?
+        var apply = false
+    }
+
     /// Creates a previewed Codex task draft from a source note line or explicit selection
     /// file. Dry-run prints the exact Markdown; `--apply` writes one file under specs/tasks.
     private static func runCodexTask(arguments: [String], root: WorkspaceRoot) throws {
@@ -584,6 +591,50 @@ struct DaymarkCLI {
         }
     }
 
+    private static func runMeetingPrep(arguments: [String], root: WorkspaceRoot) throws {
+        let parsed = try parseMeetingPrepArguments(arguments)
+        guard let eventFile = parsed.eventFile else { throw CommandError.missingMeetingEventFile }
+        let eventURL = URL(fileURLWithPath: (eventFile as NSString).expandingTildeInPath)
+        guard FileManager.default.fileExists(atPath: eventURL.path) else {
+            throw CommandError.meetingEventFileNotFound(eventFile)
+        }
+
+        let eventData = try Data(contentsOf: eventURL)
+        let event = try MeetingEventSnapshot.decode(
+            data: eventData,
+            sourceIdentifier: eventURL.path
+        )
+        let context = try DailyMarkdownProjectionReader(root: root).meetingPrepContext(for: event)
+        let suggestedPath = MeetingPrepDraft.suggestedRelativePath(
+            title: event.title,
+            date: event.startsAt,
+            existingRelativePaths: root.existingMarkdownRelativePaths(under: "meetings")
+        )
+        let draft = MeetingPrepDraft(
+            event: event,
+            context: context,
+            suggestedFilePath: suggestedPath
+        )
+
+        if parsed.apply {
+            let result = try MeetingPrepWriter().write(draft, root: root)
+            print("Created: \(result.relativePath)")
+        } else {
+            print("Target: \(draft.suggestedFilePath)")
+            print("")
+            print(draft.markdown(), terminator: "")
+        }
+    }
+
+    private static func parseMeetingPrepArguments(_ arguments: [String]) throws -> ParsedMeetingPrepArguments {
+        var parsed = ParsedMeetingPrepArguments()
+        try scanFlags(arguments, [
+            "--event-file": .value(missing: .missingMeetingEventFile) { parsed.eventFile = $0 },
+            "--apply": .boolean { parsed.apply = true }
+        ], unknown: CommandError.unknownMeetingPrepFlag)
+        return parsed
+    }
+
     private static func operationLabel(_ operation: DynamicBlockPatchOperation) -> String {
         switch operation {
         case .insert: return "insert"
@@ -658,6 +709,7 @@ struct DaymarkCLI {
           codex-task  Preview or write one Codex task file from note text
           context-bundle  Preview or write one context bundle from a Codex task file
           blocks      Preview or apply generated output for /daymark blocks
+          meeting-prep  Preview or write one meeting prep file from a local event JSON
           search      Search notes locally with full-text search
           today       Print today's note (or the template it would use)
 
@@ -678,6 +730,10 @@ struct DaymarkCLI {
         Dynamic blocks:
           daymark blocks refresh --source daily/yyyy/mm/yyyy-mm-dd.md
           daymark blocks refresh --source daily/yyyy/mm/yyyy-mm-dd.md --apply
+
+        Meeting prep:
+          daymark meeting-prep --event-file /tmp/event.json
+          daymark meeting-prep --event-file /tmp/event.json --apply
 
         Options:
           --root <path>   Workspace root (default: $DAYMARK_WORKSPACE_ROOT or ~/phoenix)
@@ -781,6 +837,9 @@ struct DaymarkCLI {
         case unknownBlocksSubcommand(String)
         case unknownBlocksFlag(String)
         case missingBlocksSource
+        case unknownMeetingPrepFlag(String)
+        case missingMeetingEventFile
+        case meetingEventFileNotFound(String)
         case sourceOutsideWorkspace(String)
         case sourceNotFound(String)
         case missingSearchQuery
@@ -816,8 +875,12 @@ struct DaymarkCLI {
                  .missingBlocksSource,
                  .sourceOutsideWorkspace:
                 return "Usage: daymark blocks refresh --source <path> [--date yyyy-MM-dd] [--apply]"
+            case .unknownMeetingPrepFlag,
+                 .missingMeetingEventFile,
+                 .meetingEventFileNotFound:
+                return "Usage: daymark meeting-prep --event-file <path> [--apply]"
             case .unknownCommand:
-                return "Usage: daymark <doctor|init|index|rebuild|capture|rollover|end-of-day|open-loops|codex-task|context-bundle|blocks|search|today>"
+                return "Usage: daymark <doctor|init|index|rebuild|capture|rollover|end-of-day|open-loops|codex-task|context-bundle|blocks|meeting-prep|search|today>"
             case .missingSearchQuery:
                 return "Usage: daymark search <query>"
             case .missingRootValue:
@@ -867,6 +930,12 @@ struct DaymarkCLI {
                 return "unknown blocks flag: \(flag)"
             case .missingBlocksSource:
                 return "--source is required"
+            case .unknownMeetingPrepFlag(let flag):
+                return "unknown meeting-prep flag: \(flag)"
+            case .missingMeetingEventFile:
+                return "--event-file is required"
+            case .meetingEventFileNotFound(let path):
+                return "event file not found: \(path)"
             case .sourceOutsideWorkspace(let path):
                 return "source is outside the workspace: \(path)"
             case .sourceNotFound(let path):

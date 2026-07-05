@@ -47,6 +47,14 @@ Good ideas that are not part of the current milestone belong here.
 - Arbitrary-note app refresh: the first app surface refreshes Today's note because that is the only editor surface currently implemented. Refreshing any workspace note should wait for a real note-opening flow.
 - Broader tag filtering: the first slice supports exact task tag arguments such as `/daymark open-loops #deal/acme`. More expressive filters should wait for real note examples.
 
+## Milestone 6 follow-ups
+
+- EventKit and account setup: parked. The first meeting-prep slice uses explicit local JSON event snapshots and does not request calendar permissions.
+- App meeting picker: parked until the CLI/domain preview and approved export path has real usage.
+- Attendee matching and richer people resolution: parked. The first slice matches exact event tags only, because fuzzy people matching would add a new entity-resolution layer.
+- ICS parsing: parked. JSON snapshots are the stable first input format; do not hand-roll a broad ICS parser without a dedicated slice.
+- Richer meeting context: parked. The first slice cites matched notes, open tasks, Codex task specs, context bundles, and explicit question-like lines. It does not summarize or infer claims.
+
 ## Hardening pass follow-ups (2026-06-29)
 
 - App rollover preview and approval: the app still auto-applies rollover into Today on launch (`AppState.runRolloverIfSafe`, `apply: true`). This is in tension with the "generated actions are previewed before execution" invariant (`docs/ACCEPTANCE_CRITERIA.md`), but it is also how the app satisfies the Milestone 3 criterion "incomplete tasks from yesterday roll forward". Removing the auto-apply was considered during the hardening pass and reverted, because removing it without a preview/approval surface (out of M5 scope) would regress that M3 behavior in the app. The deliberate fix is to add an in-app rollover preview/approval surface and then move the launch path to preview-only; treat as its own product decision with an ADR. The CLI already models the explicit path (`daymark rollover` previews, `--apply` writes).
