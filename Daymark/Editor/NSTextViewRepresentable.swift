@@ -45,6 +45,15 @@ struct NSTextViewRepresentable: NSViewRepresentable {
         }
 
         context.coordinator.controller.attach(textView)
+        context.coordinator.cardController.attach(
+            textView: textView,
+            layoutManager: layoutManager,
+            renderController: context.coordinator.controller
+        )
+        let appState = appState
+        context.coordinator.cardController.contentProvider = { cardContext in
+            AnyView(DynamicBlockCardView(context: cardContext, appState: appState))
+        }
         context.coordinator.controller.styleAll()
 
         let scrollView = NSScrollView()
@@ -77,7 +86,7 @@ struct NSTextViewRepresentable: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, selection: $selection, sourcePath: sourcePath)
+        Coordinator(text: $text, selection: $selection, sourcePath: sourcePath, appState: appState)
     }
 
     @MainActor
@@ -86,11 +95,14 @@ struct NSTextViewRepresentable: NSViewRepresentable {
         @Binding private var selection: SelectionModel
         var sourcePath: String
         let controller = LiveRenderController()
+        let cardController = CardIslandController()
+        private let appState: AppState
 
-        init(text: Binding<String>, selection: Binding<SelectionModel>, sourcePath: String) {
+        init(text: Binding<String>, selection: Binding<SelectionModel>, sourcePath: String, appState: AppState) {
             self._text = text
             self._selection = selection
             self.sourcePath = sourcePath
+            self.appState = appState
         }
 
         func textDidChange(_ notification: Notification) {
@@ -104,6 +116,7 @@ struct NSTextViewRepresentable: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             updateSelection(from: textView, range: textView.selectedRange())
             controller.reconcileConcealment()
+            cardController.selectionDidChange()
         }
 
         func updateSelection(from textView: NSTextView, range: NSRange) {
@@ -114,6 +127,10 @@ struct NSTextViewRepresentable: NSViewRepresentable {
                 selectedRange: range,
                 cursorLocation: range.location
             )
+            // Published for the Codex popover to anchor at the selection (or caret when
+            // empty). firstRect(forCharacterRange:) is the sanctioned exception to the
+            // no-layoutManager rule, for this one purpose only (packet contract, P3-codex).
+            appState.codexAnchorScreenRect = textView.firstRect(forCharacterRange: range, actualRange: nil)
         }
     }
 }

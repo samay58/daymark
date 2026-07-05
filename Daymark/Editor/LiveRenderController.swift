@@ -6,6 +6,7 @@ final class LiveRenderController {
     static let bodySize: CGFloat = 16
 
     weak var textView: LiveTextView?
+    weak var cardController: CardIslandController?
     private var fullPassTask: Task<Void, Never>?
 
     /// The authoritative token cache, refreshed wholesale by `styleAll()` and patched
@@ -61,6 +62,7 @@ final class LiveRenderController {
         textVersion += 1
         logFull(CFAbsoluteTimeGetCurrent() - started, lineCount: tokens.lines.count)
         textView?.needsDisplay = true
+        cardController?.regionsDidChange()
     }
 
     func styleEditedParagraph() {

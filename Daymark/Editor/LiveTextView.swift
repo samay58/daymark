@@ -4,6 +4,7 @@ import DaymarkCore
 final class LiveTextView: NSTextView {
     var onOpenPalette: ((String) -> Void)?
     weak var controller: LiveRenderController?
+    weak var cardController: CardIslandController?
 
     private var animatingBoxLocation: Int?
     private var animationProgress: CGFloat = 1
@@ -38,6 +39,13 @@ final class LiveTextView: NSTextView {
         let location = contentManager.offset(from: contentManager.documentRange.location, to: viewport.location)
         let length = contentManager.offset(from: viewport.location, to: viewport.endLocation)
         return NSRange(location: max(0, location), length: max(0, length))
+    }
+
+    // MARK: - Layout
+
+    override func layout() {
+        super.layout()
+        cardController?.repositionCards()
     }
 
     // MARK: - Drawing
