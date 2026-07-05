@@ -15,6 +15,21 @@ struct CreatedCodexTask: Equatable {
     var draft: CodexTaskDraft
 }
 
+/// The receipt card's data, per spec "Codex composer and receipts". Placed as a stub
+/// ahead of P3-codex, which wires it to the Codex create flow.
+struct CodexReceiptState: Equatable {
+    var taskTitle: String
+    var relativePath: String
+}
+
+/// A dynamic block card's preview-pending state: the one-line change summary and the
+/// incoming Markdown body the card shows in place of the current region content.
+struct DynamicBlockCardPreview: Equatable {
+    var summaryText: String
+    var incomingMarkdown: String
+    var canApply: Bool
+}
+
 @MainActor
 @Observable
 final class AppState {
@@ -37,10 +52,29 @@ final class AppState {
     var codexTaskMessage: String?
     var codexContextBundle: CodexContextBundle?
     var codexContextBundleMessage: String?
+    /// Whether the Codex popover (spec "Codex composer and receipts") is on screen. The popover
+    /// host in `Daymark/UI/Codex/CodexPopover.swift` is the only reader/writer of this besides
+    /// the flows below; it is a plain flag rather than being derived from `codexTaskDraft` so
+    /// the draft can keep living after Create (for the context bundle offer) without the
+    /// popover reopening.
+    var isCodexPopoverPresented = false
+    /// The current selection's (or caret's) screen rect, published by the editor so the Codex
+    /// popover can anchor itself. Nil before the editor has reported a selection.
+    var codexAnchorScreenRect: CGRect?
+    /// Whether the receipt card is showing the context-bundle preview in place of its default
+    /// actions row. `showsContextBundlePanel` alone cannot express this: it turns true the
+    /// instant a task file is created, before the user has asked to expand anything.
+    var isCodexBundleExpanded = false
     var dynamicBlockPreview: DynamicBlockRefreshPreview?
     var dynamicBlockMessage: String?
     var isPlanningDynamicBlocks = false
     var isApplyingDynamicBlocks = false
+    /// Cache records for today's note, keyed by command hash, backing each card's
+    /// "generated <relative time>" label. Reloaded after workspace load and after apply.
+    private var dynamicBlockCacheRecords: [String: DynamicBlockCacheRecord] = [:]
+    /// The receipt card's state, set once `createCodexTaskFile()` succeeds and cleared by
+    /// `dismissCodexReceipt()`. Persists across a Codex composer's popover closing.
+    var codexReceipt: CodexReceiptState?
     private var codexTaskPathBasis: Set<String> = []
     private var codexTaskDateBasis: Date?
     /// The created task file and the exact draft it was written from, kept together so the
@@ -170,6 +204,7 @@ final class AppState {
 
         await openIndex(root: root, calendar: calendar)
         startWatching(root: root)
+        reloadDynamicBlockCache()
     }
 
     private func openIndex(root: WorkspaceRoot, calendar: Calendar) async {
@@ -326,9 +361,13 @@ final class AppState {
         if disk == lastSavedText { return }
 
         if todayText == lastSavedText {
-            // No unsaved local edits, so the external version simply wins.
+            // No unsaved local edits, so the external version simply wins. An external write
+            // (for example a CLI `blocks refresh --apply` against the open workspace) can have
+            // changed .daymark/dynamic-blocks.json too, so refresh the card metadata cache here
+            // rather than leaving cards showing a stale "generated" time.
             todayText = disk
             lastSavedText = disk
+            reloadDynamicBlockCache()
         } else {
             // Unsaved local edits and an external change: the user must choose.
             externalDiskVersion = disk
@@ -513,6 +552,7 @@ final class AppState {
                 dynamicBlockMessage = result.cacheWarning == nil
                     ? "Updated dynamic blocks."
                     : "Updated dynamic blocks. Cache metadata will rebuild later."
+                reloadDynamicBlockCache()
             } else {
                 externalDiskVersion = result.updatedMarkdown
                 hasExternalConflict = true
@@ -533,6 +573,58 @@ final class AppState {
         isPlanningDynamicBlocks = false
         isApplyingDynamicBlocks = false
     }
+
+    /// The pending preview for the card whose region currently carries `regionHash`, or nil
+    /// when that region has no matching patch (idle) or no refresh has run.
+    ///
+    /// Matching is by command hash: a region's marker hash and its patch's `commandHash` are
+    /// computed from the same (source path, ordinal, command text) as long as the command
+    /// line itself is unedited between preview and apply, which is the steady-state refresh
+    /// flow. A patch cannot be matched positionally instead, because `DynamicBlockPatch`'s
+    /// line-range fields are internal to DaymarkCore.
+    func dynamicBlockCardPreview(forRegionHash regionHash: String) -> DynamicBlockCardPreview? {
+        guard let preview = dynamicBlockPreview,
+              let patch = preview.plan.patches.first(where: { $0.commandHash == regionHash }) else {
+            return nil
+        }
+        let stale = todayContentHash != preview.sourceContentHash
+        let summary: String
+        if stale {
+            summary = "Note changed; preview again"
+        } else {
+            let lineCount = patch.replacementMarkdown.components(separatedBy: "\n").count
+            let verb = patch.operation == .insert ? "add" : "replace"
+            summary = "Will \(verb) \(lineCount) line\(lineCount == 1 ? "" : "s")."
+        }
+        return DynamicBlockCardPreview(
+            summaryText: summary,
+            incomingMarkdown: patch.generatedMarkdown,
+            canApply: !stale && canApplyDynamicBlocks
+        )
+    }
+
+    /// When the region last recorded a refresh in `.daymark/dynamic-blocks.json`, for the
+    /// card header's "generated <relative time>" label. Nil when no record exists yet.
+    func dynamicBlockGeneratedAt(forRegionHash regionHash: String) -> Date? {
+        guard let stamp = dynamicBlockCacheRecords[regionHash]?.refreshedAt else { return nil }
+        return Self.cacheDateFormatter.date(from: stamp)
+    }
+
+    private func reloadDynamicBlockCache() {
+        let records = (try? DynamicBlockCacheStore().read(root: workspaceRoot)) ?? []
+        let path = todayRelativePath
+        dynamicBlockCacheRecords = Dictionary(
+            records.filter { $0.sourcePath == path }.map { ($0.commandHash, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+    }
+
+    private static let cacheDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter
+    }()
 
     // MARK: - Codex task handoff
 
@@ -564,10 +656,12 @@ final class AppState {
                 existingRelativePaths: existingPaths
             )
             codexTaskMessage = nil
+            isCodexPopoverPresented = true
         } catch {
             codexTaskDraft = nil
             clearCodexContextBundleState()
             codexTaskMessage = "Select text or place the cursor inside a note block first."
+            isCodexPopoverPresented = false
         }
     }
 
@@ -622,6 +716,9 @@ final class AppState {
             codexContextBundle = nil
             codexContextBundleMessage = nil
             codexTaskMessage = "Created \(result.relativePath)"
+            codexReceipt = CodexReceiptState(taskTitle: writtenDraft.title, relativePath: result.relativePath)
+            isCodexPopoverPresented = false
+            isCodexBundleExpanded = false
         } catch CodexTaskFileWriter.Error.blankDraft {
             codexTaskMessage = "Fill in a title, goal, source, and excerpt before creating the file."
         } catch CodexTaskFileWriter.Error.invalidPath {
@@ -637,6 +734,7 @@ final class AppState {
         clearCodexContextBundleState()
         codexTaskPathBasis = []
         codexTaskDateBasis = nil
+        isCodexPopoverPresented = false
     }
 
     private func clearCodexContextBundleState() {
@@ -682,6 +780,28 @@ final class AppState {
     func dismissCodexContextBundle() {
         codexContextBundle = nil
         codexContextBundleMessage = nil
+    }
+
+    /// Expands the receipt card into the context-bundle preview, deriving it from the exact
+    /// draft the receipt's task file was written from.
+    func expandCodexReceiptToBundle() {
+        guard codexReceipt != nil else { return }
+        isCodexBundleExpanded = true
+        previewCodexContextBundle()
+    }
+
+    /// Collapses the receipt card's bundle preview back to its default actions row, without
+    /// dismissing the receipt itself.
+    func cancelCodexBundlePreview() {
+        isCodexBundleExpanded = false
+        dismissCodexContextBundle()
+    }
+
+    /// Dismisses the receipt card ("Done"), clearing it and any bundle offer it was showing.
+    func dismissCodexReceipt() {
+        codexReceipt = nil
+        isCodexBundleExpanded = false
+        clearCodexContextBundleState()
     }
 
     // MARK: - Capture
