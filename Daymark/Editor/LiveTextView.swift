@@ -77,23 +77,40 @@ final class LiveTextView: NSTextView {
         guard let controller else { return }
         let visible = visibleCharacterRange()
         let selection = selectedRange()
+        let ns = string as NSString
 
         for line in controller.cachedTokens.lines {
             guard case .task(let done, _, let boxRange, _) = line.kind else { continue }
             guard NSIntersectionRange(boxRange, visible).length > 0 else { continue }
-            if LiveRenderController.shouldReveal(boxRange, selection: selection) { continue }
+            let alpha = controller.overlayAlpha(forRangeAt: boxRange.location, revealedAtRest: LiveRenderController.shouldReveal(boxRange, selection: selection))
+            guard alpha > 0.01 else { continue }
             guard let boxRect = boundingRect(for: boxRange) else { continue }
             let progress = boxRange.location == animatingBoxLocation ? animationProgress : 1
-            LiveDecorationRenderer.drawCheckbox(in: boxRect, done: done, progress: progress)
+            LiveDecorationRenderer.drawCheckbox(in: boxRect, done: done, progress: progress, alpha: alpha)
         }
 
         for token in controller.cachedTokens.inlineTokens {
             guard case .dueDate(let display) = token.kind else { continue }
             guard NSIntersectionRange(token.range, visible).length > 0 else { continue }
-            if LiveRenderController.shouldReveal(token.range, selection: selection) { continue }
+            let alpha = controller.overlayAlpha(forRangeAt: token.range.location, revealedAtRest: LiveRenderController.shouldReveal(token.range, selection: selection))
+            guard alpha > 0.01 else { continue }
             guard let glyphRect = boundingRect(for: token.range) else { continue }
-            LiveDecorationRenderer.drawDuePill(in: glyphRect, display: display)
+            let fill = dueTokenIsMidLine(token.range, in: ns) ? glyphRect.width : nil
+            LiveDecorationRenderer.drawDuePill(in: glyphRect, display: display, fillToWidth: fill, alpha: alpha)
         }
+    }
+
+    /// True when non-whitespace follows the due token on its own line. Such a mid-line pill fills
+    /// the concealed literal's footprint so no trailing gap shows; an end-of-line pill stays snug.
+    private func dueTokenIsMidLine(_ range: NSRange, in ns: NSString) -> Bool {
+        let lineEnd = NSMaxRange(ns.lineRange(for: NSRange(location: range.location, length: 0)))
+        var index = NSMaxRange(range)
+        while index < lineEnd {
+            let ch = ns.character(at: index)
+            if ch != 0x20 && ch != 0x09 && ch != 0x0A && ch != 0x0D { return true }
+            index += 1
+        }
+        return false
     }
 
     // MARK: - Clicks

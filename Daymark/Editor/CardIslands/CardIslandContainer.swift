@@ -27,11 +27,11 @@ enum CardIslandCommand {
 
     static func title(for command: String?) -> String {
         switch command {
-        case "open-loops": return "OPEN LOOPS"
-        case "source-list": return "SOURCES"
-        case "codex-context": return "CODEX CONTEXT"
-        case "weekly-review": return "WEEKLY REVIEW"
-        default: return "GENERATED"
+        case "open-loops": return "Open Loops"
+        case "source-list": return "Sources"
+        case "codex-context": return "Codex Context"
+        case "weekly-review": return "Weekly Review"
+        default: return "Generated"
         }
     }
 }

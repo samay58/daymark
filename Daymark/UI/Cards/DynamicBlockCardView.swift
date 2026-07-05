@@ -14,6 +14,8 @@ struct DynamicBlockCardView: View {
     let appState: AppState
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
+    @State private var refreshAngle = 0.0
 
     private var regionHash: String { context.region.hash }
 
@@ -21,11 +23,40 @@ struct DynamicBlockCardView: View {
         appState.dynamicBlockCardPreview(forRegionHash: regionHash)
     }
 
+    /// The quiet state indicator. Idle reads as tertiary (resting), a pending preview as the
+    /// sage accent (an action is offered), and a stale preview as the warning tone (the note
+    /// moved out from under it). Dot-color-per-state is the one granted latitude; every value is
+    /// an existing token.
+    private enum DotState { case idle, pending, stale }
+
+    private var dotState: DotState {
+        guard let preview = pendingPreview else { return .idle }
+        return preview.canApply ? .pending : .stale
+    }
+
+    private var dotColor: Color {
+        switch dotState {
+        case .idle: return DesignTokens.textTertiary
+        case .pending: return DesignTokens.accent
+        case .stale: return DesignTokens.warning
+        }
+    }
+
     var body: some View {
-        if context.isRevealed {
-            stripView
-        } else {
-            fullCardView
+        Group {
+            if context.isRevealed {
+                stripView
+            } else {
+                fullCardView
+            }
+        }
+        .onHover { hovering in
+            guard isHovering != hovering else { return }
+            if reduceMotion {
+                isHovering = hovering
+            } else {
+                withAnimation(.easeOut(duration: 0.12)) { isHovering = hovering }
+            }
         }
     }
 
@@ -39,7 +70,7 @@ struct DynamicBlockCardView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DesignTokens.cardIslandFill)
+        .background(DesignTokens.canvas)
         .clipShape(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
@@ -49,20 +80,20 @@ struct DynamicBlockCardView: View {
         .onChange(of: pendingPreview) { _, _ in context.notifyHeightChanged() }
     }
 
-    /// Thin strip chrome shown while the region is revealed: title plus the active
-    /// view-source toggle, no refresh control, no generated-at label, no body.
+    /// Thin strip chrome shown while the region is revealed: the status dot and title, with the
+    /// view-source toggle fading in on hover. The literal region text renders below it.
     private var stripView: some View {
         HStack(alignment: .center, spacing: 8) {
-            Text(CardIslandCommand.title(for: context.command))
-                .font(DesignType.cardHeader)
-                .tracking(0.5)
-                .foregroundStyle(DesignTokens.textSecondary)
+            statusDot
+            titleText
             Spacer(minLength: 8)
             sourceToggleButton
+                .opacity(isHovering ? 1 : 0)
+                .allowsHitTesting(isHovering)
         }
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-        .background(DesignTokens.cardIslandFill)
+        .background(DesignTokens.canvas)
         .overlay {
             RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
                 .stroke(DesignTokens.hairline, lineWidth: 1)
@@ -71,27 +102,57 @@ struct DynamicBlockCardView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 8) {
-            Text(CardIslandCommand.title(for: context.command))
-                .font(DesignType.cardHeader)
-                .tracking(0.5)
-                .foregroundStyle(DesignTokens.textSecondary)
+            statusDot
+            titleText
             Spacer(minLength: 8)
+            trailingControls
+                .opacity(isHovering ? 1 : 0)
+                .allowsHitTesting(isHovering)
+        }
+    }
+
+    private var statusDot: some View {
+        Circle()
+            .fill(dotColor)
+            .frame(width: 6, height: 6)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: dotColor)
+    }
+
+    private var titleText: some View {
+        Text(CardIslandCommand.title(for: context.command))
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(DesignTokens.textSecondary)
+    }
+
+    /// Generated-at label, refresh, and view-source; all quiet until the card is hovered.
+    private var trailingControls: some View {
+        HStack(spacing: 10) {
             if pendingPreview == nil, let generatedAt = appState.dynamicBlockGeneratedAt(forRegionHash: regionHash) {
                 Text("generated \(Self.relativeFormatter.localizedString(for: generatedAt, relativeTo: Date()))")
                     .font(DesignType.metadata)
                     .foregroundStyle(DesignTokens.textTertiary)
             }
-            Button {
-                Task { await appState.previewDynamicBlocksRefresh() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(DesignTokens.textTertiary)
-            }
-            .buttonStyle(.plain)
-            .help("Refresh dynamic blocks")
+            refreshButton
             sourceToggleButton
         }
+    }
+
+    /// One deliberate rotation acknowledges the tap before the preview eases in; instant under
+    /// Reduce Motion.
+    private var refreshButton: some View {
+        Button {
+            if !reduceMotion {
+                withAnimation(.easeInOut(duration: 0.11)) { refreshAngle += 360 }
+            }
+            Task { await appState.previewDynamicBlocksRefresh() }
+        } label: {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(DesignTokens.textTertiary)
+                .rotationEffect(.degrees(refreshAngle))
+        }
+        .buttonStyle(.plain)
+        .help("Refresh dynamic blocks")
     }
 
     /// Always reflects the composite reveal state (spec requirement). Toggling it off clears
@@ -114,11 +175,13 @@ struct DynamicBlockCardView: View {
     private var bodyContent: some View {
         if let preview = pendingPreview {
             Text(CardMarkdownRenderer.attributedText(for: preview.incomingMarkdown))
+                .lineSpacing(8)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 2)))
         } else {
             Text(CardMarkdownRenderer.attributedText(for: context.innerText))
+                .lineSpacing(8)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

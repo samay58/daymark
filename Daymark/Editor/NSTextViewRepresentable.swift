@@ -55,6 +55,9 @@ struct NSTextViewRepresentable: NSViewRepresentable {
             AnyView(DynamicBlockCardView(context: cardContext, appState: appState))
         }
         context.coordinator.controller.styleAll()
+        #if DEBUG
+        context.coordinator.controller.runBenchmarkIfRequested()
+        #endif
 
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false

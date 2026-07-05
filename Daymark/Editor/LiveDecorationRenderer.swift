@@ -1,24 +1,25 @@
 import AppKit
 
 enum LiveDecorationRenderer {
-    static func drawCheckbox(in boxRect: CGRect, done: Bool, progress: CGFloat) {
+    static func drawCheckbox(in boxRect: CGRect, done: Bool, progress: CGFloat, alpha: CGFloat = 1) {
+        guard alpha > 0.01 else { return }
         let side = DesignMetrics.checkboxSize
         let originY = boxRect.midY - side / 2
         let rect = CGRect(x: boxRect.minX, y: originY, width: side, height: side)
         let path = NSBezierPath(roundedRect: rect, xRadius: DesignMetrics.checkboxRadius, yRadius: DesignMetrics.checkboxRadius)
 
         if done {
-            NSColor(DesignTokens.accent).setFill()
+            NSColor(DesignTokens.accent).withAlphaComponent(alpha).setFill()
             path.fill()
-            drawCheck(in: rect, progress: progress)
+            drawCheck(in: rect, progress: progress, alpha: alpha)
         } else {
             path.lineWidth = 1
-            NSColor(DesignTokens.checkboxBorder).setStroke()
+            NSColor(DesignTokens.checkboxBorder).withAlphaComponent(alpha).setStroke()
             path.stroke()
         }
     }
 
-    private static func drawCheck(in rect: CGRect, progress: CGFloat) {
+    private static func drawCheck(in rect: CGRect, progress: CGFloat, alpha: CGFloat) {
         let clamped = max(0, min(1, progress))
         guard clamped > 0 else { return }
         let check = NSBezierPath()
@@ -28,7 +29,7 @@ enum LiveDecorationRenderer {
         check.lineWidth = 1.6
         check.lineCapStyle = .round
         check.lineJoinStyle = .round
-        NSColor.white.withAlphaComponent(clamped).setStroke()
+        NSColor.white.withAlphaComponent(clamped * alpha).setStroke()
         check.stroke()
     }
 
@@ -39,25 +40,34 @@ enum LiveDecorationRenderer {
         path.fill()
     }
 
-    static func drawDuePill(in glyphRect: CGRect, display: String) {
+    /// Draws the due pill over the concealed literal. `fillToWidth`, when set, stretches the pill
+    /// fill to the full width of the concealed literal so a mid-line due token leaves no trailing
+    /// gap where its raw text used to be; the concealed footprint stays constant, so revealing or
+    /// concealing the pill never shifts the rest of the line. At line end the caller passes nil
+    /// and the pill stays snug.
+    static func drawDuePill(in glyphRect: CGRect, display: String, fillToWidth: CGFloat? = nil, alpha: CGFloat = 1) {
+        guard alpha > 0.01 else { return }
         let font = NSFont.systemFont(ofSize: 13)
         let symbolWidth: CGFloat = 15
+        let textColor = NSColor(DesignTokens.textSecondary).withAlphaComponent(alpha)
         let textAttributes: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor(DesignTokens.textSecondary)
+            .foregroundColor: textColor
         ]
         let textSize = (display as NSString).size(withAttributes: textAttributes)
         let contentWidth = symbolWidth + textSize.width
         let padH: CGFloat = 4
+        let snugWidth = contentWidth + padH * 2
+        let width = max(snugWidth, fillToWidth ?? snugWidth)
         let height = max(glyphRect.height, font.ascender - font.descender + 4)
         let pill = CGRect(
             x: glyphRect.minX,
             y: glyphRect.midY - height / 2,
-            width: contentWidth + padH * 2,
+            width: width,
             height: height
         )
         let path = NSBezierPath(roundedRect: pill, xRadius: DesignMetrics.pillRadius, yRadius: DesignMetrics.pillRadius)
-        NSColor(DesignTokens.pillDueFill).setFill()
+        NSColor(DesignTokens.pillDueFill).withAlphaComponent(alpha).setFill()
         path.fill()
 
         let symbolConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
@@ -69,9 +79,9 @@ enum LiveDecorationRenderer {
                 width: symbol.size.width,
                 height: symbol.size.height
             )
-            NSColor(DesignTokens.textSecondary).set()
+            textColor.set()
             symbol.isTemplate = true
-            symbol.draw(in: symbolRect)
+            symbol.draw(in: symbolRect, from: .zero, operation: .sourceOver, fraction: alpha)
         }
 
         let textPoint = CGPoint(
