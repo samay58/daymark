@@ -26,7 +26,6 @@ enum DesignTokens {
     static let glassTintOpacity: Double = 0.6
 
     static let pillDueFill = surfaceWarm
-    static let cardIslandFill = surface
     static let dateTileFill = surfaceWarm
 }
 
@@ -58,7 +57,6 @@ enum DesignType {
     static let sidebar = Font.system(size: 13, weight: .regular)
     static let code = Font.system(size: 13, weight: .regular, design: .monospaced)
     static let dateTileNumeral = Font.system(size: 26, weight: .semibold)
-    static let cardHeader = Font.system(size: 12, weight: .semibold)
     static let pill = Font.system(size: 13, weight: .regular)
 
     // SwiftUI line spacing is additive, so this is the gap above the glyph, not the full leading.
