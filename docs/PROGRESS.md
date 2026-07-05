@@ -1113,20 +1113,26 @@ Phase 1 spike is production code; the margin era is over.
 
 ### Active Milestone
 
-Milestone 7: Dynamic Note Surface is active (ADR-012). Milestone 6 is paused
-after its first CLI/domain slice (local meeting-prep export, committed
-2026-07-05); the app meeting picker resumes after M7. Milestone 5 is closed on
-`main`. The M7 design is
-`docs/superpowers/specs/2026-07-05-dynamic-note-surface-design.md` and the
-packet plan is `docs/superpowers/plans/2026-07-05-dynamic-note-surface.md`,
-executed via orchestrated subagent packets with Fable at the gates only.
+Milestone 7: Dynamic Note Surface is active and in its polish phase. Phases 1
+through 3 plus a walk-feedback round and a tidy pass are built, gated, and
+pushed to `main` (23 commits, through `7c83dd8`). What shipped: the single-pane
+shell, the live editor (interactive checkboxes, entity pills, machine-text
+concealment), dynamic-block card islands (the core mechanic, on TextKit 2
+fragments), the Codex popover with receipts, the material header band, the
+never-maximized launch frame, and date-aware rollover prose. Milestone 6
+(meeting prep) is paused after its first CLI/domain slice; the app meeting
+picker resumes after M7. Milestone 5 is closed. Design:
+`docs/superpowers/specs/2026-07-05-dynamic-note-surface-design.md` (ADR-012, with
+the walk-feedback addendum). Plan: `.../plans/2026-07-05-dynamic-note-surface.md`.
+Ledger: `docs/orchestration/LEDGER.md`.
 
 ### Start Here Next
 
-1. Phases 1 through 3 are done and gated green (see the 2026-07-05 entries). Remaining Phase 3 gate step: Samay walk on a real display. Then Phase 4 per plan Task 10: P4-restyle, P4-cleanup, P4-docs, then P4-polish (Opus, motion-design pass; Samay feedback in the plan is binding input), then the Task 11 final gate.
-2. The card mechanism is decided: custom TextKit 2 layout fragments (spike verdict "fragment"); P3-cards implements the spike recipe. Never touch NSTextView.layoutManager anywhere; that trips the TextKit 1 fallback.
-3. Builders never commit; the orchestrator commits per packet after each gate and updates `docs/orchestration/LEDGER.md`.
-4. App rollover preview/approval stays parked (see `docs/PARKING_LOT.md`); the launch path still auto-applies and that is intentional for now.
+1. Phase 4 is the remaining work: P4-restyle, P4-cleanup, P4-docs (descriptive docs are done), then P4-polish (the Opus visual and motion pass), then the final gate. Samay's walk feedback in the spec addendum and plan is binding input: card v2 (quiet by default, alive on hover), tunable glass, a calmer two-field Codex popover, and motion on every transformation, with a lag hunt before beautification.
+2. The card mechanism is settled: custom TextKit 2 layout fragments. Never touch NSTextView.layoutManager anywhere; that trips the TextKit 1 fallback. Reveal uses live flags on persistent fragments, never class swaps. Never force full-document layout on interactive paths.
+3. Toolchain: every swift command needs `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer` and `--build-system native`. CLI tests run from the prebuilt xctest bundle, not `swift test --filter`.
+4. Accepted v1 debt: dynamic-block cards match patches by command hash, so editing a `/daymark` line between preview and apply shows a stale idle card (parked; needs public patch line ranges). App rollover still auto-applies on launch (parked, intentional).
+5. Builders never commit; the orchestrator commits per packet after each gate and updates the ledger. Samay's final walk on the polished build is the sign-off before M7 closes.
 
 ### Current Truths
 

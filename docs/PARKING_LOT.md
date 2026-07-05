@@ -63,6 +63,17 @@ Good ideas that are not part of the current milestone belong here.
 - Per-command argument-parse helpers: the `--date` / `--apply` parse loops repeat across five command parsers. Extract a small shared arg helper after the per-command-file pattern exists.
 - Preview-basis grouping: `AppState.codexTaskPathBasis` and `codexTaskDateBasis` are loose siblings of the active draft preview; group them with the draft so the `?? Date()` fallback disappears. Low value; do it only if it falls out of a nearby change.
 
+## Milestone 7 follow-ups
+
+- Per-card selective apply of dynamic block patches: v1 refresh previews every affected card, but Apply on any card writes the entire patch set atomically through the existing whole-note path. Selective apply needs its own design pass.
+- Expose `DynamicBlockPatch` line ranges publicly so cards can match positionally: today `AppState.dynamicBlockCardPreview(forRegionHash:)` matches a card to its pending patch by command hash, so editing a `/daymark` line between preview and apply leaves that card showing a stale idle state instead of picking up the patch.
+- Card-body inline emphasis (bold, italic, code spans) is not reproduced inside dynamic block cards, because `NoteTokenScanner` does not emit those token kinds; the live editor applies them through a separate regex pass that card rendering does not share.
+- Unify card-body due-date and tag rendering with the editor's exact drawn pills: cards currently render a due date as a clock glyph plus text and a tag in `accentDeep`, close to but not pixel-identical with the editor's drawn controls.
+- Word-count surface: cut from the status bar when the bottom bar was removed. Could resurface in the command palette or as a header hover.
+- Tag and wikilink clicks currently prefill the command palette rather than navigating to a real note view; that needs a navigation milestone.
+- @people entities and an assignee model: still out of scope, per the M7 spec's non-goals.
+- Marker concealment (checkboxes, due dates, rollover markers, provenance) as a user preference, rather than always on.
+
 ## Documentation stubs (not implemented)
 
 - `DaymarkStore/EventLog` declares the event vocabulary only. There is no events table and no event-recording path. ADR-003 was amended (2026-06-29) to stop claiming SQLite is the event log.

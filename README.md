@@ -4,7 +4,7 @@ Daymark is a high-craft, local-first macOS workspace centered on today's Markdow
 
 ## Status
 
-Milestones 0 (taste prototype), 1 (local workspace), 2 (Slip and capture), 3 (Tasks and Open Loops), 4 (Codex Handoff), and 5 (Dynamic Blocks) are complete. Milestone 6 is active. Tasks are parsed and projected into a rebuildable SQLite index, incomplete prior-day tasks roll forward into Today without duplicates, `daymark open-loops` and the in-app Open Loops view list open tasks read-only, and `daymark end-of-day` lists today's still-open tasks. Codex Handoff can preview and write one Codex task file from selected note text, edit the draft in app before approval, then preview and approve one context bundle from the created task file. Dynamic Blocks support visible `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review` commands with dry-run preview, explicit apply, rebuildable `.daymark` render metadata, and an in-app preview and approval surface for Today's note. Meeting prep can preview a local event JSON snapshot and write one approved Markdown prep file under `meetings/`. See `docs/PROGRESS.md` for the current state and `docs/ROADMAP.md` for the plan.
+Milestones 0 (taste prototype), 1 (local workspace), 2 (Slip and capture), 3 (Tasks and Open Loops), 4 (Codex Handoff), and 5 (Dynamic Blocks) are complete. Milestone 7 (Dynamic Note Surface) has shipped: Today is a single-pane, note-centric surface. The sidebar and the right-margin panel are gone. The live editor renders clickable checkboxes, tag and wikilink pills, and due-date pills over the literal Markdown buffer, and conceals rollover and provenance markup until the caret touches it. Dynamic-block generated regions render as interactive cards inline in the note, with refresh, preview, apply, and view-source states. The Codex composer is a popover anchored at the selection, and an approved task file produces a receipt card with Finder reveal, path copy, and context-bundle creation. The day header is a material chrome band over the writing canvas. The Phase 4 visual and motion polish pass is still in progress. Milestone 6 (meeting prep) is paused after its first CLI/domain slice; the app meeting picker resumes after Milestone 7 closes. See `docs/PROGRESS.md` for the current state and `docs/ROADMAP.md` for the plan.
 
 ## Build and run
 
@@ -51,7 +51,7 @@ daymark meeting-prep --event-file /tmp/event.json --apply
 # Then preview or apply to insert a compact local weekly scaffold.
 ```
 
-In the app, use `Refresh Dynamic Blocks` from the Daymark menu or command palette when Today's note contains a visible `/daymark ...` command. Daymark shows the exact generated Markdown in the right margin and writes only after `Apply Refresh`.
+In the app, use `Refresh Dynamic Blocks` from the Daymark menu, the command palette, or a card's own refresh button when Today's note contains a visible `/daymark ...` command. Each generated region renders as an inline card; refresh previews the incoming Markdown on the card and writes only after Apply.
 
 ## Layout
 

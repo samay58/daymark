@@ -223,7 +223,7 @@ Goal: the presentation layer catches up to the product idea; Today's note become
 
 Why this matters: the deterministic engines from Milestones 2 through 5 are real, but the app still presents them through scaffolding chrome. The dynamic-document experience (live checkboxes, entity pills, inline generated-content cards with approval) is what makes Daymark useful daily.
 
-Status: active. Design: `docs/superpowers/specs/2026-07-05-dynamic-note-surface-design.md` (ADR-012). Plan: `docs/superpowers/plans/2026-07-05-dynamic-note-surface.md`.
+Status: active, in polish. Phases 1 through 3 are built, gated, and pushed to `main`: the single-pane shell, the live editor with interactive checkboxes and entity pills, dynamic-block card islands, the Codex popover with receipts, the material header band, and the never-maximized launch frame. One walk-feedback round landed (date-aware rollover prose, machine-text concealment, four rendering-bug fixes). Remaining: the Phase 4 visual and motion polish pass (card v2, glass tuning, calmer Codex popover, motion on every transformation), driven by Samay's walk feedback as binding input, then the final gate. Design: `docs/superpowers/specs/2026-07-05-dynamic-note-surface-design.md` (ADR-012). Plan: `docs/superpowers/plans/2026-07-05-dynamic-note-surface.md`. Ledger: `docs/orchestration/LEDGER.md`.
 
 Build:
 
