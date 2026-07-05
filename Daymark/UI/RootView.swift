@@ -7,6 +7,10 @@ struct RootView: View {
         @Bindable var appState = appState
 
         ZStack(alignment: .top) {
+            CodexPopoverHost(appState: appState)
+                .allowsHitTesting(false)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
             TodayView(text: $appState.todayText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(DesignTokens.canvas)
@@ -26,10 +30,14 @@ struct RootView: View {
                 OpenLoopsOverlay(isPresented: $appState.isOpenLoopsOverlayPresented)
                     .zIndex(3)
             }
+
+            ReceiptCard(appState: appState)
+                .zIndex(4)
         }
         .animation(DesignMotion.slip, value: appState.isSlipPresented)
         .animation(DesignMotion.commandPaletteOpen, value: appState.isCommandPalettePresented)
         .animation(DesignMotion.panel, value: appState.isOpenLoopsOverlayPresented)
+        .animation(.easeOut(duration: 0.16), value: appState.codexReceipt != nil)
         .task { await appState.prepareWorkspace() }
         .onChange(of: appState.todayText) { _, _ in
             appState.handleTodayTextChange()
