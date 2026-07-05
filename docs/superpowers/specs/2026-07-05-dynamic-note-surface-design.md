@@ -334,6 +334,24 @@ If the spec is silent or two readings are possible, stop and return the question
 - @people entities and assignee model.
 - Marker concealment mode as a preference.
 
+## Walk feedback addendum (2026-07-05, binding)
+
+Samay's full-build walk produced these rulings. Bugs fix before Phase 4; design items are P4-polish contract.
+
+Copy: "rolled over" is dead everywhere. The rollover note lines use a date-aware human prefix: "From yesterday:" when the source note is yesterday, else "From <humanized date>:" ("From Wednesday:" within six days, "From Jun 28:" older). The brief strip segment becomes "N from yesterday" (dominant case; the note lines carry exact provenance). The dedup mechanism (HTML comment hash markers) is untouched; only prose changes. TaskRolloverEngine and its tests update accordingly.
+
+Machine text never renders raw. The editor conceals `<!-- daymark-rollover:... -->` markers and the `(from <path>:<line>)` provenance parentheticals: literal on disk, invisible in render, revealed when the caret or selection intersects them (the checkbox concealment pattern). Card bodies strip both and render provenance as a right-aligned tertiary humanized date. Nothing that looks like code appears in a rendered note unless the user wrote it or reveals it.
+
+Bugs confirmed on the walk: (1) toggling a checkbox visibly shifts or glitches the checkbox on the line below for a fraction of a second; (2) no blur is visible under the header band, suggesting the scroll-view adapter or inset overlap silently failed; (3) overlapping ghosted text was observed around generated/rollover content (screenshot on file); (4) the pointer cursor does not change over checkboxes though it does over pills. Each gets root-caused before fixing.
+
+Dynamic block cards are the core mechanic and get a v2 design in P4-polish: quiet by default, alive on approach. Card fill becomes canvas with a hairline border (defined by line, not mass); the header drops the tracked all-caps shout for a small status dot plus 12pt medium title; generated-time and the view-source toggle appear on card hover only; the refresh affordance is quiet until hover, and refresh plays one deliberate acknowledgment motion (a single icon rotation, instant under Reduce Motion) before the preview slides in; body rows get 10pt breathing room; the `/daymark` command line above the card quiets to 12pt textTertiary mono. Generated content inside cards must read as human writing: no paths, no markers, humanized dates.
+
+Liquid glass, tunable: one token (`DesignTokens.glassTintOpacity`, default 0.85, taste-tunable in one place) governs chrome translucency. P4-polish adopts the system glass material (`NSGlassEffectView` where the SDK provides it, `NSVisualEffectView` fallback) for the palette, slip, receipt, and popover surfaces, subtle rather than loud. Blur never sits under body text; Reduce Transparency still degrades to opaque fills.
+
+Codex popover, calmer and faster: default state shows editable Title and Goal, a read-only source chip, and Create; Constraints, Acceptance, and the Markdown preview move behind a "Details" disclosure. Cmd-Return in the popover creates immediately. Prefills carry the full existing draft derivation so the two-field fast path writes exactly what the expanded form would. The approval gate does not weaken; automation means better defaults, not fewer approvals.
+
+UI copy pass (P4): audit every user-facing string against the anti-slop kill list; strings read like a careful human wrote them, no scaffolding labels, no evaluation-speak.
+
 ## Risks
 
 - The card mechanism is the highest-risk item and also the core of the product; it gets de-risked first (P1 spike proves it in isolation before anything depends on it), then built by Opus in P3-cards behind its own adversarial gate. There is no degraded shipping path; if both mechanisms fail the spike, the milestone pauses for a redesign conversation.
