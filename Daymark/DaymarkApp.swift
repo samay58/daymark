@@ -34,10 +34,57 @@ struct DaymarkApp: App {
 // policy, so the window can launch unfocused or behind other apps. Promote it on launch
 // so `swift run Daymark` opens a focused Today window until a real app bundle exists.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var didEnforceLaunchFrame = false
+    private var keyObserver: NSObjectProtocol?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         applyAppIcon()
         NSApp.activate(ignoringOtherApps: true)
+
+        // The window may not exist yet when this fires (WindowGroup creates it lazily,
+        // and macOS restores any prior saved frame before it becomes key). Race two
+        // triggers and let whichever fires first run the one-time enforcement.
+        keyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let window = notification.object as? NSWindow else { return }
+            self?.enforceLaunchFrame(on: window)
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let window = NSApp.windows.first(where: { $0.isVisible }) else { return }
+            self?.enforceLaunchFrame(on: window)
+        }
+    }
+
+    // The window never opens maximized or zoomed. If the restored frame covers 90 percent
+    // or more of the active screen's visible frame in either dimension, reset it to the
+    // default size, centered. Runs once; a later user-triggered zoom is untouched.
+    private func enforceLaunchFrame(on window: NSWindow) {
+        guard !didEnforceLaunchFrame else { return }
+        defer {
+            didEnforceLaunchFrame = true
+            if let keyObserver {
+                NotificationCenter.default.removeObserver(keyObserver)
+                self.keyObserver = nil
+            }
+        }
+
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        let frame = window.frame
+        let coversWidth = frame.width >= visible.width * 0.9
+        let coversHeight = frame.height >= visible.height * 0.9
+        guard coversWidth || coversHeight else { return }
+
+        let width = DesignMetrics.windowWidth
+        let height = DesignMetrics.windowHeight
+        let originX = visible.origin.x + (visible.width - width) / 2
+        let originY = visible.origin.y + (visible.height - height) / 2
+        window.setFrame(NSRect(x: originX, y: originY, width: width, height: height), display: true)
     }
 
     // Until the app ships as a real bundle, set the Dock/window icon from the bundled AppIcon.icns.

@@ -1,8 +1,12 @@
 import SwiftUI
+import AppKit
 
 struct TodayView: View {
     @Binding var text: String
     @Environment(AppState.self) private var appState
+    @State private var isScrolled = false
+    @State private var headerHeight: CGFloat = 0
+    @State private var reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
 
     var body: some View {
         VStack(spacing: 0) {
@@ -12,26 +16,45 @@ struct TodayView: View {
             documentBody
         }
         .background(DesignTokens.canvas)
+        .onReceive(
+            NotificationCenter.default.publisher(for: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification)
+        ) { _ in
+            reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        }
     }
 
     private var documentBody: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            @Bindable var appState = appState
-            DaymarkEditorView(
-                text: $text,
-                selection: $appState.editorSelection,
-                sourcePath: appState.todayRelativePath
-            )
-                .padding(.top, 14)
+        ZStack(alignment: .top) {
+            editorColumn
+            headerBand
         }
-        .frame(maxWidth: DesignMetrics.editorMaxWidth, alignment: .leading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(.horizontal, 40)
-        .padding(.top, DesignMetrics.editorTopPadding)
     }
 
-    private var header: some View {
+    private var editorColumn: some View {
+        @Bindable var appState = appState
+        return DaymarkEditorView(
+            text: $text,
+            selection: $appState.editorSelection,
+            sourcePath: appState.todayRelativePath
+        )
+            .background(
+                ScrollChromeAdapter(topInset: headerHeight + 14) { scrolled in
+                    if isScrolled != scrolled {
+                        withAnimation(DesignMotion.hover) { isScrolled = scrolled }
+                    }
+                }
+            )
+            .frame(maxWidth: DesignMetrics.editorMaxWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, 40)
+    }
+
+    // The day header, tile row plus brief strip, floats over the editor column as a
+    // material band. The editor's own scroll content inset (ScrollChromeAdapter) reserves
+    // this much vertical space at rest, and note content passes underneath, blurred by the
+    // material, once scrolled.
+    private var headerBand: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 14) {
                 DateTile(day: Self.dayNumber(from: Date()))
@@ -55,11 +78,34 @@ struct TodayView: View {
             }
 
             briefStrip
-
+        }
+        .padding(.horizontal, 40)
+        .padding(.top, DesignMetrics.editorTopPadding)
+        .padding(.bottom, 14)
+        .background(headerMaterial)
+        .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(DesignTokens.hairline)
                 .frame(height: 1)
-                .padding(.top, 8)
+                .opacity(isScrolled ? 1 : 0)
+        }
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: HeaderHeightKey.self, value: proxy.size.height)
+            }
+        )
+        .onPreferenceChange(HeaderHeightKey.self) { headerHeight = $0 }
+    }
+
+    @ViewBuilder
+    private var headerMaterial: some View {
+        if reduceTransparency {
+            DesignTokens.canvas
+        } else {
+            ZStack {
+                HeaderVisualEffectView()
+                DesignTokens.canvas.opacity(0.85)
+            }
         }
     }
 
@@ -122,6 +168,109 @@ struct TodayView: View {
         formatter.dateFormat = "EEEE"
         return formatter
     }()
+}
+
+private struct HeaderHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+// Warm within-window material for the day header band. Hidden entirely when Reduce
+// Transparency is on; the caller falls back to an opaque canvas fill in that case.
+private struct HeaderVisualEffectView: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.blendingMode = .withinWindow
+        view.material = .headerView
+        view.state = .active
+        view.isEmphasized = false
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
+// Reaches into the window's view hierarchy to give the editor's NSScrollView a top
+// content inset equal to the floating header's height, and to report scroll position back
+// to the header for the scroll-edge hairline. This lives in chrome only: it never touches
+// NSTextViewRepresentable or LiveTextView, it only adjusts standard NSScrollView properties
+// from outside, the same way a host would react to a floating toolbar.
+private struct ScrollChromeAdapter: NSViewRepresentable {
+    var topInset: CGFloat
+    var onScrolledChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let anchor = NSView(frame: .zero)
+        anchor.translatesAutoresizingMaskIntoConstraints = true
+        DispatchQueue.main.async {
+            context.coordinator.attach(from: anchor)
+        }
+        return anchor
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.topInset = topInset
+        context.coordinator.onScrolledChange = onScrolledChange
+        context.coordinator.applyInset()
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject {
+        var topInset: CGFloat = 0
+        var onScrolledChange: (Bool) -> Void = { _ in }
+        private weak var scrollView: NSScrollView?
+        private var boundsObserver: NSObjectProtocol?
+
+        func attach(from anchor: NSView) {
+            guard scrollView == nil, let root = anchor.window?.contentView else { return }
+            guard let found = Self.findEditorScrollView(in: root) else { return }
+            scrollView = found
+            found.automaticallyAdjustsContentInsets = false
+            applyInset()
+
+            found.contentView.postsBoundsChangedNotifications = true
+            boundsObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: found.contentView,
+                queue: .main
+            ) { [weak self] _ in
+                self?.reportScrollState()
+            }
+            reportScrollState()
+        }
+
+        func applyInset() {
+            guard let scrollView else { return }
+            guard scrollView.contentInsets.top != topInset else { return }
+            scrollView.contentInsets = NSEdgeInsets(top: topInset, left: 0, bottom: 0, right: 0)
+        }
+
+        private func reportScrollState() {
+            guard let scrollView else { return }
+            onScrolledChange(scrollView.contentView.bounds.origin.y > 0.5)
+        }
+
+        private static func findEditorScrollView(in view: NSView) -> NSScrollView? {
+            if let scrollView = view as? NSScrollView, scrollView.documentView is LiveTextView {
+                return scrollView
+            }
+            for subview in view.subviews {
+                if let found = findEditorScrollView(in: subview) {
+                    return found
+                }
+            }
+            return nil
+        }
+
+        deinit {
+            if let boundsObserver {
+                NotificationCenter.default.removeObserver(boundsObserver)
+            }
+        }
+    }
 }
 
 private struct BriefStripText: View {
