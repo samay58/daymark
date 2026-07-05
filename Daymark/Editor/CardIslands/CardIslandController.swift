@@ -4,7 +4,7 @@ import DaymarkCore
 
 @MainActor
 final class CardIslandController: NSObject, @preconcurrency NSTextLayoutManagerDelegate {
-    var contentProvider: CardIslandContentProvider = CardIslandProviders.placeholder
+    var contentProvider: CardIslandContentProvider = { _ in AnyView(EmptyView()) }
 
     private weak var textView: LiveTextView?
     private weak var layoutManager: NSTextLayoutManager?

@@ -1,7 +1,7 @@
 import SwiftUI
 import DaymarkCore
 
-/// The real dynamic-block card, replacing `CardIslandProviders.placeholder`. Renders the
+/// The dynamic-block card hosted inside a collapsed generated region. Renders the
 /// idle / preview-pending / stale states from the spec's card-states table. Reveal is
 /// two-way and tracked separately from the caret in `CardIslandController` (caret reveal and
 /// the view-source toggle each hold their own bit; the region is revealed while either is
