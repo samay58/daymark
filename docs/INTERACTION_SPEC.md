@@ -136,9 +136,14 @@ On opening Today:
 Trigger: Command Shift C, with a selection or the current block, or the palette action "Create
 Codex Task from Selection".
 
-Behavior: a popover anchored at the selection (or the caret) hosts the composer fields (Title,
-Goal, Constraints, Acceptance, and read-only source and Markdown preview). Create writes the
-task file and closes the popover; Cancel or Escape dismisses without writing.
+Behavior: a popover anchored at the selection (or the caret) opens to a two-field fast path:
+editable Title and Goal, a read-only source chip (path and line range), and Create/Cancel.
+Constraints, Acceptance Criteria, the full source, and the Markdown preview sit behind a
+collapsed Details disclosure. Command Return creates immediately from the fast path. The
+collapsed form writes exactly the same task file the expanded form would: every field stays
+prefilled and bound to the same draft whether or not Details is ever opened. Create writes the
+task file and closes the popover; Cancel or Escape dismisses without writing. The approval gate
+is unchanged: the two-field default means better defaults, not fewer approvals.
 
 On create, a receipt card rises at the column's bottom-right: task title, relative path, and
 the actions Reveal in Finder, Copy path, Create context bundle, Done. The receipt persists
@@ -166,8 +171,14 @@ Syntax:
 ```
 
 Presentation: a well-formed generated region renders as an inline card in place of its literal
-text, at full column width. The header shows the block title, a refresh button, and a
-view-source toggle.
+text, at full column width, filled with the same canvas color as the note so it reads as part
+of the page rather than a separate surface, bounded by a hairline border. The header shows a
+small status dot (tertiary at rest, accent while a preview is pending, warning once a preview
+has gone stale), the block title in sentence case (Open Loops, Sources, Codex Context, Weekly
+Review, or Generated when no command line is adjacent), and, on hover only, a generated-time
+label, a refresh button, and a view-source toggle. Card bodies strip rollover-dedup markers and
+`(from path:line)` provenance parentheticals entirely, showing a humanized generated-at date
+instead; nothing that looks like machine text renders inside a card.
 
 States:
 
@@ -177,7 +188,8 @@ States:
 - Stale: if the note changes after preview, the summary reads "Note changed; preview again"
   and Apply disables.
 - Source revealed: the card collapses to a thin header strip above the literal region text;
-  the toggle re-collapses it, and caret entry into the region also reveals it.
+  the toggle re-collapses it, and caret entry into the region also reveals it. This switch is
+  instant, not animated (see Motion Budgets).
 
 Rules:
 
@@ -202,3 +214,14 @@ Daily navigation:      under 140 ms
 ```
 
 High-frequency keyboard surfaces use almost no animation. No daily-use animation should exceed 220 ms. Reduce Motion degrades every animation in this table to a plain state swap.
+
+Reveal and conceal of checkboxes, due-date pills, and machine text (rollover markers, `(from
+path:line)` provenance) crossfade over about 110 ms instead of snapping; a due-date pill that
+sits mid-line fills its concealed literal's footprint while it fades, so revealing it never
+shifts the line. A dynamic-block card's preview state transitions over about 160 ms, and the
+Codex popover's Details disclosure expands over about 180 ms. All of these degrade to an
+instant state swap under Reduce Motion. One deliberate exception: a dynamic-block card's source
+reveal and collapse is an instant state swap, not an animated height transition, in every case,
+not just under Reduce Motion. An animated version reintroduced a ghost-glyph bug during the
+Phase 4 walk, so it stays a known deferral rather than a finished item until that mechanism is
+redone.

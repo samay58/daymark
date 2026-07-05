@@ -1109,13 +1109,43 @@ Phase 1 spike is production code; the margin era is over.
 - Samay's manual walk is the remaining Phase 3 gate step (visual strip chrome, top-cushion scrolling, header material, launch-frame behavior, full codex chain, plus the Phase 2 pointer-interaction items).
 - Accepted for v1: patch-to-card matching by command hash (editing the command line between preview and apply shows idle; parking lot: expose patch line ranges publicly). Card-body emphasis tokens and exact pill parity routed to P4-polish (no emoji glyphs in chrome).
 
+## 2026-07-05: M7 Phase 4, polish and motion
+
+Phase 4 ran as a serial pipeline (glass coherence forced serial over parallel):
+P4-surfaces, P4-codex, P4-core, then an adversarial gate, a fix round, and a
+Haiku cleanup audit. Session model is Opus, so the tiers below are
+Opus-orchestrated.
+
+### What changed
+
+- One shared `.glassSurface()` modifier (Components.swift) gives the capture slip, command palette, Open Loops overlay, and Codex receipt a single within-window material (the day-header headerView recipe), tinted by the lone `DesignTokens.glassTintOpacity` knob, with a hairline border and panelRadius. Reduce Transparency degrades it to the opaque `surface` fill; blur never sits under body text. The Codex popover keeps native NSPopover material (content background cleared).
+- The Codex popover opens to a two-field fast path (Title, Goal, a read-only source chip, Create and Cancel); Constraints, Acceptance, full source, and the Markdown preview sit behind a collapsed Details disclosure; Cmd-Return creates. The collapsed form writes the identical task file the expanded form would (fields stay prefilled and bound; `createCodexTaskFile` writes the AppState draft, verified against source). The approval gate is unchanged.
+- Dynamic-block card v2: canvas fill defined by a hairline rather than a filled block, a status dot plus a 12pt medium sentence-case title (dot idle tertiary, preview accent, stale warning), generated-time plus view-source plus refresh on hover only, one short refresh-rotation acknowledgment, body-row breathing room, and a quieted 12pt tertiary mono command line above the card.
+- Motion pass: checkbox, due-pill, and machine-text conceal and reveal crossfade (about 110ms, instant under Reduce Motion) instead of snapping, and a mid-line due pill fills its concealed footprint so revealing it no longer jumps the line. Card preview about 160ms, Details disclosure about 180ms. Deliberate exception: card source reveal and collapse stays an instant switch (not the 180ms height animation) to avoid reintroducing the ghost-glyph bug; recorded as a known deferral.
+- Lag hunt before beautifying found and fixed a real incremental-cache off-by-one (`Line.range` excludes the trailing newline while `NSString.lineRange` includes it, so the delta must come from line-start boundaries), batched the debounced emphasis pass from 238ms to 7ms, and made caret-move concealment reconcile diff-based (1.68ms to 0.53ms).
+
+### Verification
+
+- Adversarial Opus review returned one HIGH, confirmed against source and fixed: `revealFades` were keyed by absolute location and `mergeIntoCache` shifted the token cache without shifting the fades, and the new `styleAll` equality-skip removed the debounced heal, so a length-changing edit above an in-flight fade left a permanent double-render. The Sonnet fix made `mergeIntoCache` fade-shift-aware (keep before, drop in-paragraph, shift after by delta in both key and range); the same reviewer re-verified the trigger closed with no new variant.
+- A DEBUG-only, `DAYMARK_BENCH`-gated latency harness (net-zero buffer edits, compiled out of release) instruments the sync, concealment, and reposition paths. Sync keystroke path is about 1ms and O(n) in note length on a 5k-line stress note, well inside budget and far cheaper on real notes. Invariants re-verified: no `NSTextView.layoutManager` access, no buffer mutation from render paths, no full-document layout on interactive paths.
+- Gate battery first-hand: 300 tests (259 library, 41 CLI), both products build, dynamic-blocks dry-run writes nothing and apply is idempotent, doctor clean. Haiku cleanup audit clean.
+
+### Carryover
+
+- Samay's acceptance walk on the polished build is the remaining gate step before M7 closes. Two taste calls for his eye: the mid-line due pill now renders as a wider warm chip (footprint fill), and card source reveal and collapse is an instant switch by design.
+- Parked: keyboard and VoiceOver access to the hover-only card controls; a permanent unit test for the incremental-merge logic (currently a DEBUG assertion; the merge lives in the shell, so extraction to Core is the follow-up); the 77ms debounced-scan floor on 5k lines (dominated by the frozen `NoteTokenScanner`). Toolchain drift: `--build-system native` now emits a deprecation warning but still works and stays required until the default backend is re-tested.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
 
-Milestone 7: Dynamic Note Surface is active and in its polish phase. Phases 1
-through 3 plus a walk-feedback round and a tidy pass are built, gated, and
-pushed to `main` (23 commits, through `7c83dd8`). What shipped: the single-pane
+Milestone 7: Dynamic Note Surface is in its final gate. Phases 1 through 3 plus
+a walk-feedback round and a tidy pass are built, gated, and pushed to `main`
+(through `85dfeb9`). Phase 4 (tunable glass on the floating surfaces, the calm
+two-field Codex popover, card v2, the motion pass, and a reveal-fade fix the
+adversarial gate surfaced) is built, gated, and committed locally through
+`041b710`, not yet pushed: the push waits on Samay's acceptance walk. What
+shipped across the milestone: the single-pane
 shell, the live editor (interactive checkboxes, entity pills, machine-text
 concealment), dynamic-block card islands (the core mechanic, on TextKit 2
 fragments), the Codex popover with receipts, the material header band, the
@@ -1128,7 +1158,7 @@ Ledger: `docs/orchestration/LEDGER.md`.
 
 ### Start Here Next
 
-1. Phase 4 is the remaining work: P4-restyle, P4-cleanup, P4-docs (descriptive docs are done), then P4-polish (the Opus visual and motion pass), then the final gate. Samay's walk feedback in the spec addendum and plan is binding input: card v2 (quiet by default, alive on hover), tunable glass, a calmer two-field Codex popover, and motion on every transformation, with a lag hunt before beautification.
+1. Phase 4 is built and gated (glass surfaces, calm two-field Codex popover, card v2, motion pass, plus the adversarial-gate reveal-fade fix), committed locally through `041b710`. The remaining work is Samay's acceptance walk on the polished build, then the ledger final report (output tokens by tier now that the session model is Opus, not a Fable share), then the push he authorizes after the walk. Two taste calls to raise on the walk: the mid-line due pill now renders as a wider warm chip, and card source reveal and collapse is an instant switch by design (the 180ms height animation was deferred to avoid reintroducing the ghost-glyph bug).
 2. The card mechanism is settled: custom TextKit 2 layout fragments. Never touch NSTextView.layoutManager anywhere; that trips the TextKit 1 fallback. Reveal uses live flags on persistent fragments, never class swaps. Never force full-document layout on interactive paths.
 3. Toolchain: every swift command needs `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer` and `--build-system native`. CLI tests run from the prebuilt xctest bundle, not `swift test --filter`.
 4. Accepted v1 debt: dynamic-block cards match patches by command hash, so editing a `/daymark` line between preview and apply shows a stale idle card (parked; needs public patch line ranges). App rollover still auto-applies on launch (parked, intentional).

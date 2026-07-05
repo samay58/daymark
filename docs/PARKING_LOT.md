@@ -73,6 +73,7 @@ Good ideas that are not part of the current milestone belong here.
 - Tag and wikilink clicks currently prefill the command palette rather than navigating to a real note view; that needs a navigation milestone.
 - @people entities and an assignee model: still out of scope, per the M7 spec's non-goals.
 - Marker concealment (checkboxes, due dates, rollover markers, provenance) as a user preference, rather than always on.
+- Keyboard and VoiceOver access to the dynamic-block card controls (refresh, view-source), which are currently hover-only and so unreachable without a pointer. Deliberate per the quiet-until-hover card design; revisit when an accessibility pass lands.
 
 ## Documentation stubs (not implemented)
 
