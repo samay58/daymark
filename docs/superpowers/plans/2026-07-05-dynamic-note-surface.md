@@ -163,6 +163,7 @@ Phase 3 packets run serially and read the merged code of their predecessors; the
 - [ ] Temp-workspace Dynamic Blocks check from Required Checks, driven end to end in the app where the check says "run apply".
 - [ ] Codex chain walk: select, ⇧⌘C, edit, create, receipt, bundle, collision-safe paths, source untouched.
 - [ ] Fable taste pass on screenshots. Mechanical battery, slopcheck, commits, ledger, PROGRESS entry.
+- [ ] Samay's manual walk: launch the app against a seeded demo workspace (never `~/phoenix` for the test), hand him a short plain-English exploration script (type, toggle, refresh a card, run the Codex flow, zoom-quit-relaunch), and collect feedback verbatim. Feedback items become fix packets or P4-polish inputs before Phase 4 starts.
 
 ### Task 10: Phase 4 polish (parallel: P4-restyle Sonnet low; P4-cleanup Haiku low; P4-docs Sonnet low)
 
@@ -172,7 +173,14 @@ Phase 3 packets run serially and read the merged code of their predecessors; the
 
 **P4-docs.** Update `docs/DESIGN_SYSTEM.md`, `docs/INTERACTION_SPEC.md`, `README.md`, `docs/PROGRESS.md` (dated entry + WHERE WE LEFT OFF), `docs/PARKING_LOT.md` (spec "Parking lot additions" list verbatim).
 
-**P4-polish (Opus, medium, serial after the other P4 packets).** Implements Fable's taste-gate findings from screenshots of the running app; behavior frozen, visual code anywhere under `Daymark/UI/` and `Daymark/Editor/`. Iterates until the taste gate passes. The bar: Char-level finish on Daymark's warm identity; floating surfaces on native material; the app reads as one continuous sheet, not stacked boxes.
+**P4-polish (Opus, high, serial after the other P4 packets).** Implements Fable's taste-gate findings plus Samay's walk feedback; visual and motion code anywhere under `Daymark/UI/` and `Daymark/Editor/` (behavior frozen). Iterates until the taste gate passes. The bar: Char-level finish on Daymark's warm identity; floating surfaces on native material; the app reads as one continuous sheet, not stacked boxes.
+
+Samay's first-pass walk feedback (2026-07-05, mid-P3 build, binding input): mostly really good, but some buggy or laggy behavior, and the biggest upgrade is prettifying the transformations, the text, the interaction jumps, and the modals. Translate as a motion-design pass over every state transformation, not just static styling:
+
+- No transformation may snap unless deliberately instant. Conceal/reveal of checkboxes, due pills, and region source crossfades or eases within DesignMotion budgets instead of flipping.
+- Known jank suspect from the P2 report: a concealed mid-line due token leaves a trailing whitespace gap where the literal was, so the reveal/conceal boundary shifts. Smooth or eliminate the shift.
+- Checkbox toggle, pill hover, card expand/collapse (height-animated via the fragment height callback), overlay and popover entrances/exits, and the header hairline each get deliberate curves and timings; audit against the spec motion table and `reference/cold-start-craft/` (motion must explain state; acknowledgment under 120ms).
+- A lag hunt precedes beautification: instrument reveal/conceal, scrolling near cards, and typing near decorations; fix perceived stutter before adding motion on top of it.
 
 - [ ] Each packet: suite green where applicable, structured report.
 
