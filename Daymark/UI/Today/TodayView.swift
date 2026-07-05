@@ -6,42 +6,12 @@ struct TodayView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            topBar
             if appState.hasExternalConflict {
                 conflictBanner
             }
             documentBody
-            statusBar
         }
         .background(DesignTokens.canvas)
-    }
-
-    private var topBar: some View {
-        HStack(spacing: 14) {
-            HStack(spacing: 10) {
-                ToolbarIcon(symbol: "chevron.left")
-                ToolbarIcon(symbol: "chevron.right")
-            }
-            HStack(spacing: 5) {
-                Text(appState.workspaceRoot.rawPath)
-                    .font(.system(size: 13, weight: .regular, design: .monospaced))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-            }
-            .foregroundStyle(DesignTokens.textSecondary)
-
-            Spacer()
-
-            ToolbarIcon(symbol: "square.and.pencil") { appState.isSlipPresented = true }
-            ToolbarIcon(symbol: "magnifyingglass") { appState.isCommandPalettePresented = true }
-            ToolbarIcon(symbol: "sidebar.right") { appState.isContextMarginVisible.toggle() }
-        }
-        .padding(.horizontal, 24)
-        .frame(height: 52)
-        .padding(.top, 14)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(DesignTokens.hairline).frame(height: 1)
-        }
     }
 
     private var documentBody: some View {
@@ -62,20 +32,53 @@ struct TodayView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(Self.dateTitleFormatter.string(from: Date()))
-                .font(DesignType.dailyDate)
-                .foregroundStyle(DesignTokens.textPrimary)
-            Text(Self.dateSubtitleFormatter.string(from: Date()))
-                .font(DesignType.dailySubtitle)
-                .foregroundStyle(DesignTokens.textSecondary)
-                .padding(.top, 6)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 14) {
+                DateTile(day: Self.dayNumber(from: Date()))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Self.monthFormatter.string(from: Date()))
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(DesignTokens.textPrimary)
+                    Text(Self.weekdayFormatter.string(from: Date()))
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(DesignTokens.textSecondary)
+                }
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 6) {
+                    ToolbarIcon(symbol: "square.and.pencil") { appState.isSlipPresented = true }
+                    ToolbarIcon(symbol: "magnifyingglass") { appState.showCommandPalette(prefill: nil) }
+                    ToolbarIcon(symbol: "circle.dashed") { appState.toggleOpenLoopsOverlay() }
+                }
+            }
+
+            briefStrip
 
             Rectangle()
                 .fill(DesignTokens.hairline)
                 .frame(height: 1)
-                .padding(.top, 22)
+                .padding(.top, 8)
         }
+    }
+
+    private var briefStrip: some View {
+        BriefStripText(segments: briefStripSegments)
+            .contentShape(Rectangle())
+            .onTapGesture { appState.toggleOpenLoopsOverlay() }
+    }
+
+    private var briefStripSegments: [String] {
+        var segments: [String] = []
+        if appState.rolledOverCount > 0 {
+            segments.append("\(appState.rolledOverCount) rolled over")
+        }
+        if appState.openLoopCount > 0 {
+            segments.append("\(appState.openLoopCount) open loops")
+        }
+        segments.append(appState.isSaving ? "Saving" : "Saved")
+        return segments
     }
 
     private var conflictBanner: some View {
@@ -92,52 +95,47 @@ struct TodayView: View {
             Button("Use disk version") { appState.acceptExternalChange() }
                 .buttonStyle(SecondaryButtonStyle())
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 10)
-        .background(DesignTokens.surfaceWarm)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(DesignTokens.hairline).frame(height: 1)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(DesignTokens.surface)
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
+                .stroke(DesignTokens.hairline, lineWidth: 1)
         }
+        .padding(.horizontal, 40)
+        .padding(.top, 16)
     }
 
-    private var statusBar: some View {
-        HStack {
-            HStack(spacing: 6) {
-                Text("\(wordCount) words")
-                Image(systemName: "chart.bar")
-                    .font(.system(size: 11))
-            }
-            Spacer()
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle")
-                    .font(.system(size: 11))
-                Text("Saved to \(appState.workspaceRoot.rawPath)")
-            }
-        }
-        .font(DesignType.metadata)
-        .foregroundStyle(DesignTokens.textTertiary)
-        .padding(.horizontal, 24)
-        .frame(height: 40)
-        .overlay(alignment: .top) {
-            Rectangle().fill(DesignTokens.hairline).frame(height: 1)
-        }
+    private static func dayNumber(from date: Date) -> Int {
+        Calendar.current.component(.day, from: date)
     }
 
-    private var wordCount: Int {
-        text.split { $0 == " " || $0 == "\n" }.count
-    }
-
-    private static let dateTitleFormatter: DateFormatter = {
+    private static let monthFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.dateFormat = "MMMM"
         return formatter
     }()
 
-    private static let dateSubtitleFormatter: DateFormatter = {
+    private static let weekdayFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE, MMMM d, yyyy"
+        formatter.dateFormat = "EEEE"
         return formatter
     }()
+}
+
+private struct BriefStripText: View {
+    let segments: [String]
+    @State private var isHovering = false
+
+    var body: some View {
+        Text(segments.joined(separator: " · "))
+            .font(.system(size: 13, weight: .regular))
+            .foregroundStyle(isHovering ? DesignTokens.textPrimary : DesignTokens.textSecondary)
+            .onHover { hovering in
+                withAnimation(DesignMotion.hover) { isHovering = hovering }
+            }
+    }
 }
 
 private struct ToolbarIcon: View {

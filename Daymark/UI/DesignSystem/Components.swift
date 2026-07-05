@@ -1,18 +1,55 @@
 import SwiftUI
 
-// A soft pill used for tags and source references. See mockups 3 (source chips) and the tag row.
+struct DateTile: View {
+    let day: Int
+
+    var body: some View {
+        Text("\(day)")
+            .font(DesignType.dateTileNumeral)
+            .foregroundStyle(DesignTokens.textPrimary)
+            .frame(width: DesignMetrics.dateTileSize, height: DesignMetrics.dateTileSize)
+            .background(DesignTokens.dateTileFill)
+            .clipShape(RoundedRectangle(cornerRadius: DesignMetrics.dateTileRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: DesignMetrics.dateTileRadius, style: .continuous)
+                    .stroke(DesignTokens.hairline, lineWidth: 1)
+            }
+    }
+}
+
+struct TokenPill: View {
+    let text: String
+    let fill: Color
+    let textColor: Color
+    var leadingSymbol: String?
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let symbol = leadingSymbol {
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .regular))
+            }
+            Text(text)
+        }
+        .font(DesignType.pill)
+        .foregroundStyle(textColor)
+        .padding(.horizontal, 3)
+        .padding(.vertical, 4)
+        .background(fill)
+        .clipShape(RoundedRectangle(cornerRadius: DesignMetrics.pillRadius, style: .continuous))
+    }
+}
+
 struct TagChip: View {
     let label: String
     var tinted: Bool = false
 
     var body: some View {
-        Text(label)
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(tinted ? DesignTokens.success : DesignTokens.textSecondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(tinted ? DesignTokens.accentSoft : DesignTokens.surface)
-            .clipShape(Capsule())
+        TokenPill(
+            text: label,
+            fill: tinted ? DesignTokens.accentSoft : DesignTokens.surface,
+            textColor: tinted ? DesignTokens.success : DesignTokens.textSecondary
+        )
     }
 }
 

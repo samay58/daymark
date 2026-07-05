@@ -7,20 +7,9 @@ struct RootView: View {
         @Bindable var appState = appState
 
         ZStack(alignment: .top) {
-            HStack(spacing: 0) {
-                SidebarView()
-                    .frame(width: DesignMetrics.sidebarWidth)
-
-                content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                if appState.isContextMarginVisible {
-                    ContextMarginView()
-                        .frame(width: DesignMetrics.contextMarginWidth)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
-            }
-            .background(DesignTokens.canvas)
+            TodayView(text: $appState.todayText)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(DesignTokens.canvas)
 
             if appState.isSlipPresented {
                 SlipPanelView(isPresented: $appState.isSlipPresented)
@@ -32,30 +21,18 @@ struct RootView: View {
                 CommandPaletteScrim(isPresented: $appState.isCommandPalettePresented)
                     .zIndex(2)
             }
+
+            if appState.isOpenLoopsOverlayPresented {
+                OpenLoopsOverlay(isPresented: $appState.isOpenLoopsOverlayPresented)
+                    .zIndex(3)
+            }
         }
-        .animation(DesignMotion.panel, value: appState.isContextMarginVisible)
         .animation(DesignMotion.slip, value: appState.isSlipPresented)
         .animation(DesignMotion.commandPaletteOpen, value: appState.isCommandPalettePresented)
+        .animation(DesignMotion.panel, value: appState.isOpenLoopsOverlayPresented)
         .task { await appState.prepareWorkspace() }
         .onChange(of: appState.todayText) { _, _ in
             appState.handleTodayTextChange()
-        }
-        .onChange(of: appState.selectedSidebarItem) { _, item in
-            if item == .openLoops {
-                Task { await appState.refreshOpenLoops() }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        @Bindable var appState = appState
-
-        switch appState.selectedSidebarItem {
-        case .openLoops:
-            OpenLoopsView()
-        default:
-            TodayView(text: $appState.todayText)
         }
     }
 }
@@ -73,6 +50,40 @@ private struct CommandPaletteScrim: View {
             CommandPaletteView(isPresented: $isPresented)
                 .padding(.top, 96)
                 .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .top)))
+        }
+    }
+}
+
+private struct OpenLoopsOverlay: View {
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Color.black.opacity(0.06)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { isPresented = false }
+
+                OpenLoopsView()
+                    .frame(width: 560)
+                    .frame(maxHeight: proxy.size.height * 0.7)
+                    .background(DesignTokens.canvas)
+                    .clipShape(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
+                            .stroke(DesignTokens.hairline.opacity(0.6), lineWidth: 1)
+                    }
+                    .shadow(color: .black.opacity(0.14), radius: 24, y: 12)
+                    .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
+
+                Button("") { isPresented = false }
+                    .keyboardShortcut(.escape, modifiers: [])
+                    .buttonStyle(.plain)
+                    .frame(width: 0, height: 0)
+                    .opacity(0)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
     }
 }

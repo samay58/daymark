@@ -40,7 +40,14 @@ struct CommandPaletteView: View {
                 .stroke(DesignTokens.hairline.opacity(0.6), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.14), radius: 24, y: 12)
-        .onAppear { isFocused = true }
+        .onAppear {
+            isFocused = true
+            if let prefill = appState.commandPalettePrefill, !prefill.isEmpty {
+                query = prefill
+                appState.runSearch(prefill)
+            }
+            appState.commandPalettePrefill = nil
+        }
         .onDisappear { appState.clearSearch() }
         .onExitCommand { isPresented = false }
         .onMoveCommand { direction in move(direction) }
@@ -150,9 +157,10 @@ struct CommandPaletteView: View {
     private func execute(_ command: PaletteCommand) {
         switch command.action {
         case .openToday:
-            appState.selectedSidebarItem = .today
+            appState.isOpenLoopsOverlayPresented = false
         case .showOpenLoops:
-            appState.selectedSidebarItem = .openLoops
+            appState.isOpenLoopsOverlayPresented = true
+            Task { await appState.refreshOpenLoops() }
         case .createCodexTask:
             appState.previewCodexTaskFromSelection()
         case .refreshDynamicBlocks:

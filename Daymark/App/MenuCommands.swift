@@ -6,7 +6,7 @@ struct MenuCommands: Commands {
     var body: some Commands {
         CommandMenu("Daymark") {
             Button("Open Today") {
-                appState.selectedSidebarItem = .today
+                appState.isOpenLoopsOverlayPresented = false
                 appState.isCommandPalettePresented = false
             }
             .keyboardShortcut("1", modifiers: [.command])
@@ -21,6 +21,11 @@ struct MenuCommands: Commands {
             }
             .keyboardShortcut("k", modifiers: [.command])
 
+            Button("Open Loops") {
+                appState.toggleOpenLoopsOverlay()
+            }
+            .keyboardShortcut("l", modifiers: [.command])
+
             Button("Create Codex Task from Selection") {
                 appState.previewCodexTaskFromSelection()
             }
@@ -31,13 +36,6 @@ struct MenuCommands: Commands {
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
             .disabled(!appState.canRefreshDynamicBlocks)
-
-            Divider()
-
-            Button(appState.isContextMarginVisible ? "Hide Context Margin" : "Show Context Margin") {
-                appState.isContextMarginVisible.toggle()
-            }
-            .keyboardShortcut("\\", modifiers: [.command, .option])
         }
     }
 }

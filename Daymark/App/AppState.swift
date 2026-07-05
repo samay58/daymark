@@ -27,9 +27,10 @@ final class AppState {
     /// context-margin body pass (which reads three of those getters per keystroke).
     private(set) var todayContentHash = ""
     private(set) var todayHasDynamicBlockCommand = false
-    var selectedSidebarItem: SidebarItem = .today
-    var isContextMarginVisible = true
+    var isOpenLoopsOverlayPresented = false
+    var rolledOverCount = 0
     var isCommandPalettePresented = false
+    var commandPalettePrefill: String?
     var isSlipPresented = false
     var editorSelection = SelectionModel()
     var codexTaskDraft: CodexTaskDraft?
@@ -75,6 +76,11 @@ final class AppState {
 
     var openLoopCount: Int {
         openLoopGroups.reduce(0) { $0 + $1.tasks.count }
+    }
+
+    /// True while an autosave write is pending or in flight. Backs the brief strip's save state.
+    var isSaving: Bool {
+        todayText != lastSavedText
     }
 
     var todayRelativePath: String {
@@ -190,6 +196,7 @@ final class AppState {
               let disk = try? DailyNoteStore(root: root, calendar: calendar).loadToday() else {
             return
         }
+        rolledOverCount = result?.entries.count ?? 0
 
         if todayText == baseline {
             recordSelfWrite(disk)
@@ -221,6 +228,7 @@ final class AppState {
         externalDiskVersion = nil
         hasLoaded = false
         didLoadToday = false
+        rolledOverCount = 0
 
         workspaceRoot = .resolve(override: SettingsStore.workspaceRootOverride())
         await prepareWorkspace()
@@ -343,6 +351,15 @@ final class AppState {
         scheduleAutosave()
     }
 
+    // MARK: - Command palette
+
+    /// Opens the command palette. A nil prefill leaves any existing query untouched (today's
+    /// behavior); a non-nil string is consumed once by the palette on appear.
+    func showCommandPalette(prefill: String?) {
+        commandPalettePrefill = prefill
+        isCommandPalettePresented = true
+    }
+
     // MARK: - Search
 
     func runSearch(_ query: String) {
@@ -366,6 +383,13 @@ final class AppState {
     }
 
     // MARK: - Open Loops
+
+    func toggleOpenLoopsOverlay() {
+        isOpenLoopsOverlayPresented.toggle()
+        if isOpenLoopsOverlayPresented {
+            Task { await refreshOpenLoops() }
+        }
+    }
 
     func refreshOpenLoops() async {
         guard let database else {
@@ -392,19 +416,16 @@ final class AppState {
         guard didLoadToday else {
             dynamicBlockPreview = nil
             dynamicBlockMessage = "Load today's note before refreshing dynamic blocks."
-            isContextMarginVisible = true
             return
         }
         guard todayHasDynamicBlockCommand else {
             dynamicBlockPreview = nil
             dynamicBlockMessage = "No dynamic block commands in this note."
-            isContextMarginVisible = true
             return
         }
 
         isPlanningDynamicBlocks = true
         dynamicBlockMessage = nil
-        isContextMarginVisible = true
         let root = workspaceRoot
         let sourcePath = todayRelativePath
         let markdown = todayText
@@ -441,7 +462,6 @@ final class AppState {
     func applyDynamicBlocksRefresh() async {
         guard let preview = dynamicBlockPreview else {
             dynamicBlockMessage = "Preview dynamic blocks before applying."
-            isContextMarginVisible = true
             return
         }
         guard todayContentHash == preview.sourceContentHash else {
@@ -544,12 +564,10 @@ final class AppState {
                 existingRelativePaths: existingPaths
             )
             codexTaskMessage = nil
-            isContextMarginVisible = true
         } catch {
             codexTaskDraft = nil
             clearCodexContextBundleState()
             codexTaskMessage = "Select text or place the cursor inside a note block first."
-            isContextMarginVisible = true
         }
     }
 
