@@ -1086,6 +1086,29 @@ independent Opus re-verify plus a first-hand gate battery confirmed.
 
 - Interactive pointer walk (click toggles, palette prefill clicks, URL opens) needs a real-display pass at the Phase 4 acceptance walk; builder sandboxes lack GUI-automation permission.
 
+## 2026-07-05: M7 Phase 3, card islands, card UI, codex popover, chrome
+
+Five orchestrated packets plus one fix round. The card mechanism from the
+Phase 1 spike is production code; the margin era is over.
+
+### What changed
+
+- `Daymark/Editor/CardIslands/`: well-formed generated regions collapse to hosted interactive SwiftUI cards via persistent reveal-aware TextKit 2 layout fragments (live-flag registry, never class swaps). Host lifecycle is viewport-driven with symmetric 400pt cushions. Two-way reveal: caret and button sources tracked separately; revealed regions show a 28pt re-collapse strip above the literal text. Selection, copy, and malformed markers always resolve to literal text.
+- `DynamicBlockCardView`: idle, preview-pending, stale, and source-revealed states over the existing whole-note preview/apply path (per-card summaries keyed by region hash; whole-note atomic apply; stale guard surfaced per card). Margin refresh panel and dead ContextMargin views deleted. Card cache metadata reloads on the watcher reconcile path.
+- `Daymark/UI/Codex/`: Shift-Cmd-C opens a composer popover anchored at the selection; create writes collision-safe task files; a receipt card offers Reveal in Finder, Copy path, Create context bundle, Done. Margin composer and SuggestionCardView deleted. Source notes stay untouched.
+- Chrome (committed earlier as 27c0775): launch-frame guard (never opens maximized) and the header material band with scroll blur, scroll-edge hairline, and Reduce Transparency fallback.
+
+### Verification
+
+- Battery: 247 library tests, 41 CLI tests, both products build (native build system, Xcode-beta DEVELOPER_DIR).
+- Adversarial review verdict: pass. Failed refutations (mechanism sound): no TextKit 1 fallback (standalone harness), malformed markers safe at runtime, viewport-bounded repositions 0.02 to 0.9ms, correct fragment-reuse pattern, no buffer mutation. Two low findings fixed same-day (top viewport cushion, cache reload on reconcile) plus the two-way reveal strip gap from the cardui report.
+- Temp-workspace dynamic-blocks end-to-end check: dry-run writes nothing, apply idempotent, user text preserved, injected generated checkbox does not feed back, cache-delete recovery works, doctor clean.
+
+### Carryover
+
+- Samay's manual walk is the remaining Phase 3 gate step (visual strip chrome, top-cushion scrolling, header material, launch-frame behavior, full codex chain, plus the Phase 2 pointer-interaction items).
+- Accepted for v1: patch-to-card matching by command hash (editing the command line between preview and apply shows idle; parking lot: expose patch line ranges publicly). Card-body emphasis tokens and exact pill parity routed to P4-polish (no emoji glyphs in chrome).
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
@@ -1100,7 +1123,7 @@ executed via orchestrated subagent packets with Fable at the gates only.
 
 ### Start Here Next
 
-1. Phases 1 and 2 are done and gated green (see the 2026-07-05 entries). Next: the Phase 3 pipeline per plan Task 8: P3-chrome, P3-cards (spike recipe), P3-cardui, P3-codex, then the Task 9 gate.
+1. Phases 1 through 3 are done and gated green (see the 2026-07-05 entries). Remaining Phase 3 gate step: Samay walk on a real display. Then Phase 4 per plan Task 10: P4-restyle, P4-cleanup, P4-docs, then P4-polish (Opus, motion-design pass; Samay feedback in the plan is binding input), then the Task 11 final gate.
 2. The card mechanism is decided: custom TextKit 2 layout fragments (spike verdict "fragment"); P3-cards implements the spike recipe. Never touch NSTextView.layoutManager anywhere; that trips the TextKit 1 fallback.
 3. Builders never commit; the orchestrator commits per packet after each gate and updates `docs/orchestration/LEDGER.md`.
 4. App rollover preview/approval stays parked (see `docs/PARKING_LOT.md`); the launch path still auto-applies and that is intentional for now.
