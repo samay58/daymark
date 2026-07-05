@@ -109,7 +109,14 @@ struct NSTextViewRepresentable: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             text = textView.string
             updateSelection(from: textView, range: textView.selectedRange())
-            controller.styleEditedParagraph()
+            // A checkbox toggle restyles only its own line and skips the debounced full pass
+            // (Bug 1); every other edit takes the normal edited-paragraph path.
+            if let liveTextView = textView as? LiveTextView,
+               let toggledLocation = liveTextView.consumePendingToggleLocation() {
+                controller.styleToggledLine(at: toggledLocation)
+            } else {
+                controller.styleEditedParagraph()
+            }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {

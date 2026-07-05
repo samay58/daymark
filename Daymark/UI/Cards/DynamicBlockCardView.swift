@@ -181,6 +181,9 @@ enum CardMarkdownRenderer {
         case wikilink
         case url
         case due(display: String)
+        /// Machine text (rollover marker, provenance) is stripped from card bodies entirely:
+        /// nothing that looks like code renders inside a card.
+        case remove
     }
 
     private static func renderLine(_ line: NoteTokens.Line, inlineTokens: [NoteTokens.InlineToken], text: NSString) -> AttributedString {
@@ -201,6 +204,7 @@ enum CardMarkdownRenderer {
             case .wikilink: ops.append((range, .wikilink))
             case .url: ops.append((range, .url))
             case .dueDate(let display): ops.append((range, .due(display: display)))
+            case .rolloverMarker, .provenance: ops.append((range, .remove))
             case .codeSpan, .bold, .italic: break
             }
         }
@@ -219,6 +223,7 @@ enum CardMarkdownRenderer {
             switch entry.op {
             case .checkbox(let done): replacement = done ? "\u{2611}" : "\u{2610}"
             case .due(let display): replacement = "\u{1F550} \(display)"
+            case .remove: replacement = ""
             case .strike, .tag, .wikilink, .url: replacement = originalPlain.substring(with: entry.range)
             }
             plain += replacement
@@ -252,6 +257,8 @@ enum CardMarkdownRenderer {
             case .due:
                 attributed[attrRange].foregroundColor = DesignTokens.textSecondary
                 attributed[attrRange].backgroundColor = DesignTokens.pillDueFill
+            case .remove:
+                break
             }
         }
         return attributed

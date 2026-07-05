@@ -11,6 +11,16 @@ final class LiveTextView: NSTextView {
     private var animationTask: Task<Void, Never>?
     private var hoveredWikilinkRange: NSRange?
 
+    /// Set on the toggled line's start location just before a toggle fires `didChangeText`, so
+    /// the delegate routes the change to a targeted single-line restyle instead of the caret's
+    /// paragraph plus a full-document pass (Bug 1). Consumed and cleared by the coordinator.
+    private(set) var pendingToggleLocation: Int?
+
+    func consumePendingToggleLocation() -> Int? {
+        defer { pendingToggleLocation = nil }
+        return pendingToggleLocation
+    }
+
     // MARK: - Geometry
 
     func boundingRect(for range: NSRange) -> CGRect? {
@@ -156,6 +166,9 @@ final class LiveTextView: NSTextView {
         let range = edit.range
         guard shouldChangeText(in: range, replacementString: edit.replacement) else { return }
         let becomingDone = edit.replacement == "x"
+        // The box interior sits at boxRange.location + 1, so the box (and the line) start one
+        // character earlier. The delegate uses this to restyle just the toggled line.
+        pendingToggleLocation = range.location - 1
         textStorage?.replaceCharacters(in: range, with: edit.replacement)
         didChangeText()
         if becomingDone {
@@ -234,6 +247,15 @@ final class LiveTextView: NSTextView {
         guard index >= 0, index <= ns.length, let controller else {
             clearHover()
             NSCursor.iBeam.set()
+            return
+        }
+        // Bug 4: the checkbox glyph is an interactive toggle target (same as pills and links),
+        // so the pointer becomes a pointing hand over its box range.
+        for line in controller.cachedTokens.lines {
+            guard case .task(_, _, let boxRange, _) = line.kind else { continue }
+            guard index >= boxRange.location, index < boxRange.location + boxRange.length else { continue }
+            clearHover()
+            NSCursor.pointingHand.set()
             return
         }
         for token in controller.cachedTokens.inlineTokens {

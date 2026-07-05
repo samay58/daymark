@@ -18,6 +18,13 @@ enum DesignTokens {
     static let cardRadius: CGFloat = 8
     static let panelRadius: CGFloat = 12
 
+    /// Opacity of the warm canvas tint layered over the chrome's glass material (header band
+    /// today; palette, slip, receipt, popover in P4). One taste-tunable knob for translucency.
+    /// The spec's nominal 0.85 fully masked the blur over warm paper; lowered to 0.6 so the
+    /// material reads as glass while keeping the warm identity (Bug 2). Reduce Transparency
+    /// still degrades to an opaque canvas fill upstream.
+    static let glassTintOpacity: Double = 0.6
+
     static let pillDueFill = surfaceWarm
     static let cardIslandFill = surface
     static let dateTileFill = surfaceWarm

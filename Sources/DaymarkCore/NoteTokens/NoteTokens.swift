@@ -44,6 +44,12 @@ public struct NoteTokens: Sendable, Equatable {
         case codeSpan
         case bold
         case italic
+        /// The `<!-- daymark-rollover:<hash> -->` dedup marker on a rolled-over line. Literal
+        /// on disk, concealed in the live render, revealed on caret/selection intersect.
+        case rolloverMarker
+        /// The `(from <path>:<line>)` provenance parenthetical on a rolled-over line. Same
+        /// conceal-and-reveal treatment as the marker.
+        case provenance
     }
 
     public struct InlineToken: Sendable, Equatable {

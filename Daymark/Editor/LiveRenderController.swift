@@ -92,6 +92,28 @@ final class LiveRenderController {
         scheduleFullPass()
     }
 
+    /// Restyles exactly the paragraph a checkbox toggle changed, and nothing else. A toggle is
+    /// a bounded, same-length `[ ]`/`[x]` edit that cannot open or close a fence and cannot
+    /// start or end a generated region (the toggler refuses lines inside a region), so there is
+    /// no need for the whole-document `styleAll()` a normal edit schedules. Skipping it removes
+    /// the debounced full-document `setAttributes` + card reposition that reflows the note under
+    /// the toggled line, which is the relayout that glitched the following checkbox (Bug 1). It
+    /// also targets the toggled line directly instead of the caret's line, since a click toggle
+    /// leaves the caret where it was.
+    func styleToggledLine(at location: Int) {
+        guard let textView, let storage = textView.textStorage else { return }
+        let ns = storage.string as NSString
+        let clamped = min(max(0, location), ns.length)
+        let paragraph = ns.lineRange(for: NSRange(location: clamped, length: 0))
+        let fence = fenceStateEntering(paragraph.location)
+        let tokens = NoteTokenScanner.scanLines(storage.string, in: paragraph, fence: fence)
+        apply(tokens, to: storage, in: paragraph)
+        applyEmphasis(storage, tokens: tokens, in: paragraph)
+        applyConcealment(tokens: tokens, selection: textView.selectedRange(), storage: storage)
+        mergeIntoCache(tokens, editedRange: paragraph)
+        textView.needsDisplay = true
+    }
+
     func reconcileConcealment() {
         guard let textView, let storage = textView.textStorage else { return }
         applyConcealment(tokens: cachedTokens, selection: textView.selectedRange(), storage: storage)
@@ -298,7 +320,10 @@ final class LiveRenderController {
         case .url:
             storage.addAttribute(.foregroundColor, value: NSColor(DesignTokens.accent), range: token.range)
             storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: token.range)
-        case .dueDate, .codeSpan, .bold, .italic:
+        case .dueDate, .codeSpan, .bold, .italic, .rolloverMarker, .provenance:
+            // Machine text (rollover marker, provenance) carries no emphasis of its own; its
+            // visibility is owned entirely by `applyConcealment` (clear when hidden, tertiary
+            // when revealed), so there is nothing to add here.
             break
         }
     }
@@ -343,6 +368,22 @@ final class LiveRenderController {
                 storage.addAttribute(.foregroundColor, value: NSColor(DesignTokens.textPrimary), range: clamp(token.range, to: storage))
             } else {
                 storage.addAttribute(.foregroundColor, value: NSColor.clear, range: clamp(token.range, to: storage))
+            }
+        }
+        // Machine text (rollover marker, provenance): hidden by default, revealed dimly when
+        // the caret or selection intersects, mirroring the checkbox/due concealment. Only the
+        // foreground color changes, never a metric, so a concealed marker cannot alter line
+        // height or shift the following line (Bug 1's lesson).
+        for token in tokens.inlineTokens {
+            switch token.kind {
+            case .rolloverMarker, .provenance:
+                if Self.shouldReveal(token.range, selection: selection) {
+                    storage.addAttribute(.foregroundColor, value: NSColor(DesignTokens.textTertiary), range: clamp(token.range, to: storage))
+                } else {
+                    storage.addAttribute(.foregroundColor, value: NSColor.clear, range: clamp(token.range, to: storage))
+                }
+            default:
+                break
             }
         }
         storage.endEditing()

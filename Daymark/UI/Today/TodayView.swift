@@ -104,7 +104,7 @@ struct TodayView: View {
         } else {
             ZStack {
                 HeaderVisualEffectView()
-                DesignTokens.canvas.opacity(0.85)
+                DesignTokens.canvas.opacity(DesignTokens.glassTintOpacity)
             }
         }
     }
@@ -118,7 +118,7 @@ struct TodayView: View {
     private var briefStripSegments: [String] {
         var segments: [String] = []
         if appState.rolledOverCount > 0 {
-            segments.append("\(appState.rolledOverCount) rolled over")
+            segments.append("\(appState.rolledOverCount) from yesterday")
         }
         if appState.openLoopCount > 0 {
             segments.append("\(appState.openLoopCount) open loops")
@@ -213,6 +213,11 @@ private struct ScrollChromeAdapter: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.topInset = topInset
         context.coordinator.onScrolledChange = onScrolledChange
+        // Bug 2: the one-shot async attach in makeNSView runs before the anchor is in a
+        // window, so it silently no-ops and the header inset/blur never engage. attach is
+        // idempotent (guards scrollView == nil), so retrying here lands it once the view is
+        // in the hierarchy, which every header-height / inset update guarantees.
+        context.coordinator.attach(from: nsView)
         context.coordinator.applyInset()
     }
 
@@ -226,10 +231,18 @@ private struct ScrollChromeAdapter: NSViewRepresentable {
 
         func attach(from anchor: NSView) {
             guard scrollView == nil, let root = anchor.window?.contentView else { return }
-            guard let found = Self.findEditorScrollView(in: root) else { return }
+            guard let found = Self.findEditorScrollView(in: root) else {
+                #if DEBUG
+                NSLog("[Daymark] scroll chrome adapter: editor scroll view not found yet")
+                #endif
+                return
+            }
             scrollView = found
             found.automaticallyAdjustsContentInsets = false
             applyInset()
+            #if DEBUG
+            NSLog("[Daymark] scroll chrome adapter: attached, top inset %.1f", topInset)
+            #endif
 
             found.contentView.postsBoundsChangedNotifications = true
             boundsObserver = NotificationCenter.default.addObserver(
@@ -246,6 +259,9 @@ private struct ScrollChromeAdapter: NSViewRepresentable {
             guard let scrollView else { return }
             guard scrollView.contentInsets.top != topInset else { return }
             scrollView.contentInsets = NSEdgeInsets(top: topInset, left: 0, bottom: 0, right: 0)
+            #if DEBUG
+            NSLog("[Daymark] scroll chrome adapter: content top inset now %.1f", topInset)
+            #endif
         }
 
         private func reportScrollState() {

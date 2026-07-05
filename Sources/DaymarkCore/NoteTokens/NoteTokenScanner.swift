@@ -85,6 +85,7 @@ public enum NoteTokenScanner {
                 markerStart: markerStart,
                 lineEnd: lineEnd
             ))
+            inlineTokens.append(contentsOf: machineTextTokens(text: source, nsText: nsText, rawRange: substringRange))
         }
         return NoteTokens(lines: lines, inlineTokens: inlineTokens, regions: [])
     }
@@ -128,6 +129,7 @@ public enum NoteTokenScanner {
                 markerStart: markerStart,
                 lineEnd: lineEnd
             ))
+            inlineTokens.append(contentsOf: machineTextTokens(text: source, nsText: nsText, rawRange: raw.range))
         }
 
         let regions = scanRegions(nsText: nsText, rawLines: rawLines, lines: lines)
@@ -232,6 +234,29 @@ public enum NoteTokenScanner {
     private static let wikilinkRegex = try! NSRegularExpression(pattern: "\\[\\[[^\\[\\]\\r\\n]+\\]\\]")
     private static let urlRegex = try! NSRegularExpression(pattern: "https?://[^\\s]+")
     private static let dueRegex = try! NSRegularExpression(pattern: "due:\\S+")
+    private static let rolloverMarkerRegex = try! NSRegularExpression(pattern: "<!--[ \\t]*daymark-rollover:[^\\r\\n]*?-->")
+    private static let provenanceRegex = try! NSRegularExpression(pattern: "\\(from [^)\\r\\n]+:[0-9]+\\)")
+
+    /// Machine text a rolled-over line carries that must never render raw: the
+    /// `<!-- daymark-rollover:<hash> -->` dedup marker and the `(from <path>:<line>)`
+    /// provenance parenthetical. Detection is gated on the marker's presence so ordinary
+    /// prose like "(from the archive)" is never picked up. Ranges are UTF-16 (NSRange), so
+    /// emoji earlier on the line shift them correctly and TextKit conceals the right glyphs.
+    /// Callers only invoke this for non-fence lines, so fenced sample markdown stays literal.
+    private static func machineTextTokens(text: String, nsText: NSString, rawRange: NSRange) -> [NoteTokens.InlineToken] {
+        guard rawRange.length > 0, rawRange.location >= 0, rawRange.location + rawRange.length <= nsText.length else { return [] }
+        guard contains(nsText, "daymark-rollover:", in: rawRange) else { return [] }
+        var tokens: [NoteTokens.InlineToken] = []
+        rolloverMarkerRegex.enumerateMatches(in: text, options: [], range: rawRange) { match, _, _ in
+            guard let match else { return }
+            tokens.append(NoteTokens.InlineToken(range: match.range, kind: .rolloverMarker))
+        }
+        provenanceRegex.enumerateMatches(in: text, options: [], range: rawRange) { match, _, _ in
+            guard let match else { return }
+            tokens.append(NoteTokens.InlineToken(range: match.range, kind: .provenance))
+        }
+        return tokens
+    }
 
     private static func lineInlineTokens(
         for kind: NoteTokens.LineKind,
