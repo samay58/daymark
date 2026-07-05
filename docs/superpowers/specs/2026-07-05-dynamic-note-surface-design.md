@@ -78,6 +78,8 @@ Keyboard parity (required by `reference/cold-start-craft/extension-interaction-c
 
 ### Dynamic block card islands
 
+This is the core deliverable of the milestone, not an enhancement. The dynamic-document feel (generated content as first-class inline cards) is what makes the idea useful; a degraded rendering of well-formed regions does not ship.
+
 A generated region (`<!-- daymark:block-begin <hash> -->` ... `<!-- daymark:block-end <hash> -->`) renders as one embedded card in place of its literal text. The literal text never leaves the buffer; copy/paste over a region yields raw Markdown.
 
 Card chrome: `surface` fill, hairline border, `panelRadius` (12), 14pt padding, full column width. Header row: block title derived from the command (`/daymark open-loops` renders "OPEN LOOPS", `source-list` "SOURCES", `codex-context` "CODEX CONTEXT", `weekly-review` "WEEKLY REVIEW"), 12pt semibold `textSecondary`, tracking +0.5; right side: "generated <relative time>" from `.daymark/dynamic-blocks.json` when available (omit when absent), a refresh icon button, and a view-source toggle (curly-brace icon). Body: the region's inner Markdown rendered read-only with the same token styling as the editor.
@@ -218,7 +220,7 @@ Returns nil when the location's line is not a task line or lies inside a generat
 - `LiveRenderController` (new, `Daymark/Editor/`) replaces `MarkdownHighlighter`. On `textDidChange` it re-scans only the edited paragraph range synchronously via `scanLines` and applies attributes there; a debounced (150ms) full `scan` reconciles cross-line constructs (fences opened/closed, region markers). Attribute application is display-only, as today.
 - Checkbox rendering: the `[ ]`/`[x]` glyph run is concealed (clear foreground) and a checkbox control draws in its bounding rect; the leading `- ` stays visible dimmed. When the caret or selection intersects the box range, concealment drops. The Opus builder may implement the control as per-line overlay views or as custom `NSTextLayoutFragment` drawing; both are acceptable if every acceptance criterion passes. This is the only granted implementation latitude in this spec.
 - Click routing: `NSTextView` subclass hit-tests mouse-down against `NoteTokens` ranges (checkbox first, then pill/link ranges) before falling through to caret placement.
-- Card islands: TextKit 2 (`NSTextLayoutManager` delegate) supplies a custom layout fragment for each well-formed region, collapsing its visual height to the card and positioning an `NSHostingView`-backed SwiftUI card in the fragment frame. The text view runs TextKit 2 only; nothing may touch `layoutManager` (which would trigger the TextKit 1 fallback and must fail review). Fallback, decided at the Phase 3 gate only if the fragment approach fails acceptance: regions render as tinted literal text with the card header strip as a positioned overlay; the same actions and states apply.
+- Card islands: TextKit 2 (`NSTextLayoutManager` delegate) supplies a custom layout fragment for each well-formed region, collapsing its visual height to the card and positioning an `NSHostingView`-backed SwiftUI card in the fragment frame. The text view runs TextKit 2 only; nothing may touch `layoutManager` (which would trigger the TextKit 1 fallback and must fail review). The card outcome is pinned: collapsed source, real card chrome, interactive controls, caret reveal. Only the mechanism is open, between the fragment approach and precisely positioned hosted overlays with region height suppression, and the Phase 1 feasibility spike decides which one Phase 3 builds. Rendering well-formed regions as visible tinted text is not a shipping option; it remains solely the degradation for malformed markers.
 - Selection and copy: selections crossing a collapsed region select the literal text; copy always yields buffer text. Caret arrow-key entry into a region reveals it (see card states).
 - `AppState`: margin state (`isContextMarginVisible`, margin panel plumbing) is deleted. Added: `isOpenLoopsOverlayPresented`, Codex popover presentation state, receipt state, rollover-count exposure for the brief strip. Engines (`DynamicBlockRefreshService`, rollover, Codex writers, watcher reconciliation, conflict flow) are untouched.
 - Module boundaries hold: scanning/toggling in Core; AppKit/SwiftUI/TextKit in the shell; Store and Indexer untouched this milestone (except no changes needed); CLI untouched.
@@ -279,8 +281,9 @@ ADR-012 (this direction: single pane, live-styled editor, card islands, popover 
 | P1-scanner | Sonnet, medium | `Sources/DaymarkCore/NoteTokens/*` (new), `Tests/DaymarkCoreTests/NoteTokenScannerTests.swift`, `TaskCheckboxTogglerTests.swift` (new) | APIs exactly as specified; grammar parity with `TaskParser`/`DynamicBlockParser`/`MarkdownFenceScanner` (read-only references) |
 | P1-tokens | Haiku, low | `Daymark/UI/DesignSystem/DesignTokens.swift`, `Components.swift` | Token/metric/type additions exactly as the visual spec tables; pill and checkbox style helpers |
 | P1-shell | Sonnet, medium | `Daymark/UI/RootView.swift`, `TodayView.swift`, `MenuCommands.swift`, `AppState.swift`, `SampleData.swift`, `CommandPaletteView.swift` (actions only), delete `SidebarView.swift` | Runs after P1-tokens merges. Shell per the product spec; no editor changes |
+| P1-spike | Opus, high | A standalone throwaway SwiftPM prototype outside the repo (session scratchpad); nothing in the repo tree | Prove the card mechanism before anything depends on it: an editable TextKit 2 `NSTextView` where a marker-delimited region collapses to an interactive hosted SwiftUI card (buttons work), caret entry reveals literal text, selection/copy yields the literal text, typing latency stays flat. Try the custom-fragment approach first, the positioned-overlay approach second. Returns a structured report: which mechanism passed, code sketch of the working core, sharp edges found |
 
-Order: P1-scanner parallel with (P1-tokens then P1-shell). Gate: mechanical (full library suite, both product builds, app launches and types).
+Order: all four packets run in parallel except P1-shell, which starts after P1-tokens merges. Gate: mechanical (full library suite, both product builds, app launches and types) plus the spike verdict. The spike verdict selects the mechanism P3-cards implements; if neither mechanism passes the spike, the milestone halts for a redesign conversation with Samay rather than shipping a degraded card.
 
 ### Phase 2: live editor
 
@@ -296,7 +299,7 @@ Serial pipeline (shared `AppState` and editor surfaces):
 
 | Packet | Model, effort | Owns | Contract |
 |---|---|---|---|
-| P3-cards | Opus, high | `Daymark/Editor/CardIslands/*` (new) | Fragment-based collapse, hosted card container, reveal-on-caret, selection/copy rules. Fallback decision belongs to the gate, not the packet |
+| P3-cards | Opus, high | `Daymark/Editor/CardIslands/*` (new) | Implements the mechanism the P1 spike proved: region collapse, hosted interactive card container, reveal-on-caret, selection/copy rules. No degraded rendering path for well-formed regions |
 | P3-cardui | Sonnet, medium | `Daymark/UI/Cards/DynamicBlockCardView.swift` (new), delete `DynamicBlockRefreshView.swift`, `AppState.swift` (refresh + overlay + receipt state) | Card states table; v1 whole-note refresh semantics |
 | P3-codex | Sonnet, medium | `Daymark/UI/Codex/*` (new popover + receipt), delete `ContextMarginView.swift`, `CodexTaskComposerView.swift`, `SuggestionCardView.swift` | Popover anchoring, receipt flow, bundle offer rules unchanged |
 
@@ -314,7 +317,7 @@ Gate: full Required Checks from `docs/PROGRESS.md`, acceptance-criteria walk on 
 
 ### Escalation rule for builders
 
-If the spec is silent or two readings are possible, stop and return the question in the structured report. Do not invent design. The two named latitudes (checkbox drawing strategy; card fallback at gate) are the only open implementation choices.
+If the spec is silent or two readings are possible, stop and return the question in the structured report. Do not invent design. The two named latitudes (checkbox drawing strategy; card mechanism, chosen at the Phase 1 gate from spike-proven options) are the only open implementation choices.
 
 ## Parking lot additions (Phase 4 records these)
 
@@ -327,7 +330,7 @@ If the spec is silent or two readings are possible, stop and return the question
 
 ## Risks
 
-- TextKit 2 fragment collapse is the highest-risk item; it is isolated in P3-cards with a defined fallback and its own adversarial gate.
+- The card mechanism is the highest-risk item and also the core of the product; it gets de-risked first (P1 spike proves it in isolation before anything depends on it), then built by Opus in P3-cards behind its own adversarial gate. There is no degraded shipping path; if both mechanisms fail the spike, the milestone pauses for a redesign conversation.
 - Checkbox concealment can drift on variable-width fonts; acceptance pins reveal-on-caret and emoji-safe ranges, and the toggle math lives in tested Core code.
 - Deleting the margin removes the only current visible home of the Codex bundle offer; the receipt flow replaces it and the acceptance walk covers the full chain.
 - Latency regressions from full-note scans; the incremental contract plus the 5k-line gate check hold the line.
