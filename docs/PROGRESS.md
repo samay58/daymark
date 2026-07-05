@@ -1033,6 +1033,34 @@ or app meeting picker is involved.
 - App meeting picker and approval surface.
 - EventKit/account setup, ICS parsing, attendee matching, richer people resolution, and richer meeting context remain parked until the local JSON snapshot path has real usage.
 
+## 2026-07-05: M7 Phase 1, foundations and card-mechanism spike
+
+Milestone 7 Phase 1 executed as four orchestrated packets per
+`docs/superpowers/plans/2026-07-05-dynamic-note-surface.md` (Sonnet built the
+scanner and shell, Haiku the tokens, Opus the spike; Fable ran the gate only).
+
+### What changed
+
+- Added `NoteTokenScanner`, `NoteTokens`, and `TaskCheckboxToggler` in `Sources/DaymarkCore/NoteTokens/` with 34 tests. Ranges are UTF-16 and CRLF-aware against the literal buffer; fence, task, due, and generated-region grammar reuse `MarkdownFenceScanner`, `TaskItem.Due`, and the M5 `GeneratedRegionMarker` pairing rules verbatim.
+- Added M7 design tokens, `DateTile`, and `TokenPill`; window metrics moved to 860x720 default, 620x520 minimum; `TagChip` now wraps `TokenPill`.
+- Collapsed the shell to a single pane: sidebar deleted, context margin no longer rendered (files remain until Phase 3), new date-tile day header with brief strip (rolled over, open loops, save state), Open Loops overlay on Cmd-L / header icon / brief strip / palette, palette prefill hook (`AppState.showCommandPalette(prefill:)`), status bar and dead chevrons removed.
+- Card-mechanism spike (scratchpad prototype, not shipped) returned verdict: custom TextKit 2 layout fragments work. Collapsed region renders as an interactive hosted SwiftUI card; select-all copy returns literal markers; caret entry reveals source; keystroke latency 0.06 to 0.29ms median on 5,000 lines. Recipe and sharp edges (fragment reuse on reveal, full-document-layout trap, viewport-driven card lifecycle) are recorded in the Phase 1 workflow report for the P3-cards packet.
+
+### Verification
+
+- `swift test --skip CommandTests --build-system native`: 236 tests, 0 failures.
+- Prebuilt CLI slice via `xcrun xctest` (all seven `*CommandTests`): 41 tests, 0 failures.
+- `swift build --product daymark` and `swift build --product Daymark` (native build system) both pass.
+- App launch smoke against a temp workspace: alive after 8 seconds, bootstrapped `daily/2026/07/2026-07-05.md`.
+- slopcheck across changed files: 0 kill-list hits.
+- Toolchain: CommandLineTools cannot compile the manifest and the Xcode-beta default `swiftbuild` backend fails on this package; every command needs `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer` and `--build-system native` (recorded in CLAUDE.md).
+
+### Remaining in Milestone 7
+
+- Phase 2: P2-editor (Opus) builds `LiveRenderController`, interactive checkboxes, pills, and incremental scanning; adversarial review gate plus the 5k-line latency check. Scanner caveat for the gate: `scanLines` is a full-scan-plus-filter, not perf-incremental; P2 owns the keystroke budget and may optimize scanner internals without API changes.
+- Phase 3: card islands (fragment mechanism per spike recipe), card UI, Codex popover and receipts.
+- Phase 4: restyles, Reduce Motion audit, docs.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
@@ -1047,8 +1075,8 @@ executed via orchestrated subagent packets with Fable at the gates only.
 
 ### Start Here Next
 
-1. Execute the M7 plan phase by phase. Phase 1 packets: P1-scanner (NoteTokenScanner and TaskCheckboxToggler in Core), P1-tokens (design token additions), P1-shell (single-pane shell), P1-spike (card mechanism proof in a scratchpad prototype).
-2. The Phase 1 gate selects the card mechanism from the spike verdict; if neither mechanism passes, halt for a redesign conversation instead of shipping a degraded card.
+1. Phase 1 is done and gated green (see the 2026-07-05 M7 Phase 1 entry). Next: dispatch P2-editor (Opus, high effort) per the plan's Task 6, then the Task 7 adversarial gate.
+2. The card mechanism is decided: custom TextKit 2 layout fragments (spike verdict "fragment"); P3-cards implements the spike recipe. Never touch NSTextView.layoutManager anywhere; that trips the TextKit 1 fallback.
 3. Builders never commit; the orchestrator commits per packet after each gate and updates `docs/orchestration/LEDGER.md`.
 4. App rollover preview/approval stays parked (see `docs/PARKING_LOT.md`); the launch path still auto-applies and that is intentional for now.
 

@@ -42,6 +42,8 @@ The `scripts/*.sh` wrappers (`build.sh`, `test.sh`, `build_and_run.sh`, `doctor.
 
 Build note (observed in this environment): after editing a source file, an incremental `swift test` can fail to relink the `@main` executables (`Undefined symbols: _DaymarkAppShell_main` / `_DaymarkCLI_main`). Run `swift package clean` before `swift test` when that happens. `swift build` links the executables fine; only the test build hits it.
 
+Toolchain note (observed 2026-07-05): `xcode-select` on this machine points at CommandLineTools, which fails to compile `Package.swift` itself. Run every swift command with `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer`. That toolchain (Swift 6.4) defaults to the new `swiftbuild` build system, which fails on this package with an xcbuild "unable to open dependencies file" error; add `--build-system native` to every `swift build` / `swift test` invocation until the default backend is fixed.
+
 CLI test harness: the `DaymarkCLITests` classes (all named `*CommandTests`) do not link the CLI target. They launch the prebuilt `.build/.../daymark` binary as a subprocess, and `DaymarkCLITests` declares no SwiftPM dependency on `DaymarkCLI`. So `swift test --filter SomeCommandTests` does not rebuild `daymark` first and runs against a stale or missing binary. The canonical flow (mirrored in `docs/PROGRESS.md` "Required Checks") is: run the library suite with `swift test --skip CommandTests`, then for the CLI tests `swift build --product daymark` followed by `xcrun xctest .build/arm64-apple-macosx/debug/DaymarkPackageTests.xctest` (optionally scoped with `-XCTest DaymarkCLITests.CodexTaskCommandTests,...`).
 
 ## Package and directory layout
