@@ -332,7 +332,7 @@ final class NoteTokenScannerTests: XCTestCase {
         XCTAssertTrue(tokens.lines.contains { if case .task = $0.kind { return true } else { return false } })
     }
 
-    // MARK: - scanLines fence awareness (Finding 1)
+    // MARK: - scanLines fence awareness
 
     private static let fenceHeavyDocument = """
     - [ ] before the fence due:2026-07-08

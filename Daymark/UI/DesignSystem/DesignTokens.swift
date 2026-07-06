@@ -20,9 +20,8 @@ enum DesignTokens {
 
     /// Opacity of the warm canvas tint layered over the chrome's glass material (header band
     /// today; palette, slip, receipt, popover in P4). One taste-tunable knob for translucency.
-    /// The spec's nominal 0.85 fully masked the blur over warm paper; lowered to 0.6 so the
-    /// material reads as glass while keeping the warm identity (Bug 2). Reduce Transparency
-    /// still degrades to an opaque canvas fill upstream.
+    /// Set low enough that the material still reads as glass over warm paper. Reduce
+    /// Transparency still degrades to an opaque canvas fill upstream.
     static let glassTintOpacity: Double = 0.6
 
     static let pillDueFill = surfaceWarm

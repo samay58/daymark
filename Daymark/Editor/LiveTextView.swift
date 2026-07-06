@@ -13,7 +13,7 @@ final class LiveTextView: NSTextView {
 
     /// Set on the toggled line's start location just before a toggle fires `didChangeText`, so
     /// the delegate routes the change to a targeted single-line restyle instead of the caret's
-    /// paragraph plus a full-document pass (Bug 1). Consumed and cleared by the coordinator.
+    /// paragraph plus a full-document pass. Consumed and cleared by the coordinator.
     private(set) var pendingToggleLocation: Int?
 
     func consumePendingToggleLocation() -> Int? {
@@ -131,7 +131,7 @@ final class LiveTextView: NSTextView {
             guard index >= boxRange.location, index < boxRange.location + boxRange.length else { continue }
             // Hit a checkbox glyph target. Only steal the click (skip caret placement) if a
             // toggle actually happens; otherwise this falls through to super.mouseDown below
-            // (Finding 2: a fence task-lookalike with no real checkbox must not eat the click).
+            // so a fence task-lookalike with no real checkbox does not eat the click.
             if let edit = TaskCheckboxToggler.toggleEdit(in: text, atLineContaining: index) {
                 applyToggle(edit)
                 return
@@ -165,8 +165,8 @@ final class LiveTextView: NSTextView {
     // MARK: - Keyboard
 
     override func keyDown(with event: NSEvent) {
-        // Finding 3: require exactly Command, not any modifier combination that happens to
-        // include it (Cmd-Shift-Return, Cmd-Option-Return, etc. must reach super instead).
+        // Require exactly Command, not any modifier combination that happens to include it;
+        // Cmd-Shift-Return and Cmd-Option-Return must reach super instead.
         let isExactCommand = event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
         if isExactCommand, event.keyCode == 36 || event.keyCode == 76 {
             if let edit = TaskCheckboxToggler.toggleEdit(in: string, atLineContaining: selectedRange().location) {
@@ -266,8 +266,8 @@ final class LiveTextView: NSTextView {
             NSCursor.iBeam.set()
             return
         }
-        // Bug 4: the checkbox glyph is an interactive toggle target (same as pills and links),
-        // so the pointer becomes a pointing hand over its box range.
+        // The checkbox glyph is an interactive toggle target like pills and links, so the
+        // pointer becomes a pointing hand over its box range.
         for line in controller.cachedTokens.lines {
             guard case .task(_, _, let boxRange, _) = line.kind else { continue }
             guard index >= boxRange.location, index < boxRange.location + boxRange.length else { continue }

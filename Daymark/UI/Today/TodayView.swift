@@ -213,10 +213,8 @@ private struct ScrollChromeAdapter: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.topInset = topInset
         context.coordinator.onScrolledChange = onScrolledChange
-        // Bug 2: the one-shot async attach in makeNSView runs before the anchor is in a
-        // window, so it silently no-ops and the header inset/blur never engage. attach is
-        // idempotent (guards scrollView == nil), so retrying here lands it once the view is
-        // in the hierarchy, which every header-height / inset update guarantees.
+        // The one-shot async attach in makeNSView can run before the anchor is in a window.
+        // attach is idempotent, so retrying here lands it once the view is in the hierarchy.
         context.coordinator.attach(from: nsView)
         context.coordinator.applyInset()
     }

@@ -9,9 +9,16 @@ import DaymarkCore
 struct CodexPopoverHost: NSViewRepresentable {
     let appState: AppState
 
-    func makeNSView(context: Context) -> NSView { NSView() }
+    func makeNSView(context: Context) -> PopoverAnchorView {
+        let view = PopoverAnchorView()
+        view.onWindowChange = { [weak coordinator = context.coordinator, weak view] in
+            guard let view else { return }
+            coordinator?.hostDidMoveToWindow(view)
+        }
+        return view
+    }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
+    func updateNSView(_ nsView: PopoverAnchorView, context: Context) {
         context.coordinator.sync(host: nsView, appState: appState)
     }
 
@@ -20,22 +27,31 @@ struct CodexPopoverHost: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSPopoverDelegate {
         private var popover: NSPopover?
+        private weak var hostRef: NSView?
         private weak var appStateRef: AppState?
         private var isClosingProgrammatically = false
 
         func sync(host: NSView, appState: AppState) {
+            hostRef = host
             appStateRef = appState
             if appState.isCodexPopoverPresented {
-                guard popover == nil else { return }
-                present(from: host, appState: appState)
+                attemptPresent()
             } else if let popover {
                 isClosingProgrammatically = true
                 popover.performClose(nil)
             }
         }
 
-        private func present(from host: NSView, appState: AppState) {
-            guard let window = host.window else { return }
+        func hostDidMoveToWindow(_ host: NSView) {
+            hostRef = host
+            attemptPresent()
+        }
+
+        private func attemptPresent() {
+            guard popover == nil else { return }
+            guard let appState = appStateRef, appState.isCodexPopoverPresented else { return }
+            guard let host = hostRef, let window = host.window else { return }
+
             let screenRect = appState.codexAnchorScreenRect ?? window.frame
             let localRect = host.convert(window.convertFromScreen(screenRect), from: nil)
 
@@ -60,6 +76,15 @@ struct CodexPopoverHost: NSViewRepresentable {
                 appStateRef?.dismissCodexTaskDraft()
             }
         }
+    }
+}
+
+final class PopoverAnchorView: NSView {
+    var onWindowChange: (() -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindowChange?()
     }
 }
 

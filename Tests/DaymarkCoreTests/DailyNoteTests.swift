@@ -46,6 +46,6 @@ final class DailyNoteTests: XCTestCase {
         XCTAssertTrue(template.contains("Sunday, June 28"), "title should be human-readable weekday + date")
         XCTAssertTrue(template.contains("## Brief"))
         XCTAssertTrue(template.contains("## Capture"))
-        XCTAssertFalse(template.contains("—"), "no em-dashes in generated content")
+        XCTAssertFalse(template.contains("\u{2014}"), "no em dash in generated content")
     }
 }

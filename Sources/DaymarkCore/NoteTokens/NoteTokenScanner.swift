@@ -321,7 +321,7 @@ public enum NoteTokenScanner {
                 guard let match else { return }
                 let tokenText = nsText.substring(with: match.range)
                 let value = String(tokenText.dropFirst("due:".count))
-                guard let display = dueDisplay(for: value) else { return }
+                guard let display = cachedDueDisplay(for: value) else { return }
                 tokens.append(NoteTokens.InlineToken(range: match.range, kind: .dueDate(display: display)))
             }
         }
@@ -332,7 +332,7 @@ public enum NoteTokenScanner {
     private static let dueCacheLock = NSLock()
     nonisolated(unsafe) private static var dueDisplayCache: [String: String?] = [:]
 
-    private static func dueDisplay(for value: String) -> String? {
+    private static func cachedDueDisplay(for value: String) -> String? {
         dueCacheLock.lock()
         if let cached = dueDisplayCache[value] {
             dueCacheLock.unlock()
@@ -340,7 +340,7 @@ public enum NoteTokenScanner {
         }
         dueCacheLock.unlock()
 
-        let computed = TaskItem.Due(token: value).map(humanize)
+        let computed = TaskItem.Due(token: value)?.displayText()
         dueCacheLock.lock()
         dueDisplayCache[value] = computed
         dueCacheLock.unlock()
@@ -349,26 +349,6 @@ public enum NoteTokenScanner {
 
     private static func contains(_ nsText: NSString, _ needle: String, in range: NSRange) -> Bool {
         nsText.range(of: needle, options: [], range: range).location != NSNotFound
-    }
-
-    private static let humanizeCalendar = Calendar(identifier: .gregorian)
-    private static let humanizeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = humanizeCalendar
-        formatter.timeZone = humanizeCalendar.timeZone
-        formatter.dateFormat = "MMM d"
-        return formatter
-    }()
-
-    private static func humanize(_ due: TaskItem.Due) -> String {
-        switch due {
-        case .today: return "Today"
-        case .tomorrow: return "Tomorrow"
-        case .date(let iso):
-            guard let date = ISODate.date(from: iso, calendar: humanizeCalendar) else { return iso }
-            return humanizeFormatter.string(from: date)
-        }
     }
 
     // MARK: - Regions

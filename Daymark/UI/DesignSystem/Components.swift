@@ -135,26 +135,6 @@ struct ReadOnlyField: View {
     }
 }
 
-// The floating-card chrome shared by the right-margin panels (Codex Task Composer, Context Bundle).
-private struct MarginPanel: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white.opacity(0.7))
-            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
-                    .stroke(DesignTokens.hairline, lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.05), radius: 10, y: 4)
-    }
-}
-
-extension View {
-    func marginPanel() -> some View { modifier(MarginPanel()) }
-}
-
 // Shared chrome for every floating surface (capture slip, command palette, Open Loops
 // overlay, and later the Codex popover): the same within-window system material and warm
 // tint the day header band uses, plus a hairline border and panelRadius, so all chrome reads

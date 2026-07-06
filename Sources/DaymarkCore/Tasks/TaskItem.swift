@@ -33,6 +33,23 @@ public struct TaskItem: Equatable, Sendable {
                 self = .date(token)
             }
         }
+
+        public func displayText(calendar: Calendar = Calendar(identifier: .gregorian)) -> String {
+            switch self {
+            case .today:
+                return "Today"
+            case .tomorrow:
+                return "Tomorrow"
+            case .date(let iso):
+                guard let date = ISODate.date(from: iso, calendar: calendar) else { return iso }
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.calendar = calendar
+                formatter.timeZone = calendar.timeZone
+                formatter.dateFormat = "MMM d"
+                return formatter.string(from: date)
+            }
+        }
     }
 
     public var title: String

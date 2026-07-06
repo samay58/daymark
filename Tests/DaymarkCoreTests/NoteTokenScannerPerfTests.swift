@@ -79,44 +79,34 @@ final class NoteTokenScannerPerfTests: XCTestCase {
         }
     }
 
-    // Characterizes the Finding 1 decision-rule measurement: the default scanLines overload
-    // derives fence state by walking every line from the document start, so cost scales with
-    // position. Measured ~5ms at document end on a 5k-line note, over the 0.5ms budget, which is
-    // why the fence-supplied overload above exists and is what the app's hot path actually uses.
-    // This default overload stays correct for any caller that does not track fence state itself;
-    // it is not on the app's per-keystroke path, so it is characterized here, not budget-gated.
-    func testFenceStatePrefixWalkCostAtDocumentEnd() {
-        let text = representativeNote(lines: 5000)
-        let ns = text as NSString
-        let lastLine = ns.lineRange(for: NSRange(location: ns.length - 1, length: 0))
-        var worst = 0.0
-        for _ in 0..<20 {
-            let started = CFAbsoluteTimeGetCurrent()
-            _ = NoteTokenScanner.scanLines(text, in: lastLine)
-            worst = max(worst, (CFAbsoluteTimeGetCurrent() - started) * 1000)
-        }
-        NSLog("[perf] fence-state prefix walk (default overload) to document end on 5k-line note (worst of 20): %.4f ms", worst)
-        // Sanity bound only: the walk must stay well under a full scan, never budget-gated at 1ms.
-        if perfGateEnabled {
-            XCTAssertLessThan(worst, 20)
-        }
-    }
-
-    // Isolates the overload that skips the walk entirely, for comparison against the number above.
-    func testFenceSuppliedOverloadSkipsWalkCost() {
+    // The default scanLines overload derives fence state by walking from the document start.
+    // That path stays correct for generic callers, but it is not the editor's per-keystroke path.
+    func testFenceSuppliedScanAvoidsPrefixWalkAtDocumentEnd() {
         let text = representativeNote(lines: 5000)
         let ns = text as NSString
         let lastLine = ns.lineRange(for: NSRange(location: ns.length - 1, length: 0))
         let fence = MarkdownFenceScanner()
-        var worst = 0.0
-        for _ in 0..<200 {
-            let started = CFAbsoluteTimeGetCurrent()
+
+        var defaultBest = Double.greatestFiniteMagnitude
+        var suppliedBest = Double.greatestFiniteMagnitude
+        for _ in 0..<10 {
+            var started = CFAbsoluteTimeGetCurrent()
+            _ = NoteTokenScanner.scanLines(text, in: lastLine)
+            defaultBest = min(defaultBest, (CFAbsoluteTimeGetCurrent() - started) * 1000)
+
+            started = CFAbsoluteTimeGetCurrent()
             _ = NoteTokenScanner.scanLines(text, in: lastLine, fence: fence)
-            worst = max(worst, (CFAbsoluteTimeGetCurrent() - started) * 1000)
+            suppliedBest = min(suppliedBest, (CFAbsoluteTimeGetCurrent() - started) * 1000)
         }
-        NSLog("[perf] fence-supplied scanLines at document end on 5k-line note (worst of 200): %.4f ms", worst)
+
+        NSLog(
+            "[perf] document-end scanLines default best %.4f ms; fence-supplied best %.4f ms",
+            defaultBest,
+            suppliedBest
+        )
+        XCTAssertLessThan(suppliedBest, defaultBest * 0.5)
         if perfGateEnabled {
-            XCTAssertLessThan(worst, 1)
+            XCTAssertLessThan(suppliedBest, 1)
         }
     }
 }

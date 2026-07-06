@@ -108,10 +108,8 @@ final class CardIslandController: NSObject, @preconcurrency NSTextLayoutManagerD
             refreshHostContent(region.hash)
         }
         textView.needsLayout = true
-        // Bug 3: a reveal flip changes the region's fragment heights (the strip slice appears
-        // or disappears and the inner source lines expand from zero height or collapse back).
-        // Invalidating layout alone leaves the previously drawn source glyphs as stale ghost
-        // pixels over the reflowed text below, so force a clean full repaint of the surface.
+        // A reveal flip changes the region's fragment heights. Invalidating layout alone can
+        // leave stale source glyphs over the reflowed text below, so repaint the full surface.
         textView.needsDisplay = true
         repositionCards()
     }
@@ -155,8 +153,8 @@ final class CardIslandController: NSObject, @preconcurrency NSTextLayoutManagerD
                 guard let self else { return }
                 for hash in self.hosts.keys { self.invalidateRegionLayout(self.regionRange(for: hash)) }
                 self.textView?.needsLayout = true
-                // A card height change reflows the note below it; repaint to avoid ghosting
-                // the pre-reflow text (Bug 3).
+                // A card height change reflows the note below it; repaint to clear the
+                // pre-reflow text.
                 self.textView?.needsDisplay = true
                 self.repositionCards()
             }
@@ -306,8 +304,8 @@ final class CardIslandController: NSObject, @preconcurrency NSTextLayoutManagerD
         guard before != after else { return }
         invalidateRegionLayout(regionRange(for: hash))
         textView?.needsLayout = true
-        // Same stale-pixel reason as `selectionDidChange` (Bug 3): the view-source flip resizes
-        // the region's fragments, so repaint the whole surface to clear ghosted source text.
+        // The view-source flip resizes the region's fragments, so repaint the whole surface to
+        // clear stale source text.
         textView?.needsDisplay = true
         repositionCards()
     }

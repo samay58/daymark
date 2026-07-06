@@ -11,20 +11,14 @@ final class LiveRenderController {
 
     /// The authoritative token cache, refreshed wholesale by `styleAll()` and patched
     /// incrementally by `styleEditedParagraph()`. `draw`/`drawBackground`/`mouseDown`/
-    /// `mouseMoved` on the text view consult this and never call the scanner themselves
-    /// (Finding 5: those run once per event, sometimes many times per second).
+    /// `mouseMoved` on the text view consult this and never call the scanner themselves.
     private(set) var cachedTokens = NoteTokens(lines: [], inlineTokens: [], regions: [])
     /// Bumped every time `cachedTokens` changes, so callers can detect a stale read across an
     /// await boundary without re-diffing the tokens themselves.
     private(set) var textVersion = 0
-    /// Fence state entering each line, as of the last full pass: `(line start location, fence
-    /// state before that line is consumed)`, sorted ascending by location. Lets a same-line
-    /// keystroke look up its fence state in O(log n) instead of walking the document (Finding 1's
-    /// decision rule measured that walk at several ms on a 5k-line note, over the 0.5ms budget).
-    /// Kept in sync incrementally in `mergeIntoCache`: a non-fence-marker edit cannot change any
-    /// fence transition (fence-marker edits take the immediate full-pass path instead), so only
-    /// the locations after the edit need shifting, never the fence values.
-    private var lineFenceStates: [(location: Int, fence: MarkdownFenceScanner)] = []
+    /// Fence state entering each line, sorted by line start. Same-line edits look up this cached
+    /// state in O(log n); edits that can affect fence structure take the full-pass path.
+    private var lineFenceStates: [NoteTokenCacheReducer.LineFenceState] = []
 
     /// The selection the concealment attributes were last reconciled against. A caret move only
     /// flips the reveal state of tokens the caret entered or left, so `reconcileConcealment`
@@ -81,8 +75,8 @@ final class LiveRenderController {
         // The incremental paragraph pass already keeps the cache and the applied attributes in
         // sync line by line. This debounced full scan exists to catch cross-line drift (a fence
         // or region marker opened or closed, a multi-line paste). When the fresh scan matches the
-        // cache, none of that happened, so the whole-document re-apply (measured at ~260ms on a
-        // 5k-line note, dominated by the emphasis pass) is pure waste and reflows nothing new.
+        // cache, none of that happened, so the whole-document re-apply is pure waste and
+        // reflows nothing new.
         // The scan still runs every debounce, so the reconcile contract is intact; only the
         // redundant re-styling is skipped.
         if tokens == cachedTokens {
@@ -94,7 +88,7 @@ final class LiveRenderController {
         applyEmphasis(storage, tokens: tokens, in: full)
         applyConcealment(tokens: tokens, selection: currentSelection(), storage: storage)
         cachedTokens = tokens
-        lineFenceStates = Self.fenceStates(for: text)
+        lineFenceStates = NoteTokenCacheReducer.fenceStates(for: text)
         textVersion += 1
         logFull(CFAbsoluteTimeGetCurrent() - started, lineCount: tokens.lines.count)
         textView?.needsDisplay = true
@@ -111,7 +105,7 @@ final class LiveRenderController {
         // Opening or closing a fence reclassifies every line after it. Correct immediately
         // (a full pass) instead of waiting out the debounce, so there is no visible window
         // where stale checkbox/pill/tag decorations show up inside (or outside) the fence.
-        if containsFenceMarker(ns, in: paragraph) {
+        if !NoteTokenCacheReducer.canMergeIncrementally(text: text, editedRange: paragraph) {
             styleAll()
             return
         }
@@ -133,9 +127,8 @@ final class LiveRenderController {
     /// start or end a generated region (the toggler refuses lines inside a region), so there is
     /// no need for the whole-document `styleAll()` a normal edit schedules. Skipping it removes
     /// the debounced full-document `setAttributes` + card reposition that reflows the note under
-    /// the toggled line, which is the relayout that glitched the following checkbox (Bug 1). It
-    /// also targets the toggled line directly instead of the caret's line, since a click toggle
-    /// leaves the caret where it was.
+    /// the toggled line. It also targets the toggled line directly instead of the caret's line,
+    /// since a click toggle leaves the caret where it was.
     func styleToggledLine(at location: Int) {
         guard let textView, let storage = textView.textStorage else { return }
         let ns = storage.string as NSString
@@ -262,30 +255,7 @@ final class LiveRenderController {
         return clamped < 0.5 ? 2 * clamped * clamped : 1 - pow(-2 * clamped + 2, 2) / 2
     }
 
-    // MARK: - Cache maintenance (Finding 5)
-
-    /// One entry per line: `(line start location, fence state entering that line)`. Built with a
-    /// single trimmed-prefix walk over the whole document, same shape as the walk
-    /// `NoteTokenScanner.scanLines(_:in:)` does internally, but done once per full pass instead
-    /// of once per keystroke.
-    private static func fenceStates(for text: String) -> [(location: Int, fence: MarkdownFenceScanner)] {
-        let ns = text as NSString
-        var states: [(location: Int, fence: MarkdownFenceScanner)] = []
-        var fence = MarkdownFenceScanner()
-        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { substring, range, _, _ in
-            states.append((range.location, fence))
-            _ = fence.consume(trimmedLine: leftTrimmed(substring ?? ""))
-        }
-        return states
-    }
-
-    private static func leftTrimmed(_ content: String) -> String {
-        var count = 0
-        for character in content {
-            if character == " " || character == "\t" { count += 1 } else { break }
-        }
-        return String(content.dropFirst(count))
-    }
+    // MARK: - Cache maintenance
 
     /// Fence state entering `location`, found by binary search over `lineFenceStates` (the
     /// largest recorded line-start at or before `location`). O(log n), never walks the document.
@@ -306,169 +276,38 @@ final class LiveRenderController {
         return best
     }
 
-    private func containsFenceMarker(_ ns: NSString, in range: NSRange) -> Bool {
-        var index = range.location
-        let end = range.location + range.length
-        while index < end {
-            let ch = ns.character(at: index)
-            if ch == 0x20 || ch == 0x09 { index += 1; continue }
-            guard ch == UInt16(UnicodeScalar("`").value) || ch == UInt16(UnicodeScalar("~").value) else { return false }
-            var count = 0
-            var probe = index
-            while probe < end, ns.character(at: probe) == ch {
-                count += 1
-                probe += 1
-            }
-            return count >= 3
-        }
-        return false
-    }
-
-    /// Replaces cached lines/inline tokens whose range falls inside the edited paragraph with
-    /// the freshly scanned ones, and shifts everything after the paragraph by the length delta
-    /// this edit introduced (a single-line insert/delete moves every later offset by the same
-    /// amount). Lines strictly before the paragraph are untouched and need no shifting.
+    /// Delegates pure token, region, and fence-state range maintenance to Core. The controller
+    /// keeps ownership of AppKit attributes, reveal fades, and the debounced full-pass reconcile.
     private func mergeIntoCache(_ tokens: NoteTokens, editedRange: NSRange) {
-        // Built in ascending order directly (prefix slice, then the rescanned paragraph, then the
-        // shifted tail), so no sort is needed. Split points come from a binary search over the
-        // sorted cache, and the prefix is a bulk slice copy rather than a filtered scan of the
-        // whole array; only the tail is walked, and only to shift it. The prior `append + sort`
-        // was O(n log n) per keystroke over the whole cache; on a 5k-line note that was the bulk
-        // of the sync path.
-        let cachedLines = cachedTokens.lines
-        let linePrefixEnd = Self.lowerBound(cachedLines, location: editedRange.location) { $0.range.location }
-        var lineSuffixStart = linePrefixEnd
-        while lineSuffixStart < cachedLines.count, cachedLines[lineSuffixStart].range.location <= editedRange.location {
-            lineSuffixStart += 1
-        }
-
-        // The edited paragraph previously ran up to the next cached line's start (or the document
-        // end when it was the last line). `NoteTokenScanner` records line ranges without the
-        // trailing newline while `NSString.lineRange` includes it, so the delta must come from
-        // these consistent line-start boundaries, never a line-length subtraction: that drifts by
-        // one per edit (the newline) and used to be masked by the always-full debounced pass.
-        let oldParagraphEnd = lineSuffixStart < cachedLines.count
-            ? cachedLines[lineSuffixStart].range.location
-            : editedRange.location + editedRange.length
-        let delta = editedRange.location + editedRange.length - oldParagraphEnd
-
-        var lines: [NoteTokens.Line] = []
-        lines.reserveCapacity(cachedLines.count + tokens.lines.count)
-        lines.append(contentsOf: cachedLines[..<linePrefixEnd])
-        lines.append(contentsOf: tokens.lines)
-        if delta == 0 {
-            lines.append(contentsOf: cachedLines[lineSuffixStart...])
-        } else {
-            for i in lineSuffixStart..<cachedLines.count { lines.append(shifted(cachedLines[i], by: delta)) }
-        }
-
-        // Inline tokens inside the old paragraph are replaced by the rescan; everything at or past
-        // the old paragraph end is shifted, not dropped.
-        let cachedInline = cachedTokens.inlineTokens
-        let inlinePrefixEnd = Self.lowerBound(cachedInline, location: editedRange.location) { $0.range.location }
-        let inlineSuffixStart = Self.lowerBound(cachedInline, location: oldParagraphEnd) { $0.range.location }
-        var inline: [NoteTokens.InlineToken] = []
-        inline.reserveCapacity(cachedInline.count + tokens.inlineTokens.count)
-        inline.append(contentsOf: cachedInline[..<inlinePrefixEnd])
-        inline.append(contentsOf: tokens.inlineTokens)
-        if delta == 0 {
-            inline.append(contentsOf: cachedInline[inlineSuffixStart...])
-        } else {
-            for i in inlineSuffixStart..<cachedInline.count { inline.append(shifted(cachedInline[i], by: delta)) }
-        }
-
-        // Regions entirely after the edit shift by the same delta, so the cache keeps their
-        // positions correct between debounced full passes (cards stay pinned while typing above
-        // them) and, crucially, stays byte-equal to a fresh scan so `styleAll` can take its skip
-        // path. A region that contains the edit is left as-is; its length changed, so the next
-        // full scan will not match and will re-apply, which is the correct reconcile.
-        let regions: [NoteTokens.GeneratedRegion]
-        if delta == 0 {
-            regions = cachedTokens.regions
-        } else {
-            regions = cachedTokens.regions.map { region in
-                region.range.location >= oldParagraphEnd ? shifted(region, by: delta) : region
-            }
-        }
-        cachedTokens = NoteTokens(lines: lines, inlineTokens: inline, regions: regions)
-
-        // A non-fence-marker edit cannot open or close a fence (that path goes through
-        // `styleAll()` above instead), so every recorded fence value stays correct; only the
-        // locations after the edit need to move by the same delta the lines did.
-        if delta != 0 {
-            lineFenceStates = lineFenceStates.map { entry in
-                entry.location > editedRange.location ? (entry.location + delta, entry.fence) : entry
-            }
-
-            // A fade in flight for a token must move with that token, or overlayAlpha and
-            // stepRevealFades keep painting the pre-edit location after everything else has shifted.
-            if !revealFades.isEmpty {
-                var shiftedFades: [Int: RevealFade] = [:]
-                shiftedFades.reserveCapacity(revealFades.count)
-                for (key, fade) in revealFades {
-                    if key < editedRange.location {
-                        shiftedFades[key] = fade
-                    } else if key < oldParagraphEnd {
-                        continue
-                    } else {
-                        var shiftedFade = fade
-                        shiftedFade.range = shifted(fade.range, by: delta)
-                        shiftedFades[key + delta] = shiftedFade
-                    }
-                }
-                revealFades = shiftedFades
-            }
-        }
+        let result = NoteTokenCacheReducer.merge(
+            state: NoteTokenCacheReducer.State(tokens: cachedTokens, lineFenceStates: lineFenceStates),
+            rescanned: tokens,
+            editedRange: editedRange
+        )
+        cachedTokens = result.state.tokens
+        lineFenceStates = result.state.lineFenceStates
+        shiftRevealFades(editStart: editedRange.location, oldParagraphEnd: result.oldParagraphEnd, delta: result.delta)
         textVersion += 1
     }
 
-    private func shifted(_ line: NoteTokens.Line, by delta: Int) -> NoteTokens.Line {
-        let newRange = shifted(line.range, by: delta)
-        let newKind: NoteTokens.LineKind
-        switch line.kind {
-        case .heading(let level, let markerRange):
-            newKind = .heading(level: level, markerRange: shifted(markerRange, by: delta))
-        case .task(let done, let markerRange, let boxRange, let textRange):
-            newKind = .task(
-                done: done,
-                markerRange: shifted(markerRange, by: delta),
-                boxRange: shifted(boxRange, by: delta),
-                textRange: shifted(textRange, by: delta)
-            )
-        case .bullet(let markerRange):
-            newKind = .bullet(markerRange: shifted(markerRange, by: delta))
-        case .quote, .commandLine, .fence, .body, .blank:
-            newKind = line.kind
-        }
-        return NoteTokens.Line(range: newRange, kind: newKind)
-    }
-
-    private func shifted(_ token: NoteTokens.InlineToken, by delta: Int) -> NoteTokens.InlineToken {
-        NoteTokens.InlineToken(range: shifted(token.range, by: delta), kind: token.kind)
-    }
-
-    private func shifted(_ region: NoteTokens.GeneratedRegion, by delta: Int) -> NoteTokens.GeneratedRegion {
-        NoteTokens.GeneratedRegion(
-            hash: region.hash,
-            range: shifted(region.range, by: delta),
-            innerRange: shifted(region.innerRange, by: delta),
-            commandLineRange: region.commandLineRange.map { shifted($0, by: delta) }
+    private func shiftRevealFades(editStart: Int, oldParagraphEnd: Int, delta: Int) {
+        guard !revealFades.isEmpty else { return }
+        let ranges = revealFades.map { NoteTokenCacheReducer.KeyedRange(key: $0.key, range: $0.value.range) }
+        let shifted = NoteTokenCacheReducer.shiftKeyedRanges(
+            ranges,
+            editStart: editStart,
+            oldParagraphEnd: oldParagraphEnd,
+            delta: delta
         )
-    }
-
-    private func shifted(_ range: NSRange, by delta: Int) -> NSRange {
-        NSRange(location: range.location + delta, length: range.length)
-    }
-
-    /// First index in a location-sorted array whose element location is >= `location`.
-    private static func lowerBound<T>(_ items: [T], location: Int, _ key: (T) -> Int) -> Int {
-        var low = 0
-        var high = items.count
-        while low < high {
-            let mid = (low + high) / 2
-            if key(items[mid]) < location { low = mid + 1 } else { high = mid }
+        var next: [Int: RevealFade] = [:]
+        next.reserveCapacity(shifted.count)
+        for item in shifted {
+            let originalKey = item.key >= oldParagraphEnd + delta ? item.key - delta : item.key
+            guard var fade = revealFades[originalKey] else { continue }
+            fade.range = item.range
+            next[item.key] = fade
         }
-        return low
+        revealFades = next
     }
 
     private func scheduleFullPass() {
@@ -551,9 +390,8 @@ final class LiveRenderController {
         }
         let text = storage.string
         // One editing transaction for every emphasis edit in this range. Unbatched, each
-        // `addAttribute` ran its own storage fixups and layout notification, which on a full-
-        // document pass was the bulk of the restyle cost (measured at ~230ms on a 5k-line note,
-        // ~7ms batched).
+        // `addAttribute` ran its own storage fixups and layout notification, which dominates
+        // full-document restyles unless the edits are batched.
         storage.beginEditing()
         enumerate(Patterns.inlineCode, in: text, range: range) { match in
             guard !intersectsFence(match.range, fenceRanges) else { return }
@@ -598,10 +436,9 @@ final class LiveRenderController {
         return NSRange(location: location, length: min(range.length, length - location))
     }
 
-    /// Finding 4: a zero-length (caret) selection reveals only when the caret sits strictly
-    /// inside the range, not merely adjacent to it; a non-empty selection reveals only when it
-    /// actually overlaps the range. Shared with `LiveTextView`'s identical decoration-suppression
-    /// check so concealment and drawing never disagree about what's "selected".
+    /// A zero-length caret reveals only when it sits strictly inside the range, not merely
+    /// adjacent to it. Non-empty selections reveal only when they actually overlap the range.
+    /// Shared with `LiveTextView` so concealment and drawing agree about selection state.
     static func shouldReveal(_ range: NSRange, selection: NSRange) -> Bool {
         guard range.length > 0 else { return false }
         if selection.length == 0 {

@@ -37,9 +37,8 @@ final class AppState {
     var todayText: String {
         didSet { recomputeBufferDerivations() }
     }
-    /// Derivations of the editor buffer, memoized once per mutation in todayText.didSet so the
-    /// dynamic-block gating getters never re-scan and re-hash the whole note during a
-    /// context-margin body pass (which reads three of those getters per keystroke).
+    /// Derivations of the editor buffer, memoized once per mutation in todayText.didSet so
+    /// dynamic-block buttons and cards never re-scan and re-hash the whole note while typing.
     private(set) var todayContentHash = ""
     private(set) var todayHasDynamicBlockCommand = false
     var isOpenLoopsOverlayPresented = false
@@ -62,8 +61,7 @@ final class AppState {
     /// popover can anchor itself. Nil before the editor has reported a selection.
     var codexAnchorScreenRect: CGRect?
     /// Whether the receipt card is showing the context-bundle preview in place of its default
-    /// actions row. `showsContextBundlePanel` alone cannot express this: it turns true the
-    /// instant a task file is created, before the user has asked to expand anything.
+    /// actions row.
     var isCodexBundleExpanded = false
     var dynamicBlockPreview: DynamicBlockRefreshPreview?
     var dynamicBlockMessage: String?
@@ -81,9 +79,6 @@ final class AppState {
     /// "task created" phase cannot be half-set (both-or-neither is unrepresentable).
     private var createdCodexTask: CreatedCodexTask?
 
-    /// The created task file's path, read by the context-margin view.
-    var createdCodexTaskRelativePath: String? { createdCodexTask?.relativePath }
-
     /// Whether the current draft / bundle can be written. The views read these instead of
     /// constructing a file writer just to evaluate button enable state (the predicate is the
     /// single source of truth, shared with the writers' `validate`).
@@ -98,11 +93,6 @@ final class AppState {
             && !isPlanningDynamicBlocks
             && !isApplyingDynamicBlocks
     }
-    var isDynamicBlockPreviewStale: Bool {
-        guard let preview = dynamicBlockPreview else { return false }
-        return todayContentHash != preview.sourceContentHash
-    }
-
     /// Local full-text search results for the current command-palette query.
     var searchResults: [SearchHit] = []
     var openLoopGroups: [OpenLoopGroup] = []
@@ -443,14 +433,6 @@ final class AppState {
 
     // MARK: - Dynamic Blocks
 
-    var showsDynamicBlockRefreshPanel: Bool {
-        canRefreshDynamicBlocks
-            || dynamicBlockPreview != nil
-            || dynamicBlockMessage != nil
-            || isPlanningDynamicBlocks
-            || isApplyingDynamicBlocks
-    }
-
     func previewDynamicBlocksRefresh() async {
         guard didLoadToday else {
             dynamicBlockPreview = nil
@@ -627,14 +609,6 @@ final class AppState {
     }()
 
     // MARK: - Codex task handoff
-
-    // True once a task file has been created, while a bundle is previewed, or when a bundle
-    // message needs to stay on screen. Drives whether the right margin shows the bundle panel.
-    var showsContextBundlePanel: Bool {
-        createdCodexTask != nil
-            || codexContextBundle != nil
-            || codexContextBundleMessage != nil
-    }
 
     func previewCodexTaskFromSelection() {
         do {
