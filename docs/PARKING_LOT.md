@@ -74,6 +74,7 @@ Good ideas that are not part of the current milestone belong here.
 - @people entities and an assignee model: still out of scope, per the M7 spec's non-goals.
 - Marker concealment (checkboxes, due dates, rollover markers, provenance) as a user preference, rather than always on.
 - Keyboard and VoiceOver access to the dynamic-block card controls (refresh, view-source), which are currently hover-only and so unreachable without a pointer. Deliberate per the quiet-until-hover card design; revisit when an accessibility pass lands.
+- Artifact backlink chips written into source notes: writing a return chip or annotation into the source note when a dynamic-block card, Codex receipt, or context bundle is created stays opt-in and approval-gated; not built in Milestone 7.
 
 ## Documentation stubs (not implemented)
 

@@ -11,7 +11,7 @@ Daymark is good enough only when:
 - Slip is faster than switching to Apple Notes.
 - Search feels instant enough to trust.
 - Task completion feels tactile but quiet.
-- The sidebar never creates anxiety.
+- The single-pane note surface never creates anxiety.
 - Suggestions feel grounded in visible context.
 
 It is not good enough if it technically works but feels like a web app, has a default AI chat sidebar, has noisy badges, asks where to save every capture, or generates summaries nobody asked for.
@@ -30,7 +30,7 @@ Craft means:
 
 - Native typography.
 - Warm paper canvas.
-- Translucent but quiet sidebar.
+- Translucent but quiet chrome (day header band, floating overlays).
 - Centered writing column.
 - Cards that feel like documents, not chat bubbles.
 - Motion that explains state and preserves spatial continuity.

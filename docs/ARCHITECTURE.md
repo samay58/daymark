@@ -30,6 +30,9 @@ Daymark
   Commands
   Settings
   Editor bridge
+  Live render pipeline (LiveRenderController, LiveTextView, LiveDecorationRenderer): renders the literal Markdown buffer with clickable checkboxes and tag, link, and due-date pills
+  Card islands (CardIslandController, CardIslandHost, CardLayoutFragment): well-formed dynamic-block regions host interactive SwiftUI cards on persistent TextKit 2 layout fragments
+  Codex composer (CodexPopover, ReceiptCard): a selection-anchored popover whose approval writes a task file
 
 DaymarkCore
   Workspace model

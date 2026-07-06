@@ -81,7 +81,16 @@
 - Failed calendar reads degrade to a clear empty state.
 - No credentials are stored in `~/phoenix`.
 
-## Milestone 7: Gmail Draft Preview
+## Milestone 7: Dynamic Note Surface
+
+- The app opens to Today as a single pane; the sidebar and right margin are gone.
+- A checkbox click flips the literal Markdown on disk within the autosave window and undoes in one step.
+- Tags, wikilinks, URLs, and due dates render as live pills over the literal buffer; rollover and provenance markup conceal until the caret touches them.
+- A note with all four `/daymark` commands renders four cards; refresh previews on-card; apply stays idempotent; malformed markers degrade to literal text.
+- The Codex composer runs from selection to receipt with collision-safe writes and an unchanged approval gate.
+- Typing latency stays flat on a 5,000-line note, and the window never opens maximized.
+
+## Milestone 8: Gmail Draft Preview
 
 - A task, note selection, or meeting prep artifact can produce an editable draft preview.
 - Drafts cite the local sources used for substantive claims.
@@ -90,7 +99,7 @@
 - The user can copy, export, or discard the draft without side effects.
 - No credentials are stored in `~/phoenix`.
 
-## Milestone 8: iOS Capture Companion
+## Milestone 9: iOS Capture Companion
 
 - iPhone capture lands as readable Markdown in the same workspace model.
 - Offline captures queue and reconcile without losing text.

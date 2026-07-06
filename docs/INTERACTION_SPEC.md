@@ -94,6 +94,8 @@ and drawn, never a second copy of the text.
   disk, invisible in render, revealed only when the caret or selection touches them.
 - Tags and wikilinks render as pills. Clicking either opens the command palette prefilled with
   the tag or link name. URLs render underlined and open in the default browser on click.
+- The `/daymark` command line itself renders quiet: monospaced, tertiary color, never accent or
+  body weight.
 
 ## Open Loops
 
@@ -164,7 +166,6 @@ Syntax:
 ```md
 /daymark open-loops
 /daymark open-loops #deal/acme
-/daymark prep-next-meeting
 /daymark source-list #deal/acme
 /daymark codex-context #project/daymark
 /daymark weekly-review
@@ -205,10 +206,11 @@ Rules:
 ```txt
 Hover feedback:        80 ms
 Checkbox completion:   100 to 140 ms
-Command palette open:  80 to 100 ms
-Command palette close: 60 to 80 ms
+Command palette open and close: about 90 ms
 Slip open:             90 to 120 ms
 Popover open:          120 to 160 ms
+Card hover controls fade: about 120 ms ease-out
+Card refresh acknowledgment (icon rotation): about 110 ms, instant under Reduce Motion
 Panel transition:      160 to 220 ms
 Daily navigation:      under 140 ms
 ```

@@ -162,14 +162,14 @@ Goal: notes become dynamic without becoming dashboards.
 
 Why this matters: useful computed context should sit beside the source Markdown without replacing it. Dynamic blocks are local views, not a dashboard layer.
 
-Status: closed. The CLI/domain slices are done for `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review`: Daymark parses visible commands, renders deterministic local Markdown from the workspace, previews the generated region, applies it idempotently only when `--apply` is passed, and records rebuildable `.daymark` render metadata on apply. The app can preview the same refresh plan for Today's note in the right margin and applies it only after approval.
+Status: closed. The CLI/domain slices are done for `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review`: Daymark parses visible commands, renders deterministic local Markdown from the workspace, previews the generated region, applies it idempotently only when `--apply` is passed, and records rebuildable `.daymark` render metadata on apply. The app can preview the same refresh plan for Today's note in the app (superseded in Milestone 7 by inline dynamic-block cards) and applies it only after approval.
 
 Build:
 
 - Parse `/daymark ...` block commands from Markdown. Done for `open-loops`, `source-list`, `codex-context`, and `weekly-review`, including tag arguments where supported and fenced-code awareness.
 - Support conservative local commands first: `open-loops`, `source-list`, `codex-context`, and `weekly-review`. The CLI/domain renderers are implemented.
 - Cache rendered output metadata in `.daymark` as rebuildable state. Done for approved CLI apply; Markdown remains authoritative.
-- Show patch previews before writing rendered output back into notes. Done for CLI dry-run and the in-app right-margin approval surface.
+- Show patch previews before writing rendered output back into notes. Done for CLI dry-run and the in-app approval surface (an inline card since Milestone 7).
 - Keep the source command visible and readable. The implemented renderers keep `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review` in the note and insert generated output in a marked region below the command.
 - Add a CLI refresh command before adding automatic app refresh. Done with `daymark blocks refresh --source <path>` / `--apply`, plus explicit in-app preview and approval. Automatic refresh remains out of scope.
 
@@ -223,12 +223,12 @@ Goal: the presentation layer catches up to the product idea; Today's note become
 
 Why this matters: the deterministic engines from Milestones 2 through 5 are real, but the app still presents them through scaffolding chrome. The dynamic-document experience (live checkboxes, entity pills, inline generated-content cards with approval) is what makes Daymark useful daily.
 
-Status: active, in polish. Phases 1 through 3 are built, gated, and pushed to `main`: the single-pane shell, the live editor with interactive checkboxes and entity pills, dynamic-block card islands, the Codex popover with receipts, the material header band, and the never-maximized launch frame. One walk-feedback round landed (date-aware rollover prose, machine-text concealment, four rendering-bug fixes). Remaining: the Phase 4 visual and motion polish pass (card v2, glass tuning, calmer Codex popover, motion on every transformation), driven by Samay's walk feedback as binding input, then the final gate. Design: `docs/superpowers/specs/2026-07-05-dynamic-note-surface-design.md` (ADR-012). Plan: `docs/superpowers/plans/2026-07-05-dynamic-note-surface.md`. Ledger: `docs/orchestration/LEDGER.md`.
+Status: final gate. Phases 1 through 4 are built and gated (single-pane shell, live editor, card islands, Codex popover, material chrome, glass surfaces, card v2, motion pass); Phase 4 is committed locally, not yet pushed. Remaining: an acceptance walk, then push and close.
 
 Build:
 
 - Retire the sidebar and right-margin panels; one editor column plus overlays.
-- Char-structure day header: date tile plus a brief strip (rolled over, open loops, save state).
+- Char-structure day header: date tile plus a brief strip (date-aware rollover count ("N from yesterday"), open loops, save state).
 - Live-styled editor on the literal Markdown buffer: clickable checkboxes, tag/wikilink/URL/due pills, quiet visible markers.
 - Well-formed dynamic-block regions render as embedded interactive cards with on-card preview and approval; whole-note apply semantics stay.
 - Codex composer becomes a selection-anchored popover; approvals produce a receipt card; source notes stay untouched.

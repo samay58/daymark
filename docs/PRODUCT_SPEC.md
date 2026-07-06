@@ -82,7 +82,7 @@ That means fast over collaborative, local over cloud, craft over breadth, daily 
 
 ### Today
 
-Today is the home surface. The app opens directly to the daily Markdown note. The editor is the product center.
+Today is the home surface. The app opens directly to the daily Markdown note. The editor is the product center: it renders the literal Markdown buffer live, with clickable checkboxes, tag, wikilink, URL, and due-date pills, and well-formed `/daymark` generated regions embedded as interactive dynamic-block cards with per-card preview and approval. Nothing renders that is not literally in the file; malformed markup always falls back to plain text.
 
 ### Slip
 
@@ -98,7 +98,7 @@ Open Loops is a trust surface, not a traditional todo list. It tracks commitment
 
 ### Codex Task Composer
 
-The composer turns selected messy notes into a previewed implementation spec. No task file is written without approval.
+The composer turns selected messy notes into a previewed implementation spec. No task file is written without approval. It is now a selection-anchored popover whose approved task file produces a receipt card.
 
 ## Workspace Structure
 

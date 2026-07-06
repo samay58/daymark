@@ -93,7 +93,7 @@ Daymark is not good enough if:
 - Capture takes over one second.
 - The app feels like a web dashboard.
 - The editor feels non-native.
-- The sidebar is noisy.
+- The note surface feels cluttered.
 - Generated files are not human-readable.
 - A feature works but does not improve the core loop.
 

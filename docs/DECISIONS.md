@@ -57,6 +57,10 @@ A SwiftPM app target is not a full signed macOS app bundle.
 
 Milestone 0 requires native app lifecycle behavior that SwiftPM cannot represent cleanly.
 
+### Amendment (2026-07-05)
+
+A hand-built, ad hoc-signed `.app` may be installed to `/Applications/Daymark.app` for local manual testing, distinct from the throwaway bundle `scripts/run_app.sh` writes under `.build/`. This is a development convenience, not the productionized, signed, and notarized app bundle this ADR defers. The decision point (Xcode project, code signing, notarization, UI test scheme, menu bar helper, global hotkey) remains open.
+
 ## ADR-003: Use Markdown as Source and SQLite as Index
 
 Status: Accepted

@@ -34,11 +34,10 @@ warning:        #A15C38
 success:        #5E755A
 checkboxBorder: #C9C5BE
 pillDueFill:    surfaceWarm alias
-cardIslandFill: surface alias
 dateTileFill:   surfaceWarm alias
 ```
 
-`accentDeep` is tag pill text (contrast 4.5:1 or better on `accentSoft`). `checkboxBorder` is the empty checkbox stroke. `pillDueFill` and `dateTileFill` are aliases onto existing fills, not new hues, kept as separate tokens so a surface can retint on its own later without touching the others. `cardIslandFill` is defined the same way but is currently unused: the Phase 4 card redesign fills dynamic-block cards with `canvas` directly, so a card blends with the note instead of reading as a separate surface, rather than going through this alias.
+`accentDeep` is tag pill text (contrast 4.5:1 or better on `accentSoft`). `checkboxBorder` is the empty checkbox stroke. `pillDueFill` and `dateTileFill` are aliases onto existing fills, not new hues, kept as separate tokens so a surface can retint on its own later without touching the others. `cardIslandFill` was defined the same way but has since been removed; the Phase 4 card redesign fills dynamic-block cards with `canvas` directly.
 
 Dark mode tokens may exist for system support, but Daymark should not become dark-first unless explicitly approved.
 
@@ -59,7 +58,7 @@ Card header:        SF Pro Text, 12, medium
 Pill:               SF Pro Text, 13, regular
 ```
 
-The `DesignType.cardHeader` token (12, semibold) still exists in code but is currently unused: the Phase 4 card title uses its own inline 12pt medium style with no tracking instead, matching the row above.
+The `DesignType.cardHeader` token (12pt semibold) was defined but has since been removed; the Phase 4 card title uses an inline 12pt medium style with no tracking instead.
 
 ## Layout
 
