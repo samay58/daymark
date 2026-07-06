@@ -94,6 +94,13 @@ and drawn, never a second copy of the text.
   disk, invisible in render, revealed only when the caret or selection touches them.
 - Tags and wikilinks render as pills. Clicking either opens the command palette prefilled with
   the tag or link name. URLs render underlined and open in the default browser on click.
+- Due dates render as pills from a `due:` token. Exactly three forms parse: `due:today`,
+  `due:tomorrow`, and a zero-padded ISO date `due:YYYY-MM-DD` (for example `due:2026-07-08`,
+  not `due:2026-7-8`). There is no time-of-day form, and natural-language dates (`friday`,
+  `next week`) and slash dates (`7/8`) are not parsed. An unrecognized `due:` value stays plain
+  text, with no pill and no Open Loops due bucket. The pill shows Today, Tomorrow, or the short
+  date `MMM d` (for example "Jul 8"); a literal ISO date equal to today still shows its date,
+  since only the `today` token humanizes to "Today".
 - The `/daymark` command line itself renders quiet: monospaced, tertiary color, never accent or
   body weight.
 
