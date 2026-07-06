@@ -39,4 +39,21 @@ Phase 1 note: the Fable share is front-loaded by design; the spec (333 lines), t
 
 ## Final report
 
-Pending milestone completion: total spend by tier, Fable share, counterfactual all-Fable estimate, Samay's quality rating.
+Milestone 7 shipped and pushed to `main` through `5c0f475` on 2026-07-05.
+
+The Fable-share success bar does not apply to this run. The session model switched from Fable 5 to Opus 4.8 partway through the milestone when Fable usage limits were hit, so the orchestrator token from Phase 2 onward is Opus, not Fable. A clean "Fable at or below 20 percent" reading is therefore not measurable, and the phase-boundary table above records where the switch happened. What the discipline bought is recorded qualitatively here rather than as a fabricated number.
+
+Tier usage across the milestone:
+
+- Orchestrator (Fable through Phase 1, Opus after): specs, packet decomposition, gates, taste calls, integration, and every commit. Wrote no implementation code beyond small integration edits (the Open Loops chrome merge, the ADR heading, two dead-token deletions).
+- Opus subagents: the P1 card-mechanism spike, the P2 and P3 editor and card cores, the P4 lag-hunt plus card-v2 plus motion core, and the adversarial reviewers. Reserved for the design-sensitive cores and refutation.
+- Sonnet subagents: the default builders (shell, tokens, glass surfaces, codex popover, card UI, fix packets, documentation application) and the three documentation auditors.
+- Haiku subagents: the mechanical sweeps (design tokens, Reduce Motion and copy audits, cleanup).
+
+What the gates caught that a single unreviewed session would likely have shipped:
+
+- Phase 2: the perf-rewritten `scanLines` dropped fence-awareness, drawing decorations inside code fences. The builder's own matrix marked it PASS; an adversarial Opus reviewer refuted it with a standalone repro.
+- Phase 4: a reveal fade keyed by absolute location was not shifted by `mergeIntoCache`, and the new `styleAll` equality-skip turned a one-frame glitch into a permanent double-render. The adversarial reviewer confirmed it against source, a Sonnet fix closed it, and the same reviewer re-verified the trigger closed with no new variant.
+- Close-out: a three-auditor documentation pass caught the milestone renumber that never reached `ACCEPTANCE_CRITERIA.md`, stale Phase-4 language in `README.md` and `ROADMAP.md`, a nonexistent `/daymark prep-next-meeting` command in the interaction spec, and dead-token references. The final battery caught the wall-clock perf tests flaking under machine load (load average 83), fixed by making the budgets opt-in via `DAYMARK_PERF` so the standard suite fails only for real reasons.
+
+Gate outcomes: every phase gate passed with at most one adversarial fix round, matching the doctrine's "no orchestrator rework beyond one pass" bar. Samay's acceptance walk on the installed `/Applications` build remains his to run; the code, docs, and tests are green and pushed.
