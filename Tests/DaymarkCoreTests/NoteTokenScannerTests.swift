@@ -464,3 +464,169 @@ final class NoteTokenScannerTests: XCTestCase {
         XCTAssertEqual(fullLine.kind, .fence)
     }
 }
+
+// MARK: - Differential safety net for the scanFull/scanLinesCore consolidation
+
+/// Generates a deterministic (fixed-seed) corpus of synthetic notes and checks that `scan(_:)`
+/// matches the concatenation of `scanLines(_:in:fence:)` walked line by line with independently
+/// tracked fence state, mirroring how the live editor scans. This guarded the scanFull /
+/// scanLinesCore consolidation and stays afterward as a permanent regression guard; a temporary
+/// `LegacyScanner` (a frozen copy of the pre-refactor implementation) and a matching comparison
+/// test lived here during that refactor and were deleted once both were verified green.
+final class NoteTokenScannerCorpusTests: XCTestCase {
+    /// Splitmix64, chosen only for being a small, dependency-free, reproducible generator;
+    /// no cryptographic property is needed here.
+    private struct SeededGenerator: RandomNumberGenerator {
+        private var state: UInt64
+        init(seed: UInt64) { state = seed }
+        mutating func next() -> UInt64 {
+            state = state &+ 0x9E3779B97F4A7C15
+            var z = state
+            z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+            z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+            return z ^ (z >> 31)
+        }
+    }
+
+    private static func randomCorpus(count: Int, seed: UInt64) -> [String] {
+        var rng = SeededGenerator(seed: seed)
+        return (0..<count).map { _ in randomNote(&rng) }
+    }
+
+    private static func randomNote(_ rng: inout SeededGenerator) -> String {
+        let lineCount = Int.random(in: 4...24, using: &rng)
+        var lines: [String] = []
+        var openFence: Character?
+
+        for _ in 0..<lineCount {
+            if let fenceChar = openFence {
+                if Double.random(in: 0...1, using: &rng) < 0.3 {
+                    lines.append(String(repeating: fenceChar, count: 3))
+                    openFence = nil
+                } else {
+                    lines.append(randomFenceBody(&rng))
+                }
+                continue
+            }
+            lines.append(randomLine(&rng, openingFence: &openFence))
+        }
+        if openFence != nil {
+            lines.append(String(repeating: openFence!, count: 3))
+        }
+
+        let useCRLF = Bool.random(using: &rng)
+        return lines.joined(separator: useCRLF ? "\r\n" : "\n")
+    }
+
+    private static func randomFenceBody(_ rng: inout SeededGenerator) -> String {
+        let bodies = [
+            "# heading that must stay literal",
+            "- [ ] task that must stay literal",
+            "#tag-that-must-stay-literal",
+            "[[Link that must stay literal]]",
+            "https://example.com/inside-fence",
+            "plain text inside the fence",
+            ""
+        ]
+        return bodies[Int.random(in: 0..<bodies.count, using: &rng)]
+    }
+
+    private static func randomLine(_ rng: inout SeededGenerator, openingFence: inout Character?) -> String {
+        let emojiPool = ["", "🔥 ", "✅ ", "📌 "]
+        let emoji = emojiPool[Int.random(in: 0..<emojiPool.count, using: &rng)]
+        let index = Int.random(in: 0..<100_000, using: &rng)
+
+        switch Int.random(in: 0..<16, using: &rng) {
+        case 0:
+            let level = Int.random(in: 1...7, using: &rng)
+            return "\(String(repeating: "#", count: level)) \(emoji)Heading \(index) #tag\(index)"
+        case 1:
+            return "- [ ] \(emoji)follow up on \(index) due:2026-\(pad(Int.random(in: 1...12, using: &rng)))-\(pad(Int.random(in: 1...28, using: &rng)))"
+        case 2:
+            return "- [x] \(emoji)done with \(index) #done"
+        case 3:
+            return "- \(emoji)bullet item \(index) [[Note \(index)]]"
+        case 4:
+            return "* \(emoji)star bullet \(index) https://example.com/\(index)"
+        case 5:
+            return "+ \(emoji)plus bullet \(index)"
+        case 6:
+            return "> \(emoji)quoted line \(index) #quoted"
+        case 7:
+            return ""
+        case 8:
+            let commands = ["open-loops", "source-list", "codex-context", "weekly-review", "not-a-real-command"]
+            return "/daymark \(commands[Int.random(in: 0..<commands.count, using: &rng)])"
+        case 9:
+            openingFence = Bool.random(using: &rng) ? "`" : "~"
+            return String(repeating: openingFence!, count: 3)
+        case 10:
+            let hash = String(format: "%06x", index)
+            return "<!-- daymark:block-begin \(hash) -->"
+        case 11:
+            let hash = String(format: "%06x", index)
+            return "<!-- daymark:block-end \(hash) -->"
+        case 12:
+            let hash = String(format: "%08x", index)
+            return "- \(emoji)rolled: follow up (from daily/2026/06/2026-06-2\(index % 8).md:\(index % 40)) <!-- daymark-rollover:\(hash) -->"
+        case 13:
+            return "\(emoji)plain prose about \(index) with due:whenever and due:2026-13-40 that should not tokenize"
+        case 14:
+            return "  - [ ] \(emoji)indented task \(index) #nested/tag"
+        default:
+            return "\(emoji)See [[Ref \(index)]] and https://example.com/\(index)/path also #tag\(index)/child due:\(index % 2 == 0 ? "today" : "tomorrow")"
+        }
+    }
+
+    private static func pad(_ value: Int) -> String {
+        value < 10 ? "0\(value)" : "\(value)"
+    }
+
+    private func leftTrimmed(_ content: String) -> String {
+        var result = Substring(content)
+        while let first = result.first, first == " " || first == "\t" {
+            result = result.dropFirst()
+        }
+        return String(result)
+    }
+
+    /// Reconstructs a full scan by walking the document one line at a time through the public
+    /// `scanLines(_:in:fence:)` overload, independently tracking fence state the same way the
+    /// live editor's cache would. This is the invariant that must hold forever, not just across
+    /// the refactor.
+    private func chunkedScan(_ text: String) -> (lines: [NoteTokens.Line], inline: [NoteTokens.InlineToken]) {
+        let ns = text as NSString
+        guard ns.length > 0 else { return ([], []) }
+
+        var fence = MarkdownFenceScanner()
+        var lines: [NoteTokens.Line] = []
+        var inline: [NoteTokens.InlineToken] = []
+        var location = 0
+
+        while location < ns.length {
+            let lineRange = ns.lineRange(for: NSRange(location: location, length: 0))
+            let chunk = NoteTokenScanner.scanLines(text, in: lineRange, fence: fence)
+            lines.append(contentsOf: chunk.lines)
+            inline.append(contentsOf: chunk.inlineTokens)
+
+            // Fence consumption needs terminator-free content; reuse the range the scanner
+            // itself already computed rather than re-deriving terminator stripping here.
+            if let contentRange = chunk.lines.first?.range {
+                let content = ns.substring(with: contentRange)
+                _ = fence.consume(trimmedLine: leftTrimmed(content))
+            }
+            location = lineRange.location + lineRange.length
+        }
+        return (lines, inline)
+    }
+
+    func testScanLinesChunkedWalkMatchesFullScanAcrossRandomCorpus() {
+        let corpus = Self.randomCorpus(count: 320, seed: 0xC0FFEE)
+        for (index, note) in corpus.enumerated() {
+            let full = NoteTokenScanner.scan(note)
+            let chunked = chunkedScan(note)
+            XCTAssertEqual(chunked.lines, full.lines, "line mismatch at corpus index \(index)")
+            XCTAssertEqual(chunked.inline, full.inlineTokens, "inline token mismatch at corpus index \(index)")
+        }
+    }
+}

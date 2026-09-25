@@ -72,8 +72,8 @@ public enum TaskRollover {
     /// The human-facing prefix for a rollover line, derived entirely from the source and
     /// target note dates so output stays deterministic regardless of wall-clock time.
     static func humanizedPrefix(sourcePath: String, targetPath: String) -> String {
-        guard let sourceDate = dailyNoteDate(from: sourcePath),
-              let targetDate = dailyNoteDate(from: targetPath) else {
+        guard let sourceDate = DailyNotePath.date(from: sourcePath, calendar: dateMathCalendar),
+              let targetDate = DailyNotePath.date(from: targetPath, calendar: dateMathCalendar) else {
             return "From \(sourcePath):"
         }
 
@@ -111,11 +111,18 @@ public enum TaskRollover {
         return formatter
     }()
 
-    /// Parses `daily/YYYY/MM/YYYY-MM-DD.md` into a UTC midnight `Date`. Returns `nil` for
-    /// anything that does not match the daily note path shape.
-    private static func dailyNoteDate(from path: String) -> Date? {
-        let pattern = #"^daily/(\d{4})/(\d{2})/(\d{4})-(\d{2})-(\d{2})\.md$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+    private static func normalized(_ markdown: String) -> String {
+        let text = markdown.normalizedNewlines
+        return text.hasSuffix("\n") ? text : text + "\n"
+    }
+}
+
+/// Parses a `daily/YYYY/MM/YYYY-MM-DD.md` note path into a midnight `Date` in the given
+/// calendar. Nil for any other path shape.
+enum DailyNotePath {
+    private static let regex = try! NSRegularExpression(pattern: #"^daily/(\d{4})/(\d{2})/(\d{4})-(\d{2})-(\d{2})\.md$"#)
+
+    static func date(from path: String, calendar: Calendar) -> Date? {
         let range = NSRange(path.startIndex..<path.endIndex, in: path)
         guard let match = regex.firstMatch(in: path, range: range),
               let yearRange = Range(match.range(at: 3), in: path),
@@ -131,11 +138,6 @@ public enum TaskRollover {
         components.year = year
         components.month = month
         components.day = day
-        return dateMathCalendar.date(from: components)
-    }
-
-    private static func normalized(_ markdown: String) -> String {
-        let text = markdown.normalizedNewlines
-        return text.hasSuffix("\n") ? text : text + "\n"
+        return calendar.date(from: components)
     }
 }

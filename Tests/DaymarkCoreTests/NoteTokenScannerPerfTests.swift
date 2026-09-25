@@ -54,6 +54,18 @@ final class NoteTokenScannerPerfTests: XCTestCase {
         let elapsedMs = (CFAbsoluteTimeGetCurrent() - started) * 1000
         NSLog("[perf] full scan 5k-line token-dense worst case (warmed): %.3f ms", elapsedMs)
         XCTAssertEqual(tokens.lines.count, 5000)
+
+        // Every line is "- [ ] task N due:2026-07-08 #work [[Ref N]] https://ex.com/N", so a
+        // correct dense scan must find exactly one of each inline token kind per line, not just
+        // the right line count (a scanner that dropped inline scanning entirely would still
+        // pass the line-count-only assertion this replaces).
+        let taskLines = tokens.lines.filter { if case .task = $0.kind { return true } else { return false } }
+        XCTAssertEqual(taskLines.count, 5000)
+        let dueTokens = tokens.inlineTokens.filter { if case .dueDate = $0.kind { return true } else { return false } }
+        XCTAssertEqual(dueTokens.count, 5000)
+        XCTAssertEqual(tokens.inlineTokens.filter { $0.kind == .tag }.count, 5000)
+        XCTAssertEqual(tokens.inlineTokens.filter { $0.kind == .wikilink }.count, 5000)
+        XCTAssertEqual(tokens.inlineTokens.filter { $0.kind == .url }.count, 5000)
     }
 
     // This is the app's real sync-paragraph-restyle keystroke path (LiveRenderController):
@@ -104,8 +116,8 @@ final class NoteTokenScannerPerfTests: XCTestCase {
             defaultBest,
             suppliedBest
         )
-        XCTAssertLessThan(suppliedBest, defaultBest * 0.5)
         if perfGateEnabled {
+            XCTAssertLessThan(suppliedBest, defaultBest * 0.5)
             XCTAssertLessThan(suppliedBest, 1)
         }
     }

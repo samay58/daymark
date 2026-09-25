@@ -8,9 +8,7 @@ public enum NoteTokenScanner {
     /// Scans only the requested line range, but stays fence-aware: fence state is derived by
     /// walking every line from the document start up to the range, doing only trimmed-prefix
     /// fence consumption (no classification, no inline scanning), so lines inside an open fence
-    /// classify as `.fence` exactly like `scan(_:)` would. Existing callers keep this signature
-    /// and keep getting correct output; callers that already track fence state (for example a
-    /// cache built from a prior full scan) should use the overload below to skip the walk.
+    /// classify as `.fence` exactly like `scan(_:)` would.
     public static func scanLines(_ text: String, in lineRange: NSRange) -> NoteTokens {
         let nsText = text as NSString
         let expanded = expandedLineRange(for: lineRange, in: nsText)
@@ -21,7 +19,7 @@ public enum NoteTokenScanner {
     /// Same as `scanLines(_:in:)`, but takes caller-maintained fence state at the start of
     /// `lineRange` instead of walking the document from the start to derive it. The caller is
     /// responsible for keeping `fence` in sync with the document (for example by updating it
-    /// alongside a cached full scan). This does not change or replace the walking overload above.
+    /// alongside a cached full scan).
     public static func scanLines(_ text: String, in lineRange: NSRange, fence: MarkdownFenceScanner) -> NoteTokens {
         let nsText = text as NSString
         let expanded = expandedLineRange(for: lineRange, in: nsText)
@@ -53,6 +51,39 @@ public enum NoteTokenScanner {
         return fence
     }
 
+    /// Classifies one line and collects its inline tokens, advancing `fence` in place. Shared
+    /// by `scanFull` and `scanLinesCore` so the two scan paths can never classify a line
+    /// differently.
+    private static func scanLine(
+        content: String,
+        substringRange: NSRange,
+        fence: inout MarkdownFenceScanner,
+        source: String,
+        nsText: NSString
+    ) -> (line: NoteTokens.Line, inlineTokens: [NoteTokens.InlineToken]) {
+        let leadingCount = leadingWhitespaceCount(content)
+        let markerStart = substringRange.location + leadingCount
+        let leftTrimmed = String(content.dropFirst(leadingCount))
+        let lineEnd = substringRange.location + substringRange.length
+
+        let wasDelimiter = fence.consume(trimmedLine: leftTrimmed)
+        if wasDelimiter || fence.isInsideFence {
+            return (NoteTokens.Line(range: substringRange, kind: .fence), [])
+        }
+
+        let kind = classify(leftTrimmed: leftTrimmed, markerStart: markerStart, lineEnd: lineEnd)
+        var inlineTokens = lineInlineTokens(
+            for: kind,
+            text: source,
+            nsText: nsText,
+            rawRange: substringRange,
+            markerStart: markerStart,
+            lineEnd: lineEnd
+        )
+        inlineTokens.append(contentsOf: machineTextTokens(text: source, nsText: nsText, rawRange: substringRange))
+        return (NoteTokens.Line(range: substringRange, kind: kind), inlineTokens)
+    }
+
     private static func scanLinesCore(
         nsText: NSString,
         expanded: NSRange,
@@ -63,29 +94,9 @@ public enum NoteTokenScanner {
         var lines: [NoteTokens.Line] = []
         var inlineTokens: [NoteTokens.InlineToken] = []
         nsText.enumerateSubstrings(in: expanded, options: .byLines) { substring, substringRange, _, _ in
-            let content = substring ?? ""
-            let leadingCount = leadingWhitespaceCount(content)
-            let markerStart = substringRange.location + leadingCount
-            let leftTrimmed = String(content.dropFirst(leadingCount))
-            let lineEnd = substringRange.location + substringRange.length
-
-            let wasDelimiter = fence.consume(trimmedLine: leftTrimmed)
-            if wasDelimiter || fence.isInsideFence {
-                lines.append(NoteTokens.Line(range: substringRange, kind: .fence))
-                return
-            }
-
-            let kind = classify(leftTrimmed: leftTrimmed, markerStart: markerStart, lineEnd: lineEnd)
-            lines.append(NoteTokens.Line(range: substringRange, kind: kind))
-            inlineTokens.append(contentsOf: lineInlineTokens(
-                for: kind,
-                text: source,
-                nsText: nsText,
-                rawRange: substringRange,
-                markerStart: markerStart,
-                lineEnd: lineEnd
-            ))
-            inlineTokens.append(contentsOf: machineTextTokens(text: source, nsText: nsText, rawRange: substringRange))
+            let result = scanLine(content: substring ?? "", substringRange: substringRange, fence: &fence, source: source, nsText: nsText)
+            lines.append(result.line)
+            inlineTokens.append(contentsOf: result.inlineTokens)
         }
         return NoteTokens(lines: lines, inlineTokens: inlineTokens, regions: [])
     }
@@ -93,47 +104,23 @@ public enum NoteTokenScanner {
     private static func scanFull(_ text: String) -> NoteTokens {
         let nsText = text as NSString
         let source = nsText as String
+        // Regions need the raw (untrimmed) content and range of every line, including fenced
+        // and blank ones, so it is collected alongside classification rather than derived from it.
         var rawLines: [(range: NSRange, content: String)] = []
-        let fullRange = NSRange(location: 0, length: nsText.length)
-        nsText.enumerateSubstrings(in: fullRange, options: .byLines) { substring, substringRange, _, _ in
-            rawLines.append((substringRange, substring ?? ""))
-        }
-
         var lines: [NoteTokens.Line] = []
         var inlineTokens: [NoteTokens.InlineToken] = []
         var fence = MarkdownFenceScanner()
+        let fullRange = NSRange(location: 0, length: nsText.length)
 
-        for raw in rawLines {
-            let leadingCount = leadingWhitespaceCount(raw.content)
-            let markerStart = raw.range.location + leadingCount
-            let leftTrimmed = String(raw.content.dropFirst(leadingCount))
-
-            let wasDelimiter = fence.consume(trimmedLine: leftTrimmed)
-            if wasDelimiter || fence.isInsideFence {
-                lines.append(NoteTokens.Line(range: raw.range, kind: .fence))
-                continue
-            }
-
-            let lineEnd = raw.range.location + raw.range.length
-            let kind = classify(
-                leftTrimmed: leftTrimmed,
-                markerStart: markerStart,
-                lineEnd: lineEnd
-            )
-            lines.append(NoteTokens.Line(range: raw.range, kind: kind))
-            inlineTokens.append(contentsOf: lineInlineTokens(
-                for: kind,
-                text: source,
-                nsText: nsText,
-                rawRange: raw.range,
-                markerStart: markerStart,
-                lineEnd: lineEnd
-            ))
-            inlineTokens.append(contentsOf: machineTextTokens(text: source, nsText: nsText, rawRange: raw.range))
+        nsText.enumerateSubstrings(in: fullRange, options: .byLines) { substring, substringRange, _, _ in
+            let content = substring ?? ""
+            rawLines.append((substringRange, content))
+            let result = scanLine(content: content, substringRange: substringRange, fence: &fence, source: source, nsText: nsText)
+            lines.append(result.line)
+            inlineTokens.append(contentsOf: result.inlineTokens)
         }
 
         let regions = scanRegions(nsText: nsText, rawLines: rawLines, lines: lines)
-
         return NoteTokens(lines: lines, inlineTokens: inlineTokens, regions: regions)
     }
 
