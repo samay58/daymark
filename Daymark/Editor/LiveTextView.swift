@@ -222,7 +222,7 @@ final class LiveTextView: NSTextView {
         animationProgress = 0
         animationTask = Task { @MainActor [weak self] in
             await EditorMotion.runFrames { elapsed in
-                let fraction = min(1, elapsed / 0.14)
+                let fraction = min(1, elapsed / DesignMotion.checkmarkDuration)
                 self?.animationProgress = EditorMotion.easeOut(CGFloat(fraction))
                 self?.invalidateBox(location)
                 return fraction < 1

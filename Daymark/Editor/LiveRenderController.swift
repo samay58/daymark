@@ -3,8 +3,6 @@ import DaymarkCore
 
 @MainActor
 final class LiveRenderController {
-    static let bodySize: CGFloat = 16
-
     weak var textView: LiveTextView?
     weak var cardController: CardIslandController?
     private var fullPassTask: Task<Void, Never>?
@@ -35,7 +33,7 @@ final class LiveRenderController {
 
     /// In-flight reveal crossfades, keyed by token start location. A caret entering or leaving a
     /// concealed checkbox, due pill, or machine-text run fades its literal text in or out and its
-    /// drawn overlay out or in over `revealFadeDuration` rather than snapping. Reduce Motion
+    /// drawn overlay out or in over `DesignMotion.revealFadeDuration` rather than snapping. Reduce Motion
     /// bypasses this and swaps instantly. An edit is authoritative and clears any fade for its range.
     private struct RevealFade {
         var progress: CGFloat
@@ -46,7 +44,6 @@ final class LiveRenderController {
     }
     private var revealFades: [Int: RevealFade] = [:]
     private var revealFadeTask: Task<Void, Never>?
-    private static let revealFadeDuration: CFTimeInterval = 0.11
 
     private static let concealTextPrimary = NSColor(DesignTokens.textPrimary)
     private static let concealTextSecondary = NSColor(DesignTokens.textSecondary)
@@ -60,7 +57,7 @@ final class LiveRenderController {
         }
     }
 
-    static func baseFont() -> NSFont { .systemFont(ofSize: bodySize) }
+    static func baseFont() -> NSFont { .systemFont(ofSize: DesignType.bodySize) }
 
     static func paragraphStyle() -> NSParagraphStyle {
         let style = NSMutableParagraphStyle()
@@ -240,7 +237,7 @@ final class LiveRenderController {
             var previous: CFTimeInterval = 0
             await EditorMotion.runFrames { elapsed in
                 guard let self, !self.revealFades.isEmpty else { return false }
-                self.stepRevealFades(by: CGFloat((elapsed - previous) / Self.revealFadeDuration))
+                self.stepRevealFades(by: CGFloat((elapsed - previous) / DesignMotion.revealFadeDuration))
                 previous = elapsed
                 return !self.revealFades.isEmpty
             }
@@ -350,10 +347,9 @@ final class LiveRenderController {
         case .url:
             storage.addAttribute(.foregroundColor, value: NSColor(DesignTokens.accent), range: token.range)
             storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: token.range)
-        case .dueDate, .codeSpan, .bold, .italic, .rolloverMarker, .provenance:
-            // Machine text (rollover marker, provenance) carries no emphasis of its own; its
-            // visibility is owned entirely by `applyConcealment` (clear when hidden, tertiary
-            // when revealed), so there is nothing to add here.
+        case .dueDate, .rolloverMarker, .provenance:
+            // Concealable runs: `applyConcealment` owns their color (clear when hidden, revealed
+            // color when the caret is inside), so there is nothing to add here.
             break
         }
     }
@@ -485,14 +481,7 @@ final class LiveRenderController {
     }
 
     private static func headingFont(level: Int) -> NSFont {
-        let size: CGFloat
-        switch level {
-        case 1: size = 24
-        case 2: size = 19
-        case 3: size = 17
-        default: size = 16
-        }
-        return .systemFont(ofSize: size, weight: .semibold)
+        .systemFont(ofSize: DesignType.headingSize(level: level), weight: .semibold)
     }
 
     private func enumerate(

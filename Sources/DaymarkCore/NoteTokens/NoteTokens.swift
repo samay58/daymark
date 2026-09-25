@@ -41,9 +41,6 @@ public struct NoteTokens: Sendable, Equatable {
         case wikilink
         case url
         case dueDate(display: String)
-        case codeSpan
-        case bold
-        case italic
         /// The `<!-- daymark-rollover:<hash> -->` dedup marker on a rolled-over line. Literal
         /// on disk, concealed in the live render, revealed on caret/selection intersect.
         case rolloverMarker

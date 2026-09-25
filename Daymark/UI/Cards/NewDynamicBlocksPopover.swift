@@ -126,7 +126,6 @@ private struct NewDynamicBlocksForm: View {
                 .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
                 .disabled(!appState.canInsertNewDynamicBlocks)
-                .opacity(appState.canInsertNewDynamicBlocks ? 1 : 0.55)
                 Button("Cancel") { appState.cancelNewDynamicBlocks() }
                     .buttonStyle(QuietButtonStyle())
                     .keyboardShortcut(.cancelAction)

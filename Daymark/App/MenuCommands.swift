@@ -6,17 +6,16 @@ struct MenuCommands: Commands {
     var body: some Commands {
         CommandMenu("Daymark") {
             Button("Open Today") {
-                appState.isOpenLoopsOverlayPresented = false
-                appState.isCommandPalettePresented = false
+                appState.showToday()
             }
             .keyboardShortcut("1", modifiers: [.command])
 
-            Button("Capture to Slip") {
+            Button("Capture to Slip…") {
                 appState.isSlipPresented.toggle()
             }
             .keyboardShortcut(.space, modifiers: [.option])
 
-            Button("Command Palette") {
+            Button("Command Palette…") {
                 appState.isCommandPalettePresented.toggle()
             }
             .keyboardShortcut("k", modifiers: [.command])
@@ -26,12 +25,12 @@ struct MenuCommands: Commands {
             }
             .keyboardShortcut("l", modifiers: [.command])
 
-            Button("Create Codex Task from Selection") {
+            Button("Create Codex Task from Selection…") {
                 appState.previewCodexTaskFromSelection()
             }
             .keyboardShortcut("c", modifiers: [.command, .shift])
 
-            Button("Refresh Dynamic Blocks") {
+            Button("Refresh Dynamic Blocks…") {
                 Task { await appState.previewDynamicBlocksRefresh() }
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])

@@ -396,6 +396,14 @@ final class AppState {
 
     // MARK: - Open Loops
 
+    /// Returns to the note by closing the overlays that sit over it.
+    func showToday() {
+        isOpenLoopsOverlayPresented = false
+        isCommandPalettePresented = false
+    }
+
+    /// The menu, palette, toolbar, and brief strip all open Open Loops through here, so every
+    /// entry point refreshes the list the same way.
     func toggleOpenLoopsOverlay() {
         isOpenLoopsOverlayPresented.toggle()
         if isOpenLoopsOverlayPresented {

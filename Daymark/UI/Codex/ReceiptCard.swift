@@ -29,8 +29,8 @@ struct ReceiptCard: View {
                 reduceMotion
                     ? .identity
                     : .asymmetric(
-                        insertion: .move(edge: .bottom).combined(with: .opacity).animation(.easeOut(duration: 0.16)),
-                        removal: .move(edge: .bottom).combined(with: .opacity).animation(.easeOut(duration: 0.12))
+                        insertion: .move(edge: .bottom).combined(with: .opacity).animation(DesignMotion.stateChange),
+                        removal: .move(edge: .bottom).combined(with: .opacity).animation(DesignMotion.fade)
                     )
             )
         }
@@ -51,7 +51,7 @@ struct ReceiptCard: View {
         .frame(width: 320, alignment: .leading)
         .glassSurface()
         .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: receipt.bundle)
+        .animation(reduceMotion ? nil : DesignMotion.stateChange, value: receipt.bundle)
     }
 
     private func receiptContent(_ task: CreatedCodexTask) -> some View {
@@ -101,7 +101,6 @@ struct ReceiptCard: View {
                 Button("Approve") { codex.createBundle() }
                     .buttonStyle(PrimaryButtonStyle())
                     .disabled(!codex.canCreateBundle)
-                    .opacity(codex.canCreateBundle ? 1 : 0.55)
                 Button("Cancel") { codex.collapseBundle() }
                     .buttonStyle(QuietButtonStyle())
                 Spacer()

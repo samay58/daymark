@@ -272,7 +272,7 @@ final class CardIslandController: NSObject, @preconcurrency NSTextLayoutManagerD
 
         let host = ensureHost(regionHash: card.regionHash, width: width)
         host.setWidth(width)
-        host.frame = CGRect(x: x, y: y, width: width, height: CardLayoutFragment.stripHeight)
+        host.frame = CGRect(x: x, y: y, width: width, height: DesignMetrics.cardStripHeight)
     }
 
     // MARK: - Host lifecycle

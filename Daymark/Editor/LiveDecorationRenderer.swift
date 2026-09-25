@@ -13,7 +13,7 @@ enum LiveDecorationRenderer {
             path.fill()
             drawCheck(in: rect, progress: progress, alpha: alpha)
         } else {
-            path.lineWidth = 1
+            path.lineWidth = DesignMetrics.checkboxStroke
             NSColor(DesignTokens.checkboxBorder).withAlphaComponent(alpha).setStroke()
             path.stroke()
         }
@@ -26,7 +26,7 @@ enum LiveDecorationRenderer {
         check.move(to: CGPoint(x: rect.minX + rect.width * 0.28, y: rect.minY + rect.height * 0.52))
         check.line(to: CGPoint(x: rect.minX + rect.width * 0.44, y: rect.minY + rect.height * 0.36))
         check.line(to: CGPoint(x: rect.minX + rect.width * 0.74, y: rect.minY + rect.height * 0.68))
-        check.lineWidth = 1.6
+        check.lineWidth = DesignMetrics.checkmarkStroke
         check.lineCapStyle = .round
         check.lineJoinStyle = .round
         NSColor.white.withAlphaComponent(clamped * alpha).setStroke()
@@ -47,8 +47,9 @@ enum LiveDecorationRenderer {
     /// and the pill stays snug.
     static func drawDuePill(in glyphRect: CGRect, display: String, fillToWidth: CGFloat? = nil, alpha: CGFloat = 1) {
         guard alpha > 0.01 else { return }
-        let font = NSFont.systemFont(ofSize: 13)
-        let symbolWidth: CGFloat = 15
+        let font = NSFont.systemFont(ofSize: DesignType.pillSize)
+        // Room for the clock plus the same 4pt gap `TokenPill` leaves before its text.
+        let symbolWidth = DesignType.pillSymbolSize + 4
         let textColor = NSColor(DesignTokens.textSecondary).withAlphaComponent(alpha)
         let textAttributes: [NSAttributedString.Key: Any] = [
             .font: font,
@@ -56,7 +57,7 @@ enum LiveDecorationRenderer {
         ]
         let textSize = (display as NSString).size(withAttributes: textAttributes)
         let contentWidth = symbolWidth + textSize.width
-        let padH: CGFloat = 4
+        let padH = DesignMetrics.pillPadding
         let snugWidth = contentWidth + padH * 2
         let width = max(snugWidth, fillToWidth ?? snugWidth)
         let height = max(glyphRect.height, font.ascender - font.descender + 4)
@@ -70,7 +71,7 @@ enum LiveDecorationRenderer {
         NSColor(DesignTokens.pillDueFill).withAlphaComponent(alpha).setFill()
         path.fill()
 
-        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: DesignType.pillSymbolSize, weight: .regular)
         if let symbol = NSImage(systemSymbolName: "clock", accessibilityDescription: nil)?
             .withSymbolConfiguration(symbolConfig) {
             let symbolRect = CGRect(

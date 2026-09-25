@@ -6,7 +6,6 @@ struct TodayView: View {
     @Environment(AppState.self) private var appState
     @State private var isScrolled = false
     @State private var headerHeight: CGFloat = 0
-    @State private var reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -17,11 +16,6 @@ struct TodayView: View {
             documentBody
         }
         .background(DesignTokens.canvas)
-        .onReceive(
-            NotificationCenter.default.publisher(for: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification)
-        ) { _ in
-            reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-        }
     }
 
     private var documentBody: some View {
@@ -42,7 +36,7 @@ struct TodayView: View {
             .background(
                 ScrollChromeAdapter(topInset: headerHeight + 14) { scrolled in
                     if isScrolled != scrolled {
-                        withAnimation(DesignMotion.hover) { isScrolled = scrolled }
+                        withAnimation(reduceMotion ? nil : DesignMotion.hover) { isScrolled = scrolled }
                     }
                 }
             )
@@ -62,10 +56,10 @@ struct TodayView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(Self.monthFormatter.string(from: Date()))
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(DesignType.dayHeaderTitle)
                         .foregroundStyle(DesignTokens.textPrimary)
                     Text(Self.weekdayFormatter.string(from: Date()))
-                        .font(.system(size: 13, weight: .regular))
+                        .font(DesignType.dayHeaderDetail)
                         .foregroundStyle(DesignTokens.textSecondary)
                 }
 
@@ -86,7 +80,7 @@ struct TodayView: View {
         .padding(.horizontal, 40)
         .padding(.top, DesignMetrics.editorTopPadding)
         .padding(.bottom, 14)
-        .background(headerMaterial)
+        .background(GlassBackground(opaqueFallback: DesignTokens.canvas))
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(DesignTokens.hairline)
@@ -101,31 +95,18 @@ struct TodayView: View {
         .onPreferenceChange(HeaderHeightKey.self) { headerHeight = $0 }
     }
 
-    @ViewBuilder
-    private var headerMaterial: some View {
-        if reduceTransparency {
-            DesignTokens.canvas
-        } else {
-            ZStack {
-                HeaderVisualEffectView()
-                DesignTokens.canvas.opacity(DesignTokens.glassTintOpacity)
-            }
-        }
-    }
-
     /// A notice replaces the strip's text for a few seconds, then the strip returns.
     private var briefStrip: some View {
-        BriefStripText(
+        BriefStripButton(
             text: appState.notice ?? Self.briefStripText(
                 carriedOver: appState.rolledOverCount,
                 openLoops: appState.openLoopCount,
                 isSaving: appState.isSaving
             )
-        )
-        .contentTransition(.opacity)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: appState.notice)
-        .contentShape(Rectangle())
-        .onTapGesture { appState.toggleOpenLoopsOverlay() }
+        ) {
+            appState.toggleOpenLoopsOverlay()
+        }
+        .animation(reduceMotion ? nil : DesignMotion.fade, value: appState.notice)
         .onChange(of: appState.notice) { _, notice in
             guard let notice else { return }
             NSAccessibility.post(
@@ -147,7 +128,7 @@ struct TodayView: View {
         if openLoops > 0 {
             segments.append("\(openLoops) open \(openLoops == 1 ? "loop" : "loops")")
         }
-        segments.append(isSaving ? "Saving" : "Saved")
+        segments.append(isSaving ? "Saving…" : "Saved")
         return segments.joined(separator: " · ")
     }
 
@@ -199,21 +180,6 @@ private struct HeaderHeightKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
     }
-}
-
-// Warm within-window material for the day header band. Hidden entirely when Reduce
-// Transparency is on; the caller falls back to an opaque canvas fill in that case.
-private struct HeaderVisualEffectView: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.blendingMode = .withinWindow
-        view.material = .headerView
-        view.state = .active
-        view.isEmphasized = false
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
 // Gives the editor's NSScrollView a top content inset equal to the floating header's height,
@@ -310,17 +276,26 @@ private struct ScrollChromeAdapter: NSViewRepresentable {
     }
 }
 
-private struct BriefStripText: View {
+// The strip reads as text but clicks through to Open Loops, so it is a plain button.
+private struct BriefStripButton: View {
     let text: String
+    let action: () -> Void
     @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 13, weight: .regular))
-            .foregroundStyle(isHovering ? DesignTokens.textPrimary : DesignTokens.textSecondary)
-            .onHover { hovering in
-                withAnimation(DesignMotion.hover) { isHovering = hovering }
-            }
+        Button(action: action) {
+            Text(text)
+                .font(DesignType.dayHeaderDetail)
+                .foregroundStyle(isHovering ? DesignTokens.textPrimary : DesignTokens.textSecondary)
+                .contentTransition(.opacity)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Show open loops")
+        .onHover { hovering in
+            withAnimation(reduceMotion ? nil : DesignMotion.hover) { isHovering = hovering }
+        }
     }
 }
 
@@ -330,6 +305,7 @@ private struct ToolbarIcon: View {
     var action: (() -> Void)?
 
     @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button {
@@ -347,7 +323,7 @@ private struct ToolbarIcon: View {
         .help(label)
         .accessibilityLabel(label)
         .onHover { hovering in
-            withAnimation(DesignMotion.hover) { isHovering = hovering }
+            withAnimation(reduceMotion ? nil : DesignMotion.hover) { isHovering = hovering }
         }
     }
 }

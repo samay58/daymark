@@ -30,6 +30,8 @@ struct SlipPanelView: View {
                         .foregroundStyle(DesignTokens.textSecondary)
                 }
                 .buttonStyle(.plain)
+                .help("Close without saving")
+                .accessibilityLabel("Close without saving")
             }
 
             ZStack(alignment: .topLeading) {
@@ -50,12 +52,7 @@ struct SlipPanelView: View {
                 )
                     .frame(height: 132)
             }
-            .background(Color.white.opacity(0.55))
-            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cardRadius, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: DesignTokens.cardRadius, style: .continuous)
-                    .stroke(DesignTokens.hairline, lineWidth: 1)
-            }
+            .fieldChrome()
 
             HStack(spacing: 8) {
                 Button("Append to Today") { commit(appState.appendCaptureToToday, text) }
@@ -63,7 +60,7 @@ struct SlipPanelView: View {
                 Button("Task") { commit(appState.promoteCaptureToTask, text) }
                     .buttonStyle(SecondaryButtonStyle())
                 Spacer()
-                Text(saveFailed ? "Couldn't save, text kept" : "⏎ saves")
+                Text(saveFailed ? "Couldn’t save, text kept" : "⏎ saves")
                     .font(DesignType.metadata)
                     .foregroundStyle(saveFailed ? DesignTokens.warning : DesignTokens.textTertiary)
             }

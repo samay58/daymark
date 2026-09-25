@@ -33,6 +33,21 @@ struct OpenLoopsView: View {
                     .foregroundStyle(DesignTokens.textSecondary)
             }
             .buttonStyle(.plain)
+            .help("Refresh open loops")
+            .accessibilityLabel("Refresh open loops")
+            // Escape reaches this through the window's key equivalents, so it closes the
+            // overlay even while the editor behind it keeps keyboard focus.
+            Button {
+                appState.isOpenLoopsOverlayPresented = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(DesignTokens.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+            .help("Close")
+            .accessibilityLabel("Close open loops")
         }
         .padding(.horizontal, 24)
         .frame(height: 66)
@@ -63,8 +78,8 @@ struct OpenLoopsView: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(appState.isRefreshingOpenLoops ? "Refreshing" : "No open loops")
-                .font(DesignType.sectionHeading)
+            Text(appState.isRefreshingOpenLoops ? "Refreshing…" : "No open loops")
+                .font(DesignType.heading(level: 2))
                 .foregroundStyle(DesignTokens.textPrimary)
             Text("Captured tasks will appear here after the local index refreshes.")
                 .font(DesignType.body)
@@ -84,7 +99,7 @@ private struct OpenLoopSectionView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text(group.bucket.title)
-                    .font(DesignType.sectionHeading)
+                    .font(DesignType.heading(level: 2))
                     .foregroundStyle(DesignTokens.textPrimary)
                 Text("\(group.tasks.count)")
                     .font(DesignType.metadata)
@@ -112,17 +127,14 @@ private struct OpenLoopSectionView: View {
 private struct OpenLoopTaskRow: View {
     let task: TaskItem
 
-    private var isDone: Bool { task.status == .completed }
-
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            OpenLoopCheckbox(done: isDone)
+            OpenLoopCheckbox()
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 6) {
                 Text(task.title)
                     .font(DesignType.body)
-                    .foregroundStyle(isDone ? DesignTokens.textSecondary : DesignTokens.textPrimary)
-                    .strikethrough(isDone)
+                    .foregroundStyle(DesignTokens.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if !task.tags.isEmpty || task.due != nil {
@@ -154,28 +166,13 @@ private struct OpenLoopTaskRow: View {
     }
 }
 
-// Matches the live editor's task checkbox geometry and colors (16x16, radius 4,
-// checkboxBorder stroke, accent fill with a white check when done). Display-only: Open
-// Loops row actions are frozen, so this never handles a tap.
+// The editor's empty checkbox, drawn from the same metrics. Open Loops lists only open tasks,
+// and a row is not a toggle, so there is no done state and no tap.
 private struct OpenLoopCheckbox: View {
-    let done: Bool
-
     var body: some View {
         RoundedRectangle(cornerRadius: DesignMetrics.checkboxRadius, style: .continuous)
-            .fill(done ? DesignTokens.accent : Color.clear)
-            .overlay {
-                if !done {
-                    RoundedRectangle(cornerRadius: DesignMetrics.checkboxRadius, style: .continuous)
-                        .stroke(DesignTokens.checkboxBorder, lineWidth: 1)
-                }
-            }
-            .overlay {
-                if done {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-            }
+            .stroke(DesignTokens.checkboxBorder, lineWidth: DesignMetrics.checkboxStroke)
             .frame(width: DesignMetrics.checkboxSize, height: DesignMetrics.checkboxSize)
+            .accessibilityHidden(true)
     }
 }

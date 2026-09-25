@@ -1,10 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// A multiline plain-text capture field backed by AppKit so capture keys behave as the spec
-/// requires (ADR-001 already commits to AppKit text): Return saves, Shift+Return inserts a
+/// A multiline plain-text capture field backed by AppKit, because SwiftUI `TextEditor` cannot
+/// separate Return-saves from Shift+Return-newline. Return saves, Shift+Return inserts a
 /// newline, Command+Return appends to Today, Command+Shift+T promotes to a task, Escape cancels.
-/// SwiftUI `TextEditor` cannot separate Return-saves from Shift+Return-newline.
 struct CaptureTextView: NSViewRepresentable {
     @Binding var text: String
     var onSave: (String) -> Void

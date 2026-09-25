@@ -1,6 +1,6 @@
 import Foundation
 
-// Fake data for the Milestone 0 taste prototype. No real workspace is read or written.
+// The editor's placeholder until today's note loads, and the palette's fixed actions.
 enum SampleData {
     static let todayDocument = """
     ## Brief
@@ -29,7 +29,6 @@ enum SampleData {
 
     static let paletteCommands: [PaletteCommand] = [
         PaletteCommand(action: .openToday, title: "Open Today", symbol: "sun.max", shortcut: "⌘1"),
-        PaletteCommand(action: .searchNotes, title: "Search Notes", symbol: "magnifyingglass", shortcut: nil),
         PaletteCommand(action: .showOpenLoops, title: "Open Loops", symbol: "circle.dashed", shortcut: "⌘L"),
         PaletteCommand(
             action: .createCodexTask,
@@ -43,21 +42,16 @@ enum SampleData {
             symbol: "arrow.triangle.2.circlepath",
             shortcut: "⇧⌘R"
         ),
-        PaletteCommand(action: .appendSelectionToToday, title: "Append Selection to Today", symbol: "text.append", shortcut: nil),
-        PaletteCommand(action: .openWorkspaceInFinder, title: "Open Workspace in Finder", symbol: "folder", shortcut: nil),
-        PaletteCommand(action: .runDoctor, title: "Run Doctor", symbol: "stethoscope", shortcut: nil)
+        PaletteCommand(action: .openWorkspaceInFinder, title: "Open Workspace in Finder", symbol: "folder", shortcut: nil)
     ]
 }
 
 enum PaletteCommandAction: String {
     case openToday
-    case searchNotes
     case showOpenLoops
     case createCodexTask
     case refreshDynamicBlocks
-    case appendSelectionToToday
     case openWorkspaceInFinder
-    case runDoctor
 }
 
 struct PaletteCommand: Identifiable {

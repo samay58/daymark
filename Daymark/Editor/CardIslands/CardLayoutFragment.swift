@@ -1,9 +1,9 @@
 import AppKit
 
 final class CardLayoutFragment: NSTextLayoutFragment {
-    /// Height of the strip chrome shown above the region's first line while revealed. Shared
-    /// with `CardIslandController`, which positions the strip host in this same top slice.
-    static let stripHeight: CGFloat = 28
+    /// While revealed, the region's first line grows by `DesignMetrics.cardStripHeight` so the
+    /// strip host `CardIslandController` places there never covers the literal text.
+    private static let stripHeight = DesignMetrics.cardStripHeight
 
     let regionHash: String
     let isFirstLine: Bool

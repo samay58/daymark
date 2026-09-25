@@ -129,7 +129,6 @@ private struct CodexComposerForm: View {
                     Button("Create") { codex.createTask() }
                         .buttonStyle(PrimaryButtonStyle())
                         .disabled(!codex.canCreateTask)
-                        .opacity(codex.canCreateTask ? 1 : 0.55)
                         .keyboardShortcut(.return, modifiers: .command)
                     Button("Cancel") { codex.dismissComposer() }
                         .buttonStyle(QuietButtonStyle())
@@ -197,7 +196,7 @@ private struct CodexDraftFields: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(DesignTokens.textSecondary)
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isDetailsExpanded)
+        .animation(reduceMotion ? nil : DesignMotion.panel, value: isDetailsExpanded)
     }
 
     private func field(_ label: String, text: Binding<String>, onChange: @escaping (String) -> Void) -> some View {
@@ -218,12 +217,7 @@ private struct CodexDraftFields: View {
             .foregroundStyle(DesignTokens.textPrimary)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(Color.white.opacity(0.68))
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(DesignTokens.hairline, lineWidth: 1)
-            }
+            .fieldChrome()
         }
     }
 
@@ -243,14 +237,10 @@ private struct CodexDraftFields: View {
             .foregroundStyle(DesignTokens.textPrimary)
             .scrollContentBackground(.hidden)
             .frame(maxWidth: .infinity, minHeight: CGFloat(lines) * 21, alignment: .topLeading)
+            // TextEditor carries its own text inset, so its outer padding is smaller than a field's.
             .padding(.horizontal, 6)
             .padding(.vertical, 5)
-            .background(Color.white.opacity(0.68))
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(DesignTokens.hairline, lineWidth: 1)
-            }
+            .fieldChrome()
         }
     }
 

@@ -58,7 +58,7 @@ struct SettingsView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Use Folder"
+        panel.prompt = "Use folder"
         if panel.runModal() == .OK, let url = panel.url {
             draftRoot = url.path
         }

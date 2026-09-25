@@ -8,16 +8,18 @@ struct CardMarkdownText: View, Equatable {
 
     var body: some View {
         CardMarkdownRenderer.text(for: markdown)
-            .lineSpacing(8)
+            .lineSpacing(DesignType.cardLineSpacing)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 /// Renders generated Markdown for a card from `NoteTokenScanner`'s output, in the live editor's
-/// visual language: SF Symbol checkboxes and due-date clocks, tinted tags and links, and machine
-/// text (rollover markers, provenance) removed. Inline emphasis is not reproduced because the
-/// scanner does not emit emphasis tokens.
+/// visual language: checkboxes and due-date clocks as SF Symbols sized and colored from the same
+/// tokens the editor draws with, tinted tags and links, and machine text (rollover markers,
+/// provenance) removed. Inline emphasis is not reproduced because the scanner does not emit
+/// emphasis tokens. A `Text` run cannot carry a rounded fill, so the due date keeps the pill's
+/// clock, size, and color but not its background.
 @MainActor
 enum CardMarkdownRenderer {
     private static var cache: [String: Text] = [:]
@@ -117,7 +119,6 @@ enum CardMarkdownRenderer {
             case .url: ops.append((range, .url))
             case .dueDate(let display): ops.append((range, .due(display: display)))
             case .rolloverMarker, .provenance: ops.append((range, .remove))
-            case .codeSpan, .bold, .italic: break
             }
         }
         ops.sort { $0.range.location < $1.range.location }
@@ -166,10 +167,12 @@ enum CardMarkdownRenderer {
             let literal = lineText.substring(with: range)
             switch entry.op {
             case .checkbox(let done):
+                // Filled accent with a knocked-out check when done, a light border when open,
+                // the same two states the editor draws.
                 pieces.append(.symbol(
-                    name: done ? "checkmark.square" : "square",
-                    color: DesignTokens.textSecondary,
-                    font: style.font
+                    name: done ? "checkmark.square.fill" : "square",
+                    color: done ? DesignTokens.accent : DesignTokens.checkboxBorder,
+                    font: DesignType.checkboxSymbol
                 ))
             case .tag:
                 pieces.append(styled(literal, range: range, color: DesignTokens.accentDeep))
@@ -178,7 +181,7 @@ enum CardMarkdownRenderer {
             case .url:
                 pieces.append(styled(literal, range: range, color: DesignTokens.accent, underline: true))
             case .due(let display):
-                pieces.append(.symbol(name: "clock", color: DesignTokens.textSecondary, font: DesignType.pill))
+                pieces.append(.symbol(name: "clock", color: DesignTokens.textSecondary, font: DesignType.pillSymbol))
                 pieces.append(styled("\u{2009}\(display)", range: range, color: DesignTokens.textSecondary, font: DesignType.pill))
             case .remove:
                 break
@@ -196,7 +199,7 @@ enum CardMarkdownRenderer {
         init(kind: NoteTokens.LineKind) {
             switch kind {
             case .heading(let level, _):
-                font = Self.headingFont(level: level)
+                font = DesignType.heading(level: level)
             case .quote:
                 font = DesignType.body.italic()
                 color = DesignTokens.textSecondary
@@ -205,15 +208,6 @@ enum CardMarkdownRenderer {
                 color = DesignTokens.textTertiary
             case .task, .bullet, .fence, .body, .blank:
                 break
-            }
-        }
-
-        private static func headingFont(level: Int) -> Font {
-            switch level {
-            case 1: return .system(size: 24, weight: .semibold)
-            case 2: return .system(size: 19, weight: .semibold)
-            case 3: return .system(size: 17, weight: .semibold)
-            default: return .system(size: 16, weight: .semibold)
             }
         }
     }

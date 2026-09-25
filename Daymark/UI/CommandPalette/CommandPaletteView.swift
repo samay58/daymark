@@ -83,7 +83,7 @@ struct CommandPaletteView: View {
                 }
                 commandsSection
                 if commandResults.isEmpty && appState.searchResults.isEmpty {
-                    Text("Nothing matches \"\(query)\"")
+                    Text("Nothing matches “\(query)”")
                         .font(DesignType.palette)
                         .foregroundStyle(DesignTokens.textSecondary)
                         .padding(16)
@@ -97,10 +97,12 @@ struct CommandPaletteView: View {
     @ViewBuilder
     private var notesSection: some View {
         if !appState.searchResults.isEmpty {
-            sectionHeader("NOTES")
+            sectionHeader("Notes")
             ForEach(appState.searchResults, id: \.relativePath) { hit in
                 NoteResultRow(hit: hit)
                     .onTapGesture { isPresented = false }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { isPresented = false }
             }
         }
     }
@@ -108,10 +110,12 @@ struct CommandPaletteView: View {
     @ViewBuilder
     private var commandsSection: some View {
         if !commandResults.isEmpty {
-            sectionHeader("ACTIONS")
+            sectionHeader("Actions")
             ForEach(Array(commandResults.enumerated()), id: \.element.id) { index, command in
                 CommandRow(command: command, isSelected: index == selectedIndex)
                     .onTapGesture { execute(command) }
+                    .accessibilityAddTraits(index == selectedIndex ? [.isButton, .isSelected] : .isButton)
+                    .accessibilityAction { execute(command) }
                     .onHover { hovering in
                         if hovering { selectedIndex = index }
                     }
@@ -121,9 +125,9 @@ struct CommandPaletteView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 10, weight: .semibold))
-            .tracking(0.6)
+            .font(.system(size: 11, weight: .medium))
             .foregroundStyle(DesignTokens.textTertiary)
+            .accessibilityAddTraits(.isHeader)
             .padding(.horizontal, 16)
             .padding(.top, 12)
             .padding(.bottom, 6)
@@ -152,18 +156,15 @@ struct CommandPaletteView: View {
     private func execute(_ command: PaletteCommand) {
         switch command.action {
         case .openToday:
-            appState.isOpenLoopsOverlayPresented = false
+            appState.showToday()
         case .showOpenLoops:
-            appState.isOpenLoopsOverlayPresented = true
-            Task { await appState.refreshOpenLoops() }
+            appState.toggleOpenLoopsOverlay()
         case .createCodexTask:
             appState.previewCodexTaskFromSelection()
         case .refreshDynamicBlocks:
             Task { await appState.previewDynamicBlocksRefresh() }
         case .openWorkspaceInFinder:
             NSWorkspace.shared.open(appState.workspaceRoot.expandedURL)
-        case .searchNotes, .appendSelectionToToday, .runDoctor:
-            break
         }
         isPresented = false
     }

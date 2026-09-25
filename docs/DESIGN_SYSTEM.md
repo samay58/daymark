@@ -31,7 +31,6 @@ accent:         #7E937F
 accentSoft:     #E9EFE9
 accentDeep:     #4F634F
 warning:        #A15C38
-success:        #5E755A
 checkboxBorder: #C9C5BE
 pillDueFill:    surfaceWarm alias
 dateTileFill:   surfaceWarm alias
@@ -57,6 +56,8 @@ Date tile numeral:  SF Pro Text, 26, semibold
 Card header:        SF Pro Text, 12, medium
 Pill:               SF Pro Text, 13, regular
 ```
+
+Markdown headings use one scale everywhere, `DesignType.headingSize(level:)`: 24, 19, 17, and 16 semibold for levels 1, 2, 3, and 4 or deeper. The editor, dynamic-block cards, and Open Loops section titles all read it.
 
 The `DesignType.cardHeader` token (12pt semibold) was defined but has since been removed; the Phase 4 card title uses an inline 12pt medium style with no tracking instead.
 
@@ -91,7 +92,7 @@ The app's only persistent chrome above the note, not note content:
 
 - Date tile: 48x48, `dateTileFill`, hairline border, radius 10 (`dateTileRadius`). Day-of-month numeral in the `dateTileNumeral` type style, centered.
 - Month and weekday stack to the tile's right: month 16pt semibold `textPrimary`, weekday 13pt `textSecondary`.
-- Brief strip, one line below the tile row, 13pt `textSecondary`, middot-separated segments: "N from yesterday" when tasks rolled forward, "N open loops", and the save state ("Saved" or "Saving"). Empty segments are omitted. Clicking the strip opens the Open Loops overlay.
+- Brief strip, one line below the tile row, 13pt `textSecondary`, middot-separated segments: "N carried over" when tasks rolled forward, "N open loops", and the save state ("Saved" or "Saving…"). Empty segments are omitted. A notice for an outcome with no surface of its own (for example "Dynamic blocks are up to date") replaces the strip's text for about 4 seconds, then the strip returns. Clicking the strip opens the Open Loops overlay.
 - Three quiet icon buttons at the header's right edge: capture slip, command palette, Open Loops.
 
 ## Materials and translucency

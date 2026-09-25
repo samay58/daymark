@@ -36,7 +36,7 @@ swift run daymark search <q>       # full-text search the index
 
 CLI subcommands live in `Sources/daymark/DaymarkCLI.swift`; run `swift run daymark` with no args for the full list. Every command accepts `--root <path>` (or reads `DAYMARK_WORKSPACE_ROOT`) to target a workspace other than `~/phoenix`; this is how the temp-workspace verification checks in `docs/PROGRESS.md` run against a scratch directory. CLI behavior is covered by seven `*CommandTests` classes in `Tests/DaymarkCLITests/` (capture, codex-task, dynamic-blocks, end-of-day, meeting-prep, open-loops, rollover), not one per subcommand.
 
-In-app Dynamic Blocks refresh routes through `DynamicBlockRefreshService`, the same planner path used by the CLI. The app previews from the current editor buffer, disables stale applies if the buffer changes, and writes only after `Apply Refresh`.
+In-app Dynamic Blocks refresh routes through `DynamicBlockRefreshService`, the same planner path used by the CLI. The app previews from the current editor buffer, disables stale applies if the buffer changes, and writes only on approval: a card's Apply writes that card's patch alone, and new `/daymark` lines get an anchored Insert/Cancel popover that writes nothing until Insert.
 
 The `scripts/*.sh` wrappers (`build.sh`, `test.sh`, `build_and_run.sh`, `doctor.sh`, `run_app.sh`) call the commands above with the toolchain pinned by `scripts/toolchain.sh`. `scripts/test.sh` runs the full canonical test flow. `scripts/install_app.sh` builds a release `Daymark.app` and replaces `/Applications/Daymark.app`, the ad hoc-signed daily-use build ADR-002 allows.
 

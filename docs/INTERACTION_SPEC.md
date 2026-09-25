@@ -204,8 +204,10 @@ Rules:
 - The source Markdown (the `/daymark ...` command line) remains visible and readable.
 - Rendered output is cached in `.daymark/dynamic-blocks.json`, keyed by command hash.
 - Regeneration never destructively overwrites user edits outside the generated region markers.
-- Refresh previews every affected card's patch at once; Apply on any card applies the whole
-  note's patch set atomically. Selective per-card apply is parked.
+- Refresh previews every affected card's patch at once. Apply on a card writes only that
+  card's patch; its Cancel drops only that card's preview, and other cards keep theirs.
+- A `/daymark` line with no generated region yet gets an Insert/Cancel popover anchored at the
+  command line. Nothing is written until Insert; Cancel, Escape, or clicking away drops it.
 - Malformed regions (unpaired markers, hash mismatch) render as literal text, never hidden.
 
 ## Motion Budgets

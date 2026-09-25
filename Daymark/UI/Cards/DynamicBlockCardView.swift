@@ -45,11 +45,7 @@ struct DynamicBlockCardView: View {
         }
         .onHover { hovering in
             guard isHovering != hovering else { return }
-            if reduceMotion {
-                isHovering = hovering
-            } else {
-                withAnimation(.easeOut(duration: 0.12)) { isHovering = hovering }
-            }
+            withAnimation(reduceMotion ? nil : DesignMotion.fade) { isHovering = hovering }
         }
     }
 
@@ -72,7 +68,7 @@ struct DynamicBlockCardView: View {
             RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
                 .stroke(DesignTokens.hairline, lineWidth: 1)
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: footer)
+        .animation(reduceMotion ? nil : DesignMotion.stateChange, value: footer)
         .onChange(of: footer) { _, _ in context.notifyHeightChanged() }
     }
 
@@ -88,7 +84,7 @@ struct DynamicBlockCardView: View {
                 .allowsHitTesting(isHovering)
         }
         .padding(.horizontal, 14)
-        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: DesignMetrics.cardStripHeight, alignment: .leading)
         .background(DesignTokens.canvas)
         .overlay {
             RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
@@ -108,7 +104,7 @@ struct DynamicBlockCardView: View {
     }
 
     /// Tertiary at rest, accent while a change is offered, warning once the preview is stale or
-    /// the last action failed. Every value is an existing token.
+    /// the last action failed. Decorative for VoiceOver: the footer states the same thing in words.
     private func statusDot(footer: Footer?) -> some View {
         let color: Color
         switch dotState(footer) {
@@ -119,7 +115,8 @@ struct DynamicBlockCardView: View {
         return Circle()
             .fill(color)
             .frame(width: 6, height: 6)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: color)
+            .animation(reduceMotion ? nil : DesignMotion.stateChange, value: color)
+            .accessibilityHidden(true)
     }
 
     private func dotState(_ footer: Footer?) -> DotState {
@@ -151,7 +148,7 @@ struct DynamicBlockCardView: View {
     private var refreshButton: some View {
         Button {
             if !reduceMotion {
-                withAnimation(.easeInOut(duration: 0.11)) { refreshAngle += 360 }
+                withAnimation(DesignMotion.refreshSpin) { refreshAngle += 360 }
             }
             Task { await appState.previewDynamicBlocksRefresh(fromCard: regionHash) }
         } label: {
@@ -194,7 +191,6 @@ struct DynamicBlockCardView: View {
                     }
                     .buttonStyle(PrimaryButtonStyle())
                     .disabled(!preview.canApply)
-                    .opacity(preview.canApply ? 1 : 0.55)
                     Button("Cancel") {
                         appState.cancelDynamicBlockCard(regionHash: regionHash)
                     }

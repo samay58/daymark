@@ -12,17 +12,21 @@ enum DesignTokens {
     static let accentSoft = Color(hex: 0xE9EFE9)
     static let accentDeep = Color(hex: 0x4F634F)
     static let warning = Color(hex: 0xA15C38)
-    static let success = Color(hex: 0x5E755A)
     static let checkboxBorder = Color(hex: 0xC9C5BE)
 
     static let cardRadius: CGFloat = 8
     static let panelRadius: CGFloat = 12
 
-    /// Opacity of the warm canvas tint layered over the chrome's glass material (header band
-    /// today; palette, slip, receipt, popover in P4). One taste-tunable knob for translucency.
-    /// Set low enough that the material still reads as glass over warm paper. Reduce
-    /// Transparency still degrades to an opaque canvas fill upstream.
+    /// Opacity of the warm canvas tint over the chrome's glass material (the day header and every
+    /// `.glassSurface()`). Low enough that the material still reads as glass over warm paper.
     static let glassTintOpacity: Double = 0.6
+
+    /// Text fields and read-only value boxes sit on glass or on the popover material, so a
+    /// translucent white lifts them off either without a second hue.
+    static let fieldFill = Color.white.opacity(0.6)
+
+    /// Applied by the shared button styles, so a disabled action dims the same way everywhere.
+    static let disabledOpacity: Double = 0.55
 
     static let pillDueFill = surfaceWarm
     static let dateTileFill = surfaceWarm
@@ -37,41 +41,78 @@ enum DesignMetrics {
     static let editorMaxWidth: CGFloat = 720
     static let editorTopPadding: CGFloat = 48
 
+    // One checkbox geometry for the editor's drawn box, Open Loops rows, and card symbols.
     static let checkboxSize: CGFloat = 16
     static let checkboxRadius: CGFloat = 4
+    static let checkboxStroke: CGFloat = 1
+    static let checkmarkStroke: CGFloat = 1.6
+
     static let pillRadius: CGFloat = 4
+    static let pillPadding: CGFloat = 4
     static let dateTileSize: CGFloat = 48
     static let dateTileRadius: CGFloat = 10
+
+    /// The dynamic-block card's header strip while its source is revealed. The layout fragment
+    /// reserves exactly this slice above the region's first line, so the two must agree.
+    static let cardStripHeight: CGFloat = 28
 }
 
-// Typography follows docs/DESIGN_SYSTEM.md. Apple system fonts only.
+// Typography follows docs/DESIGN_SYSTEM.md. Apple system fonts only. Sizes the AppKit editor
+// also needs are exposed as points so both renderers read one number.
 enum DesignType {
-    static let dailyDate = Font.system(size: 30, weight: .semibold)
-    static let dailySubtitle = Font.system(size: 15, weight: .regular)
-    static let sectionHeading = Font.system(size: 20, weight: .semibold)
-    static let body = Font.system(size: 16, weight: .regular)
-    static let task = Font.system(size: 16, weight: .regular)
+    static let bodySize: CGFloat = 16
+    static let pillSize: CGFloat = 13
+    static let pillSymbolSize: CGFloat = 11
+
+    static let body = Font.system(size: bodySize, weight: .regular)
+    static let dayHeaderTitle = Font.system(size: 16, weight: .semibold)
+    static let dayHeaderDetail = Font.system(size: 13, weight: .regular)
     static let metadata = Font.system(size: 12, weight: .regular)
     static let palette = Font.system(size: 14, weight: .regular)
-    static let sidebar = Font.system(size: 13, weight: .regular)
     static let code = Font.system(size: 13, weight: .regular, design: .monospaced)
     static let dateTileNumeral = Font.system(size: 26, weight: .semibold)
-    static let pill = Font.system(size: 13, weight: .regular)
+    static let pill = Font.system(size: pillSize, weight: .regular)
+    static let pillSymbol = Font.system(size: pillSymbolSize, weight: .regular)
+    // Light weight brings the SF square's stroke close to the drawn box's 1pt line.
+    static let checkboxSymbol = Font.system(size: DesignMetrics.checkboxSize, weight: .light)
 
-    // SwiftUI line spacing is additive, so this is the gap above the glyph, not the full leading.
-    static let bodyLineSpacing: CGFloat = 6
+    // SwiftUI line spacing is additive, so this is the gap above each card row, not the leading.
+    static let cardLineSpacing: CGFloat = 8
+
+    /// Markdown heading sizes by level; level 4 and deeper share the last. The editor and cards
+    /// both read this, so a heading keeps its size when it moves into a card.
+    static func headingSize(level: Int) -> CGFloat {
+        switch level {
+        case 1: return 24
+        case 2: return 19
+        case 3: return 17
+        default: return 16
+        }
+    }
+
+    static func heading(level: Int) -> Font {
+        .system(size: headingSize(level: level), weight: .semibold)
+    }
 }
 
-// Motion budgets from docs/INTERACTION_SPEC.md. Nothing in daily use exceeds 220 ms.
+// Motion budgets from docs/INTERACTION_SPEC.md. Nothing in daily use exceeds 220 ms. Callers
+// pass nil instead of these under Reduce Motion, so every change becomes a plain state swap.
 enum DesignMotion {
     static let hover = Animation.easeOut(duration: 0.08)
-    static let commandPaletteOpen = Animation.easeOut(duration: 0.09)
-    static let commandPaletteClose = Animation.easeOut(duration: 0.07)
+    static let commandPalette = Animation.easeOut(duration: 0.09)
     static let slip = Animation.easeOut(duration: 0.09)
-    static let checkbox = Animation.spring(response: 0.18, dampingFraction: 0.72)
-    static let popover = Animation.easeOut(duration: 0.14)
+    /// Small crossfades: card hover controls, the brief strip notice, the receipt leaving.
+    static let fade = Animation.easeOut(duration: 0.12)
+    /// A surface changing state in place: card preview and status dot, the receipt arriving.
+    static let stateChange = Animation.easeOut(duration: 0.16)
+    /// The Open Loops overlay and the Codex Details disclosure.
     static let panel = Animation.easeOut(duration: 0.18)
-    static let dailyNavigation = Animation.easeOut(duration: 0.12)
+    /// The card refresh icon's single turn, which acknowledges the tap.
+    static let refreshSpin = Animation.easeOut(duration: 0.11)
+
+    // The editor animates in AppKit through `EditorMotion`, so it takes durations, not curves.
+    static let checkmarkDuration: CFTimeInterval = 0.14
+    static let revealFadeDuration: CFTimeInterval = 0.11
 }
 
 extension Color {
