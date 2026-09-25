@@ -4,16 +4,19 @@ Daymark is a high-craft, local-first macOS workspace centered on today's Markdow
 
 ## Status
 
-Milestones 0 (taste prototype), 1 (local workspace), 2 (Slip and capture), 3 (Tasks and Open Loops), 4 (Codex Handoff), and 5 (Dynamic Blocks) are complete. Milestone 7 (Dynamic Note Surface) is in its final gate. Today is a single-pane, note-centric surface. The sidebar and the right-margin panel are gone. The live editor renders clickable checkboxes, tag and wikilink pills, and due-date pills over the literal Markdown buffer, and conceals rollover and provenance markup until the caret touches it. Dynamic-block generated regions render as interactive cards inline in the note, with refresh, preview, apply, and view-source states. The Codex composer is a popover anchored at the selection, and an approved task file produces a receipt card with Finder reveal, path copy, and context-bundle creation. The day header is a material chrome band over the writing canvas. Phase 4 (glass floating surfaces, a calmer Codex popover, the card v2 redesign, and a motion pass) is built and gated, committed locally, and pending an acceptance walk before it closes and pushes to `main`. Milestone 6 (meeting prep) is paused after its first CLI/domain slice; the app meeting picker resumes after Milestone 7 closes. See `docs/PROGRESS.md` for the current state and `docs/ROADMAP.md` for the plan.
+Milestones 0 (taste prototype), 1 (local workspace), 2 (Slip and capture), 3 (Tasks and Open Loops), 4 (Codex Handoff), and 5 (Dynamic Blocks) are complete. Milestone 7 (Dynamic Note Surface) is built, gated, and on `main`. Today is a single-pane, note-centric surface. The sidebar and the right-margin panel are gone. The live editor renders clickable checkboxes, tag and wikilink pills, and due-date pills over the literal Markdown buffer, and conceals rollover and provenance markup until the caret touches it. Dynamic-block generated regions render as interactive cards inline in the note, with refresh, preview, apply, and view-source states. Each card applies only its own change, and a new `/daymark` command gets an anchored Insert preview before anything is written. The Codex composer is a popover anchored at the selection, and an approved task file produces a receipt card with Finder reveal, path copy, and context-bundle creation. The day header is a material chrome band over the writing canvas. Milestone 6 (meeting prep) is paused after its first CLI/domain slice; the app meeting picker resumes after Milestone 7 closes. See `docs/PROGRESS.md` for the current state and `docs/ROADMAP.md` for the plan.
 
 ## Build and run
 
 ```bash
-swift build                 # build all targets
-swift test                  # run the test suite
-swift run Daymark           # launch the SwiftUI app (opens to Today)
-swift run daymark doctor    # read-only workspace and index health check
+scripts/build.sh            # build all targets
+scripts/test.sh             # library tests, then CLI tests from the prebuilt bundle
+scripts/build_and_run.sh    # launch the SwiftUI app (opens to Today)
+scripts/doctor.sh           # read-only workspace and index health check
+scripts/install_app.sh      # build a release Daymark.app and install it to /Applications
 ```
+
+The scripts pin the Xcode toolchain this package needs (`scripts/toolchain.sh`); plain `swift` commands need the same `DEVELOPER_DIR` and `--build-system native`.
 
 The package builds two executables whose names differ only by case: the app `Daymark` and the CLI `daymark`. On a case-insensitive filesystem (macOS default) they share one path in `.build/`, so build or run one product at a time. `swift run Daymark` and `swift run daymark <command>` each relink the right one.
 

@@ -223,7 +223,7 @@ Goal: the presentation layer catches up to the product idea; Today's note become
 
 Why this matters: the deterministic engines from Milestones 2 through 5 are real, but the app still presents them through scaffolding chrome. The dynamic-document experience (live checkboxes, entity pills, inline generated-content cards with approval) is what makes Daymark useful daily.
 
-Status: final gate. Phases 1 through 4 are built and gated (single-pane shell, live editor, card islands, Codex popover, material chrome, glass surfaces, card v2, motion pass); Phase 4 is committed locally, not yet pushed. Remaining: an acceptance walk, then push and close.
+Status: built, gated, and on `main`. Phases 1 through 4 (single-pane shell, live editor, card islands, Codex popover, material chrome, glass surfaces, card v2, motion pass) plus the 2026-09-25 quality pass are pushed. Remaining: close after the first days of daily use.
 
 Build:
 

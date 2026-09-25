@@ -1135,34 +1135,49 @@ Opus-orchestrated.
 - Samay's acceptance walk on the polished build is the remaining gate step before M7 closes. Two taste calls for his eye: the mid-line due pill now renders as a wider warm chip (footprint fill), and card source reveal and collapse is an instant switch by design.
 - Parked: keyboard and VoiceOver access to the hover-only card controls; a permanent unit test for the incremental-merge logic (currently a DEBUG assertion; the merge lives in the shell, so extraction to Core is the follow-up); the 77ms debounced-scan floor on 5k lines (dominated by the frozen `NoteTokenScanner`). Toolchain drift: `--build-system native` now emits a deprecation warning but still works and stays required until the default backend is re-tested.
 
+## 2026-09-25: M7 quality pass before daily use
+
+Two independent reviews (bugs and maintainability) ran over the whole M7 diff, found real defects, and a second pair of reviews gated the fixes. Builders worked in isolated worktrees; the orchestrator merged, verified, and committed each packet.
+
+### What changed
+
+- Editor: the incremental token cache now merges from the real character edit (captured from `NSTextStorage`) over whole-line spans. Before, Return, line joins, and multi-line paste misdrew checkboxes, pills, and card ranges below the caret until an idle full pass. Cached-token clicks are bounds-checked (a stale range could crash and lose unsaved typing). Any wholesale string replacement re-applies all attributes, so an external edit no longer leaves the note in the first line's heading style.
+- Dynamic blocks: card Apply writes only that card's patch, and a new `/daymark` command gets an anchored Insert/Cancel preview. Before, Apply on any card also wrote unseen inserts. Patches carry their region's begin-marker hash and an original-text command range, so cards key correctly across U+2028 lines, trailing-space fences, and lone-CR files. Card bodies refresh after Apply. A workspace switch drops in-flight plan and apply results.
+- Failures are visible: card errors in the card footer, global outcomes as a four-second notice in the header strip. Copy fixes: "1 open loop", "N carried over", generated-line counts, HIG menu ellipses.
+- Structure: `CodexFlowModel` and `DynamicBlockRefreshModel` leave `AppState` a 526-line shell (was 871). One `AnchoredPopoverHost`, one `GlassBackground`, one overlay scrim. Every size, color, shadow, and duration comes from `DesignTokens`. No hashing or command parsing on the keystroke path; popover anchors are computed on open.
+- Core: one per-line scanner body, closing fences may carry trailing whitespace (CommonMark), `DailyNotePath` shared, formatters and regexes cached. Dead code, unemitted `InlineKind` cases, no-op palette rows, placeholder test folders, and history-narrating comments removed.
+- Tooling: every `scripts/*.sh` pins the toolchain through `scripts/toolchain.sh`; `scripts/test.sh` runs the canonical flow; `scripts/install_app.sh` builds and installs the release app to `/Applications`.
+
+### Verification
+
+- `scripts/test.sh`: 332 tests, 0 failures (291 library, 41 CLI). `swift build --product Daymark` has no repo warnings.
+- Randomized differential tests pin the merged cache and chunked scans to a fresh full scan (2,000 edits in the suite; a reviewer harness ran about 85,000 merges with 0 mismatches, plus a real TextKit 2 harness covering IME, undo, and CRLF paste over a region).
+- Temp-workspace dynamic-blocks check: dry-run writes nothing, apply writes three marker pairs, repeat apply is byte-identical, deleting `.daymark` rebuilds the cache without touching the note. `daymark doctor` read-only.
+
+### Carryover
+
+- Not exercised in the running app this pass: Escape on the Open Loops overlay (now a visible close button with the cancel shortcut), Codex popover content height, and the Codex Goal field line height. Check these on the first use of the installed build.
+- No app-target test target exists, so `DynamicBlockRefreshModel` behavior (workspace epoch, scoped apply) is covered by Core tests of its premises, not by direct tests.
+
 ## WHERE WE LEFT OFF
 
 ### Active Milestone
 
-Milestone 7: Dynamic Note Surface is in its final gate. Phases 1 through 3 plus
-a walk-feedback round and a tidy pass are built, gated, and pushed to `main`
-(through `85dfeb9`). Phase 4 (tunable glass on the floating surfaces, the calm
-two-field Codex popover, card v2, the motion pass, and a reveal-fade fix the
-adversarial gate surfaced) is built, gated, and committed locally through
-`041b710`, not yet pushed: the push waits on Samay's acceptance walk. What
-shipped across the milestone: the single-pane
-shell, the live editor (interactive checkboxes, entity pills, machine-text
-concealment), dynamic-block card islands (the core mechanic, on TextKit 2
-fragments), the Codex popover with receipts, the material header band, the
-never-maximized launch frame, and date-aware rollover prose. Milestone 6
-(meeting prep) is paused after its first CLI/domain slice; the app meeting
-picker resumes after M7. Milestone 5 is closed. Design:
-`docs/superpowers/specs/2026-07-05-dynamic-note-surface-design.md` (ADR-012, with
-the walk-feedback addendum). Plan: `.../plans/2026-07-05-dynamic-note-surface.md`.
+Milestone 7: Dynamic Note Surface is built, gated, and pushed, including the
+2026-09-25 quality pass. The installed `/Applications/Daymark.app` is built from
+`main` with `scripts/install_app.sh`. M7 closes on Samay's first days of real use.
+Milestone 6 (meeting prep) is paused after its first CLI/domain slice; the app
+meeting picker resumes after M7. Design:
+`docs/superpowers/specs/2026-07-05-dynamic-note-surface-design.md` (ADR-012).
 Ledger: `docs/orchestration/LEDGER.md`.
 
 ### Start Here Next
 
-1. Phase 4 is built and gated (glass surfaces, calm two-field Codex popover, card v2, motion pass, plus the adversarial-gate reveal-fade fix), committed locally through `041b710`. The remaining work is Samay's acceptance walk on the polished build, then the ledger final report (output tokens by tier now that the session model is Opus, not a Fable share), then the push he authorizes after the walk. Two taste calls to raise on the walk: the mid-line due pill now renders as a wider warm chip, and card source reveal and collapse is an instant switch by design (the 180ms height animation was deferred to avoid reintroducing the ghost-glyph bug).
+1. Use the installed build daily and log friction. The three unchecked items from the 2026-09-25 carryover (Open Loops Escape, Codex popover height, Goal field height) are the first things to confirm.
 2. The card mechanism is settled: custom TextKit 2 layout fragments. Never touch NSTextView.layoutManager anywhere; that trips the TextKit 1 fallback. Reveal uses live flags on persistent fragments, never class swaps. Never force full-document layout on interactive paths.
-3. Toolchain: every swift command needs `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer` and `--build-system native`. CLI tests run from the prebuilt xctest bundle, not `swift test --filter`.
-4. Accepted v1 debt: dynamic-block cards match patches by command hash, so editing a `/daymark` line between preview and apply shows a stale idle card (parked; needs public patch line ranges). App rollover still auto-applies on launch (parked, intentional).
-5. Builders never commit; the orchestrator commits per packet after each gate and updates the ledger. Samay's final walk on the polished build is the sign-off before M7 closes.
+3. Toolchain: use `scripts/*.sh`, which pin `DEVELOPER_DIR` and `--build-system native`. `Daymark` and `daymark` share one path on this case-insensitive disk; build `daymark` last before running the CLI binary directly, or `swift run daymark`.
+4. Accepted debt: app rollover still auto-applies on launch (parked, intentional). No test target covers the app shell.
+5. Builders never commit; the orchestrator commits per packet after each gate.
 
 ### Current Truths
 
