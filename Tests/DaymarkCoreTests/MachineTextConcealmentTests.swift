@@ -94,7 +94,7 @@ final class MachineTextConcealmentTests: XCTestCase {
         let md = "- Rolled over: ship it (from daily/2026/07/2026-07-04.md:12) \(Self.marker)\nafter"
         let ns = md as NSString
         let lineRange = ns.lineRange(for: NSRange(location: 0, length: 0))
-        let incremental = NoteTokenScanner.scanLines(md, in: lineRange)
+        let incremental = scanLinesWithCachedFence(md, in: lineRange)
 
         let m = incremental.inlineTokens.filter { if case .rolloverMarker = $0.kind { return true } else { return false } }
         XCTAssertEqual(m.count, 1)

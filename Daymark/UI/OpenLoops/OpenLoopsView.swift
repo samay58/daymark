@@ -9,17 +9,17 @@ struct OpenLoopsView: View {
             topBar
             content
         }
-        .glassSurface()
+        .glassSurface(.overlay)
         .task { await appState.refreshOpenLoops() }
     }
 
     private var topBar: some View {
         HStack(spacing: 12) {
             Image(systemName: "circle.dashed")
-                .font(.system(size: 15, weight: .medium))
+                .font(DesignType.panelIcon)
                 .foregroundStyle(DesignTokens.accent)
             Text("Open Loops")
-                .font(.system(size: 15, weight: .semibold))
+                .font(DesignType.panelTitle)
                 .foregroundStyle(DesignTokens.textPrimary)
             Text("\(appState.openLoopCount)")
                 .font(DesignType.metadata)
@@ -29,7 +29,7 @@ struct OpenLoopsView: View {
                 Task { await appState.refreshOpenLoops() }
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(DesignType.controlIcon)
                     .foregroundStyle(DesignTokens.textSecondary)
             }
             .buttonStyle(.plain)
@@ -41,7 +41,7 @@ struct OpenLoopsView: View {
                 appState.isOpenLoopsOverlayPresented = false
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(DesignType.controlIcon)
                     .foregroundStyle(DesignTokens.textSecondary)
             }
             .buttonStyle(.plain)
@@ -114,7 +114,7 @@ private struct OpenLoopSectionView: View {
                     }
                 }
             }
-            .background(Color.white.opacity(0.48))
+            .background(DesignTokens.fieldFill)
             .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cardRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: DesignTokens.cardRadius, style: .continuous)

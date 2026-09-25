@@ -22,8 +22,6 @@ final class CardIslandController: NSObject, @preconcurrency NSTextLayoutManagerD
     /// keyed on the hash alone.
     private var hostSignatures: [String: HostSignature] = [:]
     private var scrollObserver: NSObjectProtocol?
-    private var storageObserver: NSObjectProtocol?
-    private var isSignatureCheckScheduled = false
     private var isReconciling = false
 
     private let defaultHeight: CGFloat = 64
@@ -36,47 +34,11 @@ final class CardIslandController: NSObject, @preconcurrency NSTextLayoutManagerD
         layoutManager.delegate = self
         textView.cardController = self
         renderController.cardController = self
-        observeWholeDocumentReplacement(textView.textStorage)
     }
 
     deinit {
         if let scrollObserver {
             NotificationCenter.default.removeObserver(scrollObserver)
-        }
-        if let storageObserver {
-            NotificationCenter.default.removeObserver(storageObserver)
-        }
-    }
-
-    /// Replacing the whole buffer (an Apply, an external reload) can change a region's body while
-    /// its line structure, and so the token cache, stays identical; `regionsDidChange` never fires
-    /// then. A whole-document edit is the only case that needs this, so keystrokes cost one range
-    /// comparison here and nothing more.
-    private func observeWholeDocumentReplacement(_ storage: NSTextStorage?) {
-        guard storageObserver == nil, let storage else { return }
-        storageObserver = NotificationCenter.default.addObserver(
-            forName: NSTextStorage.didProcessEditingNotification,
-            object: storage,
-            queue: nil
-        ) { [weak self] notification in
-            MainActor.assumeIsolated {
-                guard let storage = notification.object as? NSTextStorage,
-                      storage.editedMask.contains(.editedCharacters),
-                      storage.editedRange.location == 0,
-                      storage.editedRange.length == storage.length else { return }
-                self?.scheduleSignatureCheck()
-            }
-        }
-    }
-
-    /// Runs after the current edit finishes, once the render controller has rescanned regions.
-    private func scheduleSignatureCheck() {
-        guard !isSignatureCheckScheduled, !hosts.isEmpty else { return }
-        isSignatureCheckScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.isSignatureCheckScheduled = false
-            self.refreshChangedHosts()
         }
     }
 

@@ -47,7 +47,7 @@ struct PrimaryButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .medium))
+            .font(DesignType.button)
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -64,7 +64,7 @@ struct SecondaryButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .medium))
+            .font(DesignType.button)
             .foregroundStyle(DesignTokens.textPrimary)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -85,7 +85,7 @@ struct QuietButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .medium))
+            .font(DesignType.button)
             .foregroundStyle(configuration.isPressed ? DesignTokens.textPrimary : DesignTokens.textSecondary)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -99,7 +99,7 @@ struct FieldLabel: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 11, weight: .medium))
+            .font(DesignType.fieldLabel)
             .foregroundStyle(DesignTokens.textSecondary)
     }
 }
@@ -128,9 +128,9 @@ struct ReadOnlyField: View {
         VStack(alignment: .leading, spacing: 6) {
             FieldLabel(text: label)
             Text(value)
-                .font(mono ? .system(size: 12, design: .monospaced) : .system(size: 13))
+                .font(mono ? DesignType.fieldMono : DesignType.field)
                 .foregroundStyle(DesignTokens.textPrimary)
-                .frame(maxWidth: .infinity, minHeight: CGFloat(lines) * 17, alignment: .topLeading)
+                .frame(maxWidth: .infinity, minHeight: CGFloat(lines) * DesignType.fieldLineHeight, alignment: .topLeading)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
                 .fieldChrome()
@@ -140,16 +140,19 @@ struct ReadOnlyField: View {
 
 // Chrome for every floating surface (capture slip, command palette, Open Loops, receipt card):
 // the day header's material and tint, plus a hairline border and panelRadius, so all chrome
-// reads as one material rather than separate blurs.
+// reads as one material rather than separate blurs. The shadow sets how far it floats.
 struct GlassSurface: ViewModifier {
+    var shadow: DesignShadow
+
     func body(content: Content) -> some View {
         content
             .background(GlassBackground(opaqueFallback: DesignTokens.surface))
             .clipShape(RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
-                    .stroke(DesignTokens.hairline.opacity(0.6), lineWidth: 1)
+                    .stroke(DesignTokens.glassStroke, lineWidth: 1)
             }
+            .shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, y: shadow.y)
     }
 }
 
@@ -186,6 +189,6 @@ private struct GlassMaterialView: NSViewRepresentable {
 }
 
 extension View {
-    func glassSurface() -> some View { modifier(GlassSurface()) }
+    func glassSurface(_ shadow: DesignShadow) -> some View { modifier(GlassSurface(shadow: shadow)) }
     func fieldChrome() -> some View { modifier(FieldChrome()) }
 }

@@ -16,10 +16,10 @@ struct DynamicBlockCardView: View {
     private var regionHash: String { context.region.hash }
 
     private var footer: Footer? {
-        let preview = appState.dynamicBlockCardPreview(forRegionHash: regionHash)
-        let error = appState.dynamicBlockCardErrors[regionHash]
+        let preview = appState.dynamicBlocks.cardPreview(forRegionHash: regionHash)
+        let error = appState.dynamicBlocks.cardErrors[regionHash]
         guard preview != nil || error != nil else { return nil }
-        return Footer(preview: preview, error: error, isApplying: appState.isApplyingDynamicBlocks)
+        return Footer(preview: preview, error: error, isApplying: appState.dynamicBlocks.isApplying)
     }
 
     /// What the footer shows. One value so a single `onChange` catches every height change.
@@ -126,14 +126,14 @@ struct DynamicBlockCardView: View {
 
     private var titleText: some View {
         Text(CardIslandCommand.title(for: context.command))
-            .font(.system(size: 12, weight: .medium))
+            .font(DesignType.label)
             .foregroundStyle(DesignTokens.textSecondary)
     }
 
     /// Generated-at label, refresh, and view-source; all quiet until the card is hovered.
     private func trailingControls(footer: Footer?) -> some View {
         HStack(spacing: 10) {
-            if footer == nil, let generatedAt = appState.dynamicBlockGeneratedAt(forRegionHash: regionHash) {
+            if footer == nil, let generatedAt = appState.dynamicBlocks.generatedAt(forRegionHash: regionHash) {
                 Text("Generated \(Self.relativeFormatter.localizedString(for: generatedAt, relativeTo: Date()))")
                     .font(DesignType.metadata)
                     .foregroundStyle(DesignTokens.textTertiary)
@@ -150,10 +150,10 @@ struct DynamicBlockCardView: View {
             if !reduceMotion {
                 withAnimation(DesignMotion.refreshSpin) { refreshAngle += 360 }
             }
-            Task { await appState.previewDynamicBlocksRefresh(fromCard: regionHash) }
+            Task { await appState.dynamicBlocks.preview(fromCard: regionHash) }
         } label: {
             Image(systemName: "arrow.clockwise")
-                .font(.system(size: 12, weight: .medium))
+                .font(DesignType.controlIcon)
                 .foregroundStyle(DesignTokens.textTertiary)
                 .rotationEffect(.degrees(refreshAngle))
         }
@@ -170,7 +170,7 @@ struct DynamicBlockCardView: View {
             context.notifyHeightChanged()
         } label: {
             Image(systemName: "curlybraces")
-                .font(.system(size: 12, weight: .medium))
+                .font(DesignType.controlIcon)
                 .foregroundStyle(context.isRevealed ? DesignTokens.accentDeep : DesignTokens.textTertiary)
         }
         .buttonStyle(.plain)
@@ -187,18 +187,18 @@ struct DynamicBlockCardView: View {
             HStack(spacing: 8) {
                 if let preview = footer.preview {
                     Button("Apply") {
-                        Task { await appState.applyDynamicBlockCard(regionHash: regionHash) }
+                        Task { await appState.dynamicBlocks.applyCard(regionHash: regionHash) }
                     }
                     .buttonStyle(PrimaryButtonStyle())
                     .disabled(!preview.canApply)
                     Button("Cancel") {
-                        appState.cancelDynamicBlockCard(regionHash: regionHash)
+                        appState.dynamicBlocks.cancelCard(regionHash: regionHash)
                     }
                     .buttonStyle(QuietButtonStyle())
                     .disabled(footer.isApplying)
                 } else {
                     Button("Dismiss") {
-                        appState.dismissDynamicBlockCardError(regionHash: regionHash)
+                        appState.dynamicBlocks.dismissCardError(regionHash: regionHash)
                     }
                     .buttonStyle(QuietButtonStyle())
                 }

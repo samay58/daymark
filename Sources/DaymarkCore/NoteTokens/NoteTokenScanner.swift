@@ -5,21 +5,9 @@ public enum NoteTokenScanner {
         scanFull(text)
     }
 
-    /// Scans only the requested line range, but stays fence-aware: fence state is derived by
-    /// walking every line from the document start up to the range, doing only trimmed-prefix
-    /// fence consumption (no classification, no inline scanning), so lines inside an open fence
-    /// classify as `.fence` exactly like `scan(_:)` would.
-    public static func scanLines(_ text: String, in lineRange: NSRange) -> NoteTokens {
-        let nsText = text as NSString
-        let expanded = expandedLineRange(for: lineRange, in: nsText)
-        let fence = fenceState(upTo: expanded.location, in: nsText)
-        return scanLinesCore(nsText: nsText, expanded: expanded, fence: fence)
-    }
-
-    /// Same as `scanLines(_:in:)`, but takes caller-maintained fence state at the start of
-    /// `lineRange` instead of walking the document from the start to derive it. The caller is
-    /// responsible for keeping `fence` in sync with the document (for example by updating it
-    /// alongside a cached full scan).
+    /// Scans only the lines `lineRange` touches, entering them with `fence`, the fence state at
+    /// the start of those lines. The caller keeps `fence` in step with the document, for example
+    /// with `NoteTokenCacheReducer.fenceStates(for:)`, so no edit walks the note from the top.
     public static func scanLines(_ text: String, in lineRange: NSRange, fence: MarkdownFenceScanner) -> NoteTokens {
         let nsText = text as NSString
         let expanded = expandedLineRange(for: lineRange, in: nsText)
@@ -33,22 +21,6 @@ public enum NoteTokenScanner {
             length: max(0, min(lineRange.length, nsText.length - clampedLocation))
         )
         return nsText.lineRange(for: clamped)
-    }
-
-    /// Walks every line from the document start up to (but excluding) `location`, feeding only
-    /// the trimmed line prefix to the fence scanner. No classification or token scanning happens
-    /// here; this exists purely to reconstruct fence state cheaply for a mid-document range.
-    private static func fenceState(upTo location: Int, in nsText: NSString) -> MarkdownFenceScanner {
-        var fence = MarkdownFenceScanner()
-        guard location > 0 else { return fence }
-        let priorRange = NSRange(location: 0, length: location)
-        nsText.enumerateSubstrings(in: priorRange, options: .byLines) { substring, _, _, _ in
-            let content = substring ?? ""
-            let leadingCount = leadingWhitespaceCount(content)
-            let leftTrimmed = String(content.dropFirst(leadingCount))
-            _ = fence.consume(trimmedLine: leftTrimmed)
-        }
-        return fence
     }
 
     /// Classifies one line and collects its inline tokens, advancing `fence` in place. Shared
@@ -209,10 +181,8 @@ public enum NoteTokenScanner {
     }
 
     private static func commandLine(_ trimmed: String) -> NoteTokens.LineKind? {
-        let parts = trimmed.split { $0 == " " || $0 == "\t" }.map(String.init)
-        guard parts.first == "/daymark", parts.count >= 2 else { return nil }
-        guard DynamicBlockCommand(rawValue: parts[1]) != nil else { return nil }
-        return .commandLine(command: parts[1])
+        guard trimmed.hasPrefix("/daymark"), let command = DynamicBlockParser.knownCommand(onLine: trimmed) else { return nil }
+        return .commandLine(command: command.rawValue)
     }
 
     // MARK: - Inline tokens

@@ -96,7 +96,7 @@ public struct DailyMarkdownProjectionReader {
     /// needs `allSources` (the dynamic-block refresh does) pays for the full-vault scan once
     /// instead of scanning every note again to rebuild the same per-path tags. A referenced
     /// source path that is absent from `sources` (untagged, missing, or under .daymark/)
-    /// resolves to no tags, preserving the previous silent fallback.
+    /// resolves to no tags rather than an error, so one stale reference cannot fail a refresh.
     public func allCodexContexts(
         sources: [DynamicBlockSource],
         fileManager: FileManager = .default

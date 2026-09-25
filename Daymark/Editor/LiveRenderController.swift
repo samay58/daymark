@@ -28,8 +28,7 @@ final class LiveRenderController {
     /// The selection the concealment attributes were last reconciled against. A caret move only
     /// flips the reveal state of tokens the caret entered or left, so `reconcileConcealment`
     /// diffs against this instead of rewriting concealment for every token on the note.
-    /// Not private so the debug benchmark can force a real diff.
-    var lastConcealmentSelection = NSRange(location: 0, length: 0)
+    private var lastConcealmentSelection = NSRange(location: 0, length: 0)
 
     /// In-flight reveal crossfades, keyed by token start location. A caret entering or leaving a
     /// concealed checkbox, due pill, or machine-text run fades its literal text in or out and its
@@ -504,6 +503,15 @@ final class LiveRenderController {
             try! NSRegularExpression(pattern: pattern, options: [])
         }
     }
+
+    #if DEBUG
+    /// Lets the latency benchmark time a real concealment diff: selecting a range reconciles
+    /// synchronously and advances the baseline, so the next reconcile would otherwise find
+    /// nothing to change.
+    func resetConcealmentBaseline(to selection: NSRange) {
+        lastConcealmentSelection = selection
+    }
+    #endif
 
     // MARK: - Timing
 

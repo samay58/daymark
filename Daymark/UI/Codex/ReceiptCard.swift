@@ -49,8 +49,7 @@ struct ReceiptCard: View {
         }
         .padding(14)
         .frame(width: 320, alignment: .leading)
-        .glassSurface()
-        .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
+        .glassSurface(.floating)
         .animation(reduceMotion ? nil : DesignMotion.stateChange, value: receipt.bundle)
     }
 
@@ -58,10 +57,10 @@ struct ReceiptCard: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(task.draft.title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(DesignType.cardTitle)
                     .foregroundStyle(DesignTokens.textPrimary)
                 Text(task.relativePath)
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(DesignType.fieldMono)
                     .foregroundStyle(DesignTokens.textSecondary)
             }
             HStack(spacing: 8) {
@@ -83,7 +82,7 @@ struct ReceiptCard: View {
     private func bundleContent(_ bundle: CodexContextBundle, message: String?, isError: Bool) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Context bundle")
-                .font(.system(size: 14, weight: .semibold))
+                .font(DesignType.cardTitle)
                 .foregroundStyle(DesignTokens.textPrimary)
 
             ReadOnlyField(label: "Task", value: bundle.taskRelativePath, mono: true)

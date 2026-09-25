@@ -246,7 +246,7 @@ final class NoteTokenCacheReducerTests: XCTestCase {
                 merged += 1
                 XCTAssertEqual(result.state.tokens, fresh, "iteration \(iteration)")
                 assertFenceStatesMatch(result.state.lineFenceStates, text, "iteration \(iteration)")
-                XCTAssertEqual(result.rescanned.lines, NoteTokenScanner.scanLines(text, in: result.span.newRange).lines, "iteration \(iteration)")
+                XCTAssertEqual(result.rescanned.lines, scanLinesWithCachedFence(text, in: result.span.newRange).lines, "iteration \(iteration)")
                 if result.state.tokens != fresh { return }
                 state = result.state
             } else {

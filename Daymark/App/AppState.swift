@@ -7,28 +7,18 @@ import DaymarkStore
 import DaymarkIndexer
 import DaymarkAgents
 
-/// A dynamic block card's pending change: the one-line summary, the incoming Markdown the card
-/// shows in place of its current body, and whether Apply is allowed right now.
-struct DynamicBlockCardPreview: Equatable {
-    var summaryText: String
-    var incomingMarkdown: String
-    var canApply: Bool
-    var isStale: Bool
-}
-
 @MainActor
 @Observable
 final class AppState {
     var workspaceRoot: WorkspaceRoot {
-        didSet { codex.workspaceRoot = workspaceRoot }
+        didSet {
+            codex.workspaceRoot = workspaceRoot
+            dynamicBlocks.workspaceRoot = workspaceRoot
+        }
     }
     var todayText: String {
-        didSet { recomputeBufferDerivations() }
+        didSet { dynamicBlocks.bufferDidChange() }
     }
-    /// Derivations of the editor buffer, memoized once per mutation in todayText.didSet so
-    /// dynamic-block buttons and cards never re-scan and re-hash the whole note while typing.
-    private(set) var todayContentHash = ""
-    private(set) var todayHasDynamicBlockCommand = false
     var isOpenLoopsOverlayPresented = false
     var rolledOverCount = 0
     var isCommandPalettePresented = false
@@ -40,38 +30,11 @@ final class AppState {
     private(set) var notice: String?
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
     let codex: CodexFlowModel
+    let dynamicBlocks: DynamicBlockRefreshModel
     /// Screen rect for a character range in the editor, installed by the editor so a popover can
     /// anchor to a selection or a line. Called only when a popover opens, never while typing.
     @ObservationIgnored var rectForCharacterRange: ((NSRange) -> NSRect?)?
 
-    /// The pending refresh preview, if any. Cards and the new-block popover read their own part.
-    private(set) var dynamicBlockSession: DynamicBlockRefreshSession?
-    /// Flips only when the buffer diverges from (or returns to) the previewed Markdown, so card
-    /// bodies observe one bool instead of the per-keystroke content hash.
-    private(set) var isDynamicBlockPreviewStale = false
-    private(set) var isPlanningDynamicBlocks = false
-    private(set) var isApplyingDynamicBlocks = false
-    /// Failures scoped to one card, keyed by region hash, shown in that card's footer.
-    private(set) var dynamicBlockCardErrors: [String: String] = [:]
-    /// Failure shown inside the new-block popover.
-    private(set) var newDynamicBlocksError: String?
-    /// Every planning run bumps this; a result from an older run (cancelled or superseded) is
-    /// ignored, since the detached planner itself cannot be interrupted.
-    @ObservationIgnored private var dynamicBlockGeneration = 0
-    @ObservationIgnored private var dynamicBlockPlanningTask: Task<Result<DynamicBlockRefreshSession, any Error>, Never>?
-    /// Cache records for today's note, keyed by command hash, backing each card's
-    /// "generated <relative time>" label. Reloaded after workspace load and after apply.
-    private var dynamicBlockCacheRecords: [String: DynamicBlockCacheRecord] = [:]
-
-    var canRefreshDynamicBlocks: Bool {
-        didLoadToday && todayHasDynamicBlockCommand
-    }
-    var isNewDynamicBlocksPopoverPresented: Bool {
-        !(dynamicBlockSession?.newBlocks.isEmpty ?? true)
-    }
-    /// The composer popover is open exactly while a draft exists.
-    var isCodexPopoverPresented: Bool { codex.composer != nil }
-    var codexReceipt: CodexFlowModel.Receipt? { codex.receipt }
     /// Local full-text search results for the current command-palette query.
     var searchResults: [SearchHit] = []
     var openLoopGroups: [OpenLoopGroup] = []
@@ -101,7 +64,9 @@ final class AppState {
     /// True only once today's real note is in the buffer. Persistence is gated on this so the
     /// initial `SampleData` placeholder (or a failed load) can never be written over the real
     /// daily note on disk.
-    private var didLoadToday = false
+    private var didLoadToday = false {
+        didSet { dynamicBlocks.isNoteLoaded = didLoadToday }
+    }
     private var autosaveTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
 
@@ -124,11 +89,35 @@ final class AppState {
     ) {
         self.workspaceRoot = workspaceRoot
         self.codex = CodexFlowModel(workspaceRoot: workspaceRoot)
+        self.dynamicBlocks = DynamicBlockRefreshModel(workspaceRoot: workspaceRoot, calendar: calendar)
         self.calendar = calendar
         self.todayText = SampleData.todayDocument
         self.lastSavedText = SampleData.todayDocument
-        recomputeBufferDerivations()
+        connectDynamicBlocks()
         observeTermination()
+    }
+
+    private func connectDynamicBlocks() {
+        dynamicBlocks.hooks = DynamicBlockRefreshModel.Hooks(
+            sourcePath: { [weak self] in self?.todayRelativePath ?? "" },
+            buffer: { [weak self] in self?.todayText ?? "" },
+            adoptApplied: { [weak self] markdown in
+                self?.lastSavedText = markdown
+                self?.todayText = markdown
+            },
+            raiseConflict: { [weak self] disk in
+                self?.externalDiskVersion = disk
+                self?.hasExternalConflict = true
+            },
+            recordSelfWrite: { [weak self] content in self?.recordSelfWrite(content) },
+            cancelAutosave: { [weak self] in self?.autosaveTask?.cancel() },
+            showNotice: { [weak self] text in self?.showNotice(text) },
+            reindexToday: { [weak self] in
+                if let indexer = self?.indexer { try? await indexer.indexToday() }
+            },
+            refreshOpenLoops: { [weak self] in await self?.refreshOpenLoops() }
+        )
+        dynamicBlocks.bufferDidChange()
     }
 
     /// Flush any pending Today write synchronously when the app is quitting, so a capture or
@@ -174,7 +163,7 @@ final class AppState {
 
         await openIndex(root: root, calendar: calendar)
         startWatching(root: root)
-        reloadDynamicBlockCache()
+        dynamicBlocks.reloadCache()
     }
 
     private func openIndex(root: WorkspaceRoot, calendar: Calendar) async {
@@ -216,6 +205,8 @@ final class AppState {
     /// Switches the active workspace root, persists the choice, and reloads Today from the
     /// new location. Tears down the previous index and watcher first so nothing leaks.
     func changeWorkspaceRoot(_ rawPath: String) async {
+        // Before any await, so an apply or planning run still in flight sees the switch.
+        dynamicBlocks.workspaceWillChange()
         let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
         SettingsStore.setWorkspaceRootOverride(trimmed.isEmpty ? nil : trimmed)
 
@@ -234,8 +225,6 @@ final class AppState {
         hasLoaded = false
         didLoadToday = false
         rolledOverCount = 0
-        // A pending preview was planned against the old root's note.
-        dismissDynamicBlocksRefresh()
 
         workspaceRoot = .resolve(override: SettingsStore.workspaceRootOverride())
         await prepareWorkspace()
@@ -297,14 +286,6 @@ final class AppState {
         selfWrittenHashes.insert(ContentHasher.hash(content))
     }
 
-    /// Recomputes the memoized buffer derivations the dynamic-block gating reads. Called once
-    /// per todayText mutation (didSet) and once at init, so the gating getters stay O(1).
-    private func recomputeBufferDerivations() {
-        todayContentHash = ContentHasher.hash(todayText)
-        todayHasDynamicBlockCommand = DynamicBlockParser().containsKnownCommand(in: todayText)
-        updateDynamicBlockStaleness()
-    }
-
     // MARK: - External edits and conflict resolution
 
     private func handleExternalChanges(_ paths: [String]) {
@@ -340,7 +321,7 @@ final class AppState {
             // rather than leaving cards showing a stale "generated" time.
             todayText = disk
             lastSavedText = disk
-            reloadDynamicBlockCache()
+            dynamicBlocks.reloadCache()
         } else {
             // Unsaved local edits and an external change: the user must choose.
             externalDiskVersion = disk
@@ -436,265 +417,12 @@ final class AppState {
         }
     }
 
-    // MARK: - Dynamic Blocks
+    // MARK: - Editor geometry
 
-    /// Where a refresh or apply started, which decides where its failure is reported.
-    private enum DynamicBlockOrigin: Equatable {
-        case global
-        case card(String)
-        case newBlocks
-    }
-
-    private typealias PlanningRun = (generation: Int, task: Task<Result<DynamicBlockRefreshSession, any Error>, Never>)
-
-    /// Menu, palette, and shortcut refresh. Failures and "nothing to do" go to the notice.
-    func previewDynamicBlocksRefresh() async {
-        await previewDynamicBlocks(origin: .global)
-    }
-
-    /// A card's own refresh button. Failures show in that card's footer.
-    func previewDynamicBlocksRefresh(fromCard regionHash: String) async {
-        await previewDynamicBlocks(origin: .card(regionHash))
-    }
-
-    private func previewDynamicBlocks(origin: DynamicBlockOrigin) async {
-        guard !isApplyingDynamicBlocks else { return }
-        guard didLoadToday else {
-            report(DynamicBlockCopy.notLoaded, origin: origin)
-            return
-        }
-        guard todayHasDynamicBlockCommand else {
-            setDynamicBlockSession(nil)
-            showNotice(DynamicBlockCopy.noCommands)
-            return
-        }
-        if case .card(let hash) = origin { dynamicBlockCardErrors[hash] = nil }
-
-        let run = startDynamicBlockPlanning()
-        guard let result = await finishDynamicBlockPlanning(run) else { return }
-        switch result {
-        case .success(let session):
-            dynamicBlockCardErrors = [:]
-            newDynamicBlocksError = nil
-            if session.isEmpty {
-                setDynamicBlockSession(nil)
-                showNotice(DynamicBlockCopy.upToDate)
-            } else {
-                setDynamicBlockSession(session)
-            }
-        case .failure(let error):
-            setDynamicBlockSession(nil)
-            report(DynamicBlockCopy.message(for: error), origin: origin)
-        }
-    }
-
-    /// Starts a planning run against the current buffer. Synchronous up to the detached work, so
-    /// `isPlanningDynamicBlocks` is already true (and Apply disabled) when this returns.
-    private func startDynamicBlockPlanning() -> PlanningRun {
-        dynamicBlockPlanningTask?.cancel()
-        dynamicBlockGeneration += 1
-        isPlanningDynamicBlocks = true
-        let root = workspaceRoot
-        let sourcePath = todayRelativePath
-        let markdown = todayText
-        let calendar = calendar
-        let task = Task.detached(priority: .userInitiated) { () -> Result<DynamicBlockRefreshSession, any Error> in
-            Result {
-                let preview = try DynamicBlockRefreshService().preview(
-                    markdown: markdown,
-                    sourcePath: sourcePath,
-                    root: root,
-                    referenceDate: Date(),
-                    calendar: calendar
-                )
-                return DynamicBlockRefreshSession.make(preview: preview, markdown: markdown)
-            }
-        }
-        dynamicBlockPlanningTask = task
-        return (dynamicBlockGeneration, task)
-    }
-
-    /// Nil when the run was cancelled or superseded; its result must not land.
-    private func finishDynamicBlockPlanning(_ run: PlanningRun) async -> Result<DynamicBlockRefreshSession, any Error>? {
-        let result = await run.task.value
-        guard run.generation == dynamicBlockGeneration, !run.task.isCancelled else { return nil }
-        isPlanningDynamicBlocks = false
-        dynamicBlockPlanningTask = nil
-        return result
-    }
-
-    /// Applies exactly the patch the card showed.
-    func applyDynamicBlockCard(regionHash: String) async {
-        guard let patch = dynamicBlockSession?.cardPatches[regionHash] else { return }
-        await applyDynamicBlockPatches([patch], origin: .card(regionHash))
-    }
-
-    /// Applies exactly the inserts the new-block popover showed.
-    func insertNewDynamicBlocks() async {
-        guard let blocks = dynamicBlockSession?.newBlocks, !blocks.isEmpty else { return }
-        await applyDynamicBlockPatches(blocks.map(\.patch), origin: .newBlocks)
-    }
-
-    private func applyDynamicBlockPatches(_ patches: [DynamicBlockPatch], origin: DynamicBlockOrigin) async {
-        guard let session = dynamicBlockSession, !isApplyingDynamicBlocks, !isPlanningDynamicBlocks else { return }
-        guard !isDynamicBlockPreviewStale else {
-            report(DynamicBlockCopy.stale, origin: origin)
-            return
-        }
-        clearError(for: origin)
-        let preview = session.scopedPreview(patches)
-
-        autosaveTask?.cancel()
-        isApplyingDynamicBlocks = true
-        let root = workspaceRoot
-        let markdown = todayText
-
-        // Compute the applied Markdown here and record it as our own write before the disk write,
-        // matching scheduleAutosave's echo-guard ordering so a watcher event racing the write is
-        // recognized as an echo. The detached task runs the same deterministic apply() and
-        // performs the workspace-confined write.
-        let updated: String
-        do {
-            updated = try preview.plan.apply(to: markdown)
-        } catch {
-            isApplyingDynamicBlocks = false
-            report(DynamicBlockCopy.message(for: error), origin: origin)
-            return
-        }
-        recordSelfWrite(updated)
-
-        let result = await Task.detached(priority: .userInitiated) {
-            Result {
-                try DynamicBlockRefreshService().apply(preview: preview, currentMarkdown: markdown, root: root)
-            }
-        }.value
-
-        isApplyingDynamicBlocks = false
-        switch result {
-        case .success(let applied):
-            // A keystroke may have landed between the snapshot above and here. Adopt the applied
-            // Markdown only if the buffer still matches what was previewed; otherwise the user
-            // has unsaved edits and the written disk version is a conflict to resolve, not a
-            // buffer to clobber.
-            if todayContentHash == preview.sourceContentHash {
-                let remaining = remainingDynamicBlocks(after: origin, appliedMarkdown: applied.updatedMarkdown)
-                setDynamicBlockSession(remaining)
-                lastSavedText = applied.updatedMarkdown
-                todayText = applied.updatedMarkdown
-                reloadDynamicBlockCache()
-                if remaining != nil { replanRemainingDynamicBlocks() }
-            } else {
-                externalDiskVersion = applied.updatedMarkdown
-                hasExternalConflict = true
-                setDynamicBlockSession(nil)
-                // The popover closes with the session, so its failure moves to the notice.
-                report(DynamicBlockCopy.changedDuringApply, origin: origin == .newBlocks ? .global : origin)
-            }
-            if let indexer {
-                try? await indexer.indexToday()
-            }
-            await refreshOpenLoops()
-        case .failure(let error):
-            report(DynamicBlockCopy.message(for: error), origin: origin)
-        }
-    }
-
-    /// The blocks still awaiting approval after `origin` was applied, rebased onto the applied
-    /// Markdown. Their line indexes are now wrong, so this is display-only until
-    /// `replanRemainingDynamicBlocks` replaces it; Apply stays disabled while that runs.
-    private func remainingDynamicBlocks(after origin: DynamicBlockOrigin, appliedMarkdown: String) -> DynamicBlockRefreshSession? {
-        guard var session = dynamicBlockSession else { return nil }
-        switch origin {
-        case .card(let hash): session.cardPatches[hash] = nil
-        case .newBlocks: session.newBlocks = []
-        case .global: return nil
-        }
-        guard !session.isEmpty else { return nil }
-        session.preview.sourceContentHash = ContentHasher.hash(appliedMarkdown)
-        return session
-    }
-
-    private func replanRemainingDynamicBlocks() {
-        let run = startDynamicBlockPlanning()
-        Task { [weak self] in
-            guard let self, let result = await self.finishDynamicBlockPlanning(run) else { return }
-            let fresh: DynamicBlockRefreshSession
-            switch result {
-            case .success(let session):
-                fresh = session
-            case .failure(let error):
-                self.setDynamicBlockSession(nil)
-                self.showNotice(DynamicBlockCopy.message(for: error))
-                return
-            }
-            guard let pending = self.dynamicBlockSession else { return }
-            // Read the pending set now, not at start: a card cancelled during the run stays gone.
-            let narrowed = fresh.keeping(
-                cards: Set(pending.cardPatches.keys),
-                newBlocks: Set(pending.newBlocks.map(\.id))
-            )
-            self.setDynamicBlockSession(narrowed.isEmpty ? nil : narrowed)
-        }
-    }
-
-    /// Cancels every pending preview and any planning run in flight. An apply already writing
-    /// is left to finish, since its file write cannot be taken back.
-    func dismissDynamicBlocksRefresh() {
-        guard !isApplyingDynamicBlocks else { return }
-        dynamicBlockPlanningTask?.cancel()
-        dynamicBlockPlanningTask = nil
-        dynamicBlockGeneration += 1
-        isPlanningDynamicBlocks = false
-        dynamicBlockCardErrors = [:]
-        newDynamicBlocksError = nil
-        setDynamicBlockSession(nil)
-    }
-
-    /// A card's Cancel: drops only that card's pending change and any error it shows.
-    func cancelDynamicBlockCard(regionHash: String) {
-        guard !isApplyingDynamicBlocks else { return }
-        dynamicBlockCardErrors[regionHash] = nil
-        guard var session = dynamicBlockSession, session.cardPatches[regionHash] != nil else { return }
-        session.cardPatches[regionHash] = nil
-        if session.isEmpty { dismissDynamicBlocksRefresh() } else { setDynamicBlockSession(session) }
-    }
-
-    /// The new-block popover's Cancel, or any close the user started: drops the inserts.
-    func cancelNewDynamicBlocks() {
-        guard !isApplyingDynamicBlocks else { return }
-        newDynamicBlocksError = nil
-        guard var session = dynamicBlockSession, !session.newBlocks.isEmpty else { return }
-        session.newBlocks = []
-        if session.isEmpty { dismissDynamicBlocksRefresh() } else { setDynamicBlockSession(session) }
-    }
-
-    func dismissDynamicBlockCardError(regionHash: String) {
-        dynamicBlockCardErrors[regionHash] = nil
-    }
-
-    func dynamicBlockCardPreview(forRegionHash regionHash: String) -> DynamicBlockCardPreview? {
-        guard let patch = dynamicBlockSession?.cardPatches[regionHash] else { return nil }
-        let stale = isDynamicBlockPreviewStale
-        return DynamicBlockCardPreview(
-            summaryText: stale ? DynamicBlockCopy.stale : DynamicBlockCopy.summary(for: patch),
-            incomingMarkdown: patch.generatedMarkdown,
-            canApply: !stale && !isPlanningDynamicBlocks && !isApplyingDynamicBlocks,
-            isStale: stale
-        )
-    }
-
-    var canInsertNewDynamicBlocks: Bool {
-        isNewDynamicBlocksPopoverPresented
-            && !isDynamicBlockPreviewStale
-            && !isPlanningDynamicBlocks
-            && !isApplyingDynamicBlocks
-    }
-
-    /// Screen rect of the first new command line, for anchoring the new-block popover. Nil when
-    /// the editor has not installed `rectForCharacterRange` or the range no longer fits.
-    func newDynamicBlocksAnchorScreenRect() -> NSRect? {
-        guard let range = dynamicBlockSession?.newBlocks.first?.commandLineRange,
-              let rectForCharacterRange,
+    /// Screen rect for a range of the buffer, for anchoring a popover. Nil when the editor has
+    /// not installed `rectForCharacterRange` or the range no longer fits the buffer.
+    func screenRect(forCharacterRange range: NSRange) -> NSRect? {
+        guard let rectForCharacterRange,
               NSMaxRange(range) <= (todayText as NSString).length,
               let rect = rectForCharacterRange(range),
               rect.width > 0 || rect.height > 0 else {
@@ -702,55 +430,6 @@ final class AppState {
         }
         return rect
     }
-
-    /// When the region last recorded a refresh in `.daymark/dynamic-blocks.json`, for the
-    /// card header's "generated <relative time>" label. Nil when no record exists yet.
-    func dynamicBlockGeneratedAt(forRegionHash regionHash: String) -> Date? {
-        guard let stamp = dynamicBlockCacheRecords[regionHash]?.refreshedAt else { return nil }
-        return Self.cacheDateFormatter.date(from: stamp)
-    }
-
-    private func setDynamicBlockSession(_ session: DynamicBlockRefreshSession?) {
-        dynamicBlockSession = session
-        updateDynamicBlockStaleness()
-    }
-
-    private func updateDynamicBlockStaleness() {
-        let stale = dynamicBlockSession.map { $0.preview.sourceContentHash != todayContentHash } ?? false
-        if stale != isDynamicBlockPreviewStale { isDynamicBlockPreviewStale = stale }
-    }
-
-    private func report(_ message: String, origin: DynamicBlockOrigin) {
-        switch origin {
-        case .global: showNotice(message)
-        case .card(let hash): dynamicBlockCardErrors[hash] = message
-        case .newBlocks: newDynamicBlocksError = message
-        }
-    }
-
-    private func clearError(for origin: DynamicBlockOrigin) {
-        switch origin {
-        case .global: break
-        case .card(let hash): dynamicBlockCardErrors[hash] = nil
-        case .newBlocks: newDynamicBlocksError = nil
-        }
-    }
-
-    private func reloadDynamicBlockCache() {
-        let records = (try? DynamicBlockCacheStore().read(root: workspaceRoot)) ?? []
-        let path = todayRelativePath
-        dynamicBlockCacheRecords = Dictionary(
-            records.filter { $0.sourcePath == path }.map { ($0.commandHash, $0) },
-            uniquingKeysWith: { _, latest in latest }
-        )
-    }
-
-    private static let cacheDateFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter
-    }()
 
     // MARK: - Codex task handoff
 
@@ -764,11 +443,6 @@ final class AppState {
         if !started {
             showNotice("Select text or place the cursor in a block first")
         }
-    }
-
-    /// Called when the composer popover closes without Create.
-    func dismissCodexTaskDraft() {
-        codex.dismissComposer()
     }
 
     // MARK: - Capture

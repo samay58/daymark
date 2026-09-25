@@ -328,7 +328,7 @@ final class NoteTokenScannerTests: XCTestCase {
         let markdown = "# Heading\n- [ ] task one\n- [x] task two"
         let nsMarkdown = markdown as NSString
         let secondLineRange = nsMarkdown.lineRange(for: NSRange(location: nsMarkdown.length - 5, length: 0))
-        let tokens = NoteTokenScanner.scanLines(markdown, in: secondLineRange)
+        let tokens = scanLinesWithCachedFence(markdown, in: secondLineRange)
         XCTAssertTrue(tokens.lines.contains { if case .task = $0.kind { return true } else { return false } })
     }
 
@@ -363,7 +363,7 @@ final class NoteTokenScannerTests: XCTestCase {
         // "- [ ] sample" is the first line inside the fence.
         guard let sampleLocation = nsLocation(of: "- [ ] sample", in: ns) else { return }
         let lineRange = ns.lineRange(for: NSRange(location: sampleLocation, length: 0))
-        let tokens = NoteTokenScanner.scanLines(markdown, in: lineRange)
+        let tokens = scanLinesWithCachedFence(markdown, in: lineRange)
 
         XCTAssertEqual(tokens.lines.count, 1)
         XCTAssertEqual(tokens.lines[0].kind, .fence)
@@ -375,13 +375,13 @@ final class NoteTokenScannerTests: XCTestCase {
         let ns = markdown as NSString
         guard let dueLocation = nsLocation(of: "x due:2026-07-08", in: ns) else { return }
         let lineRange = ns.lineRange(for: NSRange(location: dueLocation, length: 0))
-        let tokens = NoteTokenScanner.scanLines(markdown, in: lineRange)
+        let tokens = scanLinesWithCachedFence(markdown, in: lineRange)
         XCTAssertEqual(tokens.lines[0].kind, .fence)
         XCTAssertTrue(tokens.inlineTokens.filter { if case .dueDate = $0.kind { return true } else { return false } }.isEmpty)
 
         guard let tagLocation = nsLocation(of: "#tag-inside-fence", in: ns) else { return }
         let tagLineRange = ns.lineRange(for: NSRange(location: tagLocation, length: 0))
-        let tagTokens = NoteTokenScanner.scanLines(markdown, in: tagLineRange)
+        let tagTokens = scanLinesWithCachedFence(markdown, in: tagLineRange)
         XCTAssertEqual(tagTokens.lines[0].kind, .fence)
         XCTAssertTrue(tagTokens.inlineTokens.filter { $0.kind == .tag }.isEmpty)
     }
@@ -391,14 +391,14 @@ final class NoteTokenScannerTests: XCTestCase {
         let ns = markdown as NSString
         guard let afterLocation = nsLocation(of: "- [ ] after the fence due:2026-07-09", in: ns) else { return }
         let lineRange = ns.lineRange(for: NSRange(location: afterLocation, length: 0))
-        let tokens = NoteTokenScanner.scanLines(markdown, in: lineRange)
+        let tokens = scanLinesWithCachedFence(markdown, in: lineRange)
         guard case .task = tokens.lines[0].kind else {
             return XCTFail("expected task after the fence, got \(tokens.lines[0].kind)")
         }
         XCTAssertTrue(tokens.inlineTokens.contains { if case .dueDate = $0.kind { return true } else { return false } })
     }
 
-    func testScanLinesFenceOverloadWithSuppliedStateMatchesWalk() {
+    func testCachedFenceStateMatchesManualWalk() {
         let markdown = Self.fenceHeavyDocument
         let ns = markdown as NSString
         guard let sampleLocation = nsLocation(of: "- [ ] sample", in: ns) else { return }
@@ -410,7 +410,7 @@ final class NoteTokenScannerTests: XCTestCase {
             _ = fence.consume(trimmedLine: (substring ?? "").trimmingCharacters(in: .whitespaces))
         }
 
-        let walked = NoteTokenScanner.scanLines(markdown, in: lineRange)
+        let walked = scanLinesWithCachedFence(markdown, in: lineRange)
         let supplied = NoteTokenScanner.scanLines(markdown, in: lineRange, fence: fence)
         XCTAssertEqual(walked, supplied)
     }
@@ -429,7 +429,7 @@ final class NoteTokenScannerTests: XCTestCase {
             // Request via a zero-length range at the line start, same as callers (caret/click)
             // do; `incremental.lines.first?.range` is the actual scanned line (terminator
             // excluded, matching how `scan(_:)` records line ranges).
-            let incremental = NoteTokenScanner.scanLines(markdown, in: NSRange(location: start, length: 0))
+            let incremental = scanLinesWithCachedFence(markdown, in: NSRange(location: start, length: 0))
             guard let scannedRange = incremental.lines.first?.range else {
                 XCTFail("scanLines produced no line at \(start)")
                 continue
@@ -451,7 +451,7 @@ final class NoteTokenScannerTests: XCTestCase {
         let full = NoteTokenScanner.scan(markdown)
 
         guard let insideLocation = nsLocation(of: "- [ ] inside", in: ns) else { return }
-        let incremental = NoteTokenScanner.scanLines(markdown, in: NSRange(location: insideLocation, length: 0))
+        let incremental = scanLinesWithCachedFence(markdown, in: NSRange(location: insideLocation, length: 0))
         XCTAssertEqual(incremental.lines[0].kind, .fence)
         guard let scannedRange = incremental.lines.first?.range else {
             return XCTFail("scanLines produced no line")
@@ -465,14 +465,12 @@ final class NoteTokenScannerTests: XCTestCase {
     }
 }
 
-// MARK: - Differential safety net for the scanFull/scanLinesCore consolidation
+// MARK: - Differential safety net: full scan versus line-by-line scan
 
 /// Generates a deterministic (fixed-seed) corpus of synthetic notes and checks that `scan(_:)`
 /// matches the concatenation of `scanLines(_:in:fence:)` walked line by line with independently
-/// tracked fence state, mirroring how the live editor scans. This guarded the scanFull /
-/// scanLinesCore consolidation and stays afterward as a permanent regression guard; a temporary
-/// `LegacyScanner` (a frozen copy of the pre-refactor implementation) and a matching comparison
-/// test lived here during that refactor and were deleted once both were verified green.
+/// tracked fence state, mirroring how the live editor scans. The two paths share one per-line
+/// classifier, and this guards against either growing a rule the other lacks.
 final class NoteTokenScannerCorpusTests: XCTestCase {
     /// Splitmix64, chosen only for being a small, dependency-free, reproducible generator;
     /// no cryptographic property is needed here.
@@ -590,10 +588,9 @@ final class NoteTokenScannerCorpusTests: XCTestCase {
         return String(result)
     }
 
-    /// Reconstructs a full scan by walking the document one line at a time through the public
-    /// `scanLines(_:in:fence:)` overload, independently tracking fence state the same way the
-    /// live editor's cache would. This is the invariant that must hold forever, not just across
-    /// the refactor.
+    /// Reconstructs a full scan by walking the document one line at a time through
+    /// `scanLines(_:in:fence:)`, independently tracking fence state the same way the live
+    /// editor's cache does. A full scan and this walk must always agree.
     private func chunkedScan(_ text: String) -> (lines: [NoteTokens.Line], inline: [NoteTokens.InlineToken]) {
         let ns = text as NSString
         guard ns.length > 0 else { return ([], []) }

@@ -135,7 +135,7 @@ struct TodayView: View {
     private var conflictBanner: some View {
         HStack(spacing: 12) {
             Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 12, weight: .semibold))
+                .font(DesignType.warningIcon)
                 .foregroundStyle(DesignTokens.warning)
             Text("This note changed on disk while you had unsaved edits.")
                 .font(DesignType.metadata)
@@ -312,11 +312,11 @@ private struct ToolbarIcon: View {
             action?()
         } label: {
             Image(systemName: symbol)
-                .font(.system(size: 14))
+                .font(DesignType.icon)
                 .foregroundStyle(isHovering ? DesignTokens.textPrimary : DesignTokens.textSecondary)
-                .frame(width: 26, height: 26)
-                .background(isHovering ? Color.black.opacity(0.04) : .clear)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .frame(width: DesignMetrics.toolbarIconSize, height: DesignMetrics.toolbarIconSize)
+                .background(isHovering ? DesignTokens.hoverFill : .clear)
+                .clipShape(RoundedRectangle(cornerRadius: DesignMetrics.toolbarIconRadius, style: .continuous))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

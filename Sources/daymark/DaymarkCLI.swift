@@ -262,7 +262,7 @@ struct DaymarkCLI {
     }
 
     /// Scans `arguments` against a flag table, owning the value-presence guard and index
-    /// advancement that every command parser used to repeat. `unknown` builds the command's
+    /// advancement so no command parser repeats them. `unknown` builds the command's
     /// own error for any token not in the table, so each command's CommandError stays exact.
     private static func scanFlags(
         _ arguments: [String],

@@ -19,14 +19,14 @@ struct SlipPanelView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 Text("Capture")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(DesignType.panelTitle)
                     .foregroundStyle(DesignTokens.textPrimary)
                 Spacer()
                 Button {
                     handleDiscard()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(DesignType.controlIcon)
                         .foregroundStyle(DesignTokens.textSecondary)
                 }
                 .buttonStyle(.plain)
@@ -67,8 +67,7 @@ struct SlipPanelView: View {
         }
         .padding(16)
         .frame(width: 320)
-        .glassSurface()
-        .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
+        .glassSurface(.floating)
         .onExitCommand { handleDiscard() }
     }
 

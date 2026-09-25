@@ -22,7 +22,7 @@ public enum NoteTokenCacheReducer {
         public let replacedRange: NSRange
         public let insertedLength: Int
 
-        public init(replacedRange: NSRange, insertedLength: Int) {
+        init(replacedRange: NSRange, insertedLength: Int) {
             self.replacedRange = replacedRange
             self.insertedLength = insertedLength
         }
@@ -93,7 +93,7 @@ public enum NoteTokenCacheReducer {
     }
 
     /// The lines to rescan for `edit`, given `text` after the edit.
-    public static func span(for edit: Edit, in text: String) -> Span {
+    private static func span(for edit: Edit, in text: String) -> Span {
         let nsText = text as NSString
         let length = nsText.length
         let editStart = min(max(0, edit.replacedRange.location), length)

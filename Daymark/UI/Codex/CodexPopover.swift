@@ -2,88 +2,20 @@ import AppKit
 import SwiftUI
 import DaymarkCore
 
-/// Hosts the Codex composer as an `NSPopover` anchored at the current selection's screen
-/// rect. Mounted once, invisibly, in `RootView`; presentation follows
-/// `AppState.isCodexPopoverPresented`, so no other view manages the popover's lifecycle.
-struct CodexPopoverHost: NSViewRepresentable {
+/// Hosts the Codex composer in a popover pointing at the current selection. Mounted once,
+/// invisibly, in `RootView`; the popover is open exactly while the composer has a draft.
+struct CodexPopoverHost: View {
     let appState: AppState
 
-    func makeNSView(context: Context) -> PopoverAnchorView {
-        let view = PopoverAnchorView()
-        view.onWindowChange = { [weak coordinator = context.coordinator, weak view] in
-            guard let view else { return }
-            coordinator?.hostDidMoveToWindow(view)
+    var body: some View {
+        AnchoredPopoverHost(
+            isPresented: appState.codex.composer != nil,
+            preferredEdge: .maxY,
+            anchorScreenRect: { appState.screenRect(forCharacterRange: appState.editorSelection.selectedRange) },
+            onUserClose: { appState.codex.dismissComposer() }
+        ) {
+            CodexComposerForm(appState: appState)
         }
-        return view
-    }
-
-    func updateNSView(_ nsView: PopoverAnchorView, context: Context) {
-        context.coordinator.sync(host: nsView, appState: appState)
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    @MainActor
-    final class Coordinator: NSObject, NSPopoverDelegate {
-        private var popover: NSPopover?
-        private weak var hostRef: NSView?
-        private weak var appStateRef: AppState?
-        private var isClosingProgrammatically = false
-
-        func sync(host: NSView, appState: AppState) {
-            hostRef = host
-            appStateRef = appState
-            if appState.isCodexPopoverPresented {
-                attemptPresent()
-            } else if let popover {
-                isClosingProgrammatically = true
-                popover.performClose(nil)
-            }
-        }
-
-        func hostDidMoveToWindow(_ host: NSView) {
-            hostRef = host
-            attemptPresent()
-        }
-
-        private func attemptPresent() {
-            guard popover == nil else { return }
-            guard let appState = appStateRef, appState.isCodexPopoverPresented else { return }
-            guard let host = hostRef, let window = host.window else { return }
-
-            let screenRect = appState.rectForCharacterRange?(appState.editorSelection.selectedRange) ?? window.frame
-            let localRect = host.convert(window.convertFromScreen(screenRect), from: nil)
-
-            let created = NSPopover()
-            created.behavior = .semitransient
-            created.delegate = self
-            created.contentSize = NSSize(width: 380, height: 480)
-            created.contentViewController = NSHostingController(rootView: CodexComposerForm(appState: appState))
-            created.show(relativeTo: localRect, of: host, preferredEdge: .maxY)
-            popover = created
-        }
-
-        // Fires for every close, programmatic or user-driven (click outside, Esc). A
-        // programmatic close (Create succeeded, or Cancel already ran) has already put
-        // AppState in its correct end state; only a close we did not initiate ourselves
-        // needs to be treated as an implicit Cancel.
-        func popoverDidClose(_ notification: Notification) {
-            let wasProgrammatic = isClosingProgrammatically
-            isClosingProgrammatically = false
-            popover = nil
-            if !wasProgrammatic {
-                appStateRef?.dismissCodexTaskDraft()
-            }
-        }
-    }
-}
-
-final class PopoverAnchorView: NSView {
-    var onWindowChange: (() -> Void)?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        onWindowChange?()
     }
 }
 
@@ -94,13 +26,16 @@ final class PopoverAnchorView: NSView {
 private struct CodexComposerForm: View {
     let appState: AppState
 
+    private static let width: CGFloat = 380
+    private static let maxHeight: CGFloat = 480
+
     private var codex: CodexFlowModel { appState.codex }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Create Codex task")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(DesignType.panelTitle)
                     .foregroundStyle(DesignTokens.textPrimary)
 
                 Rectangle().fill(DesignTokens.hairline).frame(height: 1)
@@ -132,11 +67,13 @@ private struct CodexComposerForm: View {
                         .keyboardShortcut(.return, modifiers: .command)
                     Button("Cancel") { codex.dismissComposer() }
                         .buttonStyle(QuietButtonStyle())
+                        .keyboardShortcut(.cancelAction)
                 }
             }
             .padding(16)
         }
-        .frame(width: 380, height: 480)
+        .frame(width: Self.width)
+        .frame(maxHeight: Self.maxHeight)
         .background(Color.clear)
     }
 
@@ -193,7 +130,7 @@ private struct CodexDraftFields: View {
             .padding(.top, 10)
         } label: {
             Text("Details")
-                .font(.system(size: 12, weight: .medium))
+                .font(DesignType.label)
                 .foregroundStyle(DesignTokens.textSecondary)
         }
         .animation(reduceMotion ? nil : DesignMotion.panel, value: isDetailsExpanded)
@@ -213,7 +150,7 @@ private struct CodexDraftFields: View {
                 )
             )
             .textFieldStyle(.plain)
-            .font(.system(size: 13))
+            .font(DesignType.field)
             .foregroundStyle(DesignTokens.textPrimary)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -233,7 +170,7 @@ private struct CodexDraftFields: View {
                     }
                 )
             )
-            .font(.system(size: 13))
+            .font(DesignType.field)
             .foregroundStyle(DesignTokens.textPrimary)
             .scrollContentBackground(.hidden)
             .frame(maxWidth: .infinity, minHeight: CGFloat(lines) * 21, alignment: .topLeading)
@@ -263,9 +200,9 @@ private struct CodexSourceChip: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "doc.text")
-                .font(.system(size: 10, weight: .medium))
+                .font(DesignType.chipIcon)
             Text(label)
-                .font(.system(size: 11, design: .monospaced))
+                .font(DesignType.chip)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }

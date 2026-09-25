@@ -117,7 +117,7 @@ final class OpenLoopsCommandTests: XCTestCase {
         try skipIfBinaryMissing()
         let root = tempRoot()
         try writeDaily("## Capture\n\n- [ ] fresh open task\n", named: "2026-06-28.md", in: root)
-        // No `rebuild` first: open-loops now reads fresh from the Markdown files.
+        // No `rebuild` first: open-loops reads fresh from the Markdown files.
         let result = try runDaymark(["open-loops", "--root", root])
         XCTAssertEqual(result.status, 0, result.output)
         XCTAssertTrue(result.output.contains("fresh open task"),

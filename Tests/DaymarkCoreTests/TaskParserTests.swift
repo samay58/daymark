@@ -25,7 +25,7 @@ final class TaskParserTests: XCTestCase {
 
     func testCheckboxesInsideMixedFenceAreNotParsed() {
         // A backtick fence containing a tilde line must stay open, so the example checkboxes
-        // inside it are not parsed as real tasks (the old toggle-on-any-fence logic leaked them).
+        // inside it are not parsed as real tasks. Toggling on any fence marker would leak them.
         let markdown = """
         - [ ] real task
 

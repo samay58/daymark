@@ -17,11 +17,11 @@ extension DynamicBlockCommand {
 /// A `/daymark` line with no generated region yet, and the insert that would create one.
 struct NewDynamicBlock: Equatable, Identifiable, Sendable {
     var patch: DynamicBlockPatch
-    /// The command line's range in the Markdown the preview was planned from.
-    var commandLineRange: NSRange
 
     var id: String { patch.commandHash }
     var title: String { patch.command.blockTitle }
+    /// The command line's range in the Markdown the preview was planned from.
+    var commandLineRange: NSRange { patch.commandLineRange }
 }
 
 /// One refresh preview, split by where each change is approved: replacements on the card whose
@@ -29,6 +29,9 @@ struct NewDynamicBlock: Equatable, Identifiable, Sendable {
 /// note are kept, so an unchanged block never shows Apply.
 struct DynamicBlockRefreshSession: Equatable, Sendable {
     var preview: DynamicBlockRefreshPreview
+    /// The buffer the preview was planned from. Staleness is a string comparison against it, so
+    /// the keystroke path never hashes the note.
+    var sourceMarkdown: String
     /// Keyed by the hash in the existing region's begin marker, which is what a card knows. That
     /// differs from `patch.commandHash` once the command line has been edited.
     var cardPatches: [String: DynamicBlockPatch]
@@ -36,35 +39,24 @@ struct DynamicBlockRefreshSession: Equatable, Sendable {
 
     var isEmpty: Bool { cardPatches.isEmpty && newBlocks.isEmpty }
 
-    /// Matches each patch to the note by line: `commandLine` is the 1-based line of the command,
-    /// and the scanner's lines and regions are ranges in the same (unnormalized) Markdown.
     static func make(preview: DynamicBlockRefreshPreview, markdown: String) -> DynamicBlockRefreshSession {
-        let tokens = NoteTokenScanner.scan(markdown)
-        let ns = markdown as NSString
-        var regionsByCommandLine: [Int: NoteTokens.GeneratedRegion] = [:]
-        for region in tokens.regions {
-            if let commandRange = region.commandLineRange {
-                regionsByCommandLine[commandRange.location] = region
-            }
-        }
-
         var cardPatches: [String: DynamicBlockPatch] = [:]
         var newBlocks: [NewDynamicBlock] = []
-        for patch in preview.plan.patches {
-            let lineIndex = patch.commandLine - 1
-            guard tokens.lines.indices.contains(lineIndex) else { continue }
-            let commandRange = tokens.lines[lineIndex].range
+        for patch in preview.plan.patches where patch.changesMarkdown {
             switch patch.operation {
             case .insert:
-                newBlocks.append(NewDynamicBlock(patch: patch, commandLineRange: commandRange))
+                newBlocks.append(NewDynamicBlock(patch: patch))
             case .replacement:
-                guard let region = regionsByCommandLine[commandRange.location] else { continue }
-                let current = ns.substring(with: region.range).replacingOccurrences(of: "\r\n", with: "\n")
-                guard current != patch.replacementMarkdown else { continue }
-                cardPatches[region.hash] = patch
+                guard let regionHash = patch.existingRegionHash else { continue }
+                cardPatches[regionHash] = patch
             }
         }
-        return DynamicBlockRefreshSession(preview: preview, cardPatches: cardPatches, newBlocks: newBlocks)
+        return DynamicBlockRefreshSession(
+            preview: preview,
+            sourceMarkdown: markdown,
+            cardPatches: cardPatches,
+            newBlocks: newBlocks
+        )
     }
 
     /// A copy that previews only `patches`, for applying exactly what one surface showed.

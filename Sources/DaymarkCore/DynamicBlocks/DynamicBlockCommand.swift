@@ -111,9 +111,7 @@ public struct DynamicBlockParser: Sendable {
             if fence.consume(trimmedLine: trimmed) { continue }
             if fence.isInsideFence { continue }
 
-            let parts = trimmed.split { $0 == " " || $0 == "\t" }.map(String.init)
-            guard parts.first == "/daymark" else { continue }
-            guard parts.count >= 2 else { continue }
+            guard let parts = Self.commandParts(trimmed) else { continue }
             let commandName = parts[1]
             guard let command = DynamicBlockCommand(rawValue: commandName) else {
                 throw DynamicBlockError.unsupportedCommand(name: commandName, line: index + 1)
@@ -136,17 +134,32 @@ public struct DynamicBlockParser: Sendable {
     /// error, so a note with a valid command alongside an unsupported one still returns true.
     /// Used for UI gating, where parse()'s throw-on-unknown would wrongly report "no commands".
     public func containsKnownCommand(in markdown: String) -> Bool {
+        // Most notes have no command at all, and one substring search is far cheaper than
+        // normalizing and splitting every line.
+        guard markdown.contains("/daymark") else { return false }
         let lines = Self.normalized(markdown).components(separatedBy: "\n")
         var fence = MarkdownFenceScanner()
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if fence.consume(trimmedLine: trimmed) { continue }
             if fence.isInsideFence { continue }
-            let parts = trimmed.split { $0 == " " || $0 == "\t" }.map(String.init)
-            guard parts.count >= 2, parts.first == "/daymark" else { continue }
-            if DynamicBlockCommand(rawValue: parts[1]) != nil { return true }
+            if Self.knownCommand(onLine: trimmed) != nil { return true }
         }
         return false
+    }
+
+    /// The known command named on one `/daymark <command> [args]` line, split exactly the way
+    /// `parse` splits. Nil for any other line, including one naming an unknown command.
+    public static func knownCommand(onLine line: String) -> DynamicBlockCommand? {
+        guard let parts = commandParts(line.trimmingCharacters(in: .whitespaces)) else { return nil }
+        return DynamicBlockCommand(rawValue: parts[1])
+    }
+
+    /// The whitespace-separated words of a trimmed `/daymark` line with at least a command name.
+    private static func commandParts(_ trimmed: String) -> [String]? {
+        let parts = trimmed.split { $0 == " " || $0 == "\t" }.map(String.init)
+        guard parts.count >= 2, parts.first == "/daymark" else { return nil }
+        return parts
     }
 
     static func normalized(_ markdown: String) -> String {
@@ -426,6 +439,8 @@ private struct WeekWindow {
         date >= start && date < end
     }
 
+    // Looser than `DailyNotePath` on purpose: any note whose file name starts with an ISO date
+    // (a meeting note, say) counts toward that day's week.
     private static func date(fromDailyNotePath path: String, calendar: Calendar) -> Date? {
         let filename = (path as NSString).lastPathComponent
         guard filename.hasSuffix(".md"), filename.count >= 13 else { return nil }
@@ -457,6 +472,16 @@ public struct DynamicBlockPatch: Equatable, Sendable {
     public var operation: DynamicBlockPatchOperation
     public var generatedMarkdown: String
     public var replacementMarkdown: String
+    /// The hash in the begin marker of the region a replacement rewrites, which is the hash an
+    /// editor scanning the note sees. It differs from `commandHash` once the command line has
+    /// been edited. Nil for an insert.
+    public var existingRegionHash: String?
+    /// The command line's UTF-16 range in the Markdown exactly as passed to the planner, line
+    /// endings included, not counting its terminator. Callers map it straight onto their own
+    /// copy of that text without re-deriving line numbers.
+    public var commandLineRange: NSRange
+    /// False for a replacement whose region already holds exactly `replacementMarkdown`.
+    public var changesMarkdown: Bool
 
     let startLineIndex: Int
     let endLineIndex: Int
@@ -508,6 +533,7 @@ public struct DynamicBlockPatchPlanner: Sendable {
     ) throws -> DynamicBlockPatchPlan {
         let normalized = DynamicBlockParser.normalized(markdown)
         let lines = normalized.components(separatedBy: "\n")
+        let lineRanges = MarkdownLineRanges.utf16Ranges(in: markdown)
         let invocations = try parser.parse(markdown: normalized, sourcePath: sourcePath)
         var patches: [DynamicBlockPatch] = []
 
@@ -523,6 +549,7 @@ public struct DynamicBlockPatchPlanner: Sendable {
             let region = Self.generatedRegion(hash: invocation.commandHash, markdown: generated)
             let commandIndex = invocation.lineNumber - 1
             let regionStart = commandIndex + 1
+            let commandLineRange = lineRanges[commandIndex]
 
             if regionStart < lines.count, let beginHash = GeneratedRegionMarker.beginHash(in: lines[regionStart]) {
                 // Bound the region by the existing begin marker's hash, not the new
@@ -540,6 +567,9 @@ public struct DynamicBlockPatchPlanner: Sendable {
                     operation: .replacement,
                     generatedMarkdown: generated,
                     replacementMarkdown: region,
+                    existingRegionHash: beginHash,
+                    commandLineRange: commandLineRange,
+                    changesMarkdown: lines[regionStart...regionEnd].joined(separator: "\n") != region,
                     startLineIndex: regionStart,
                     endLineIndex: regionEnd
                 ))
@@ -553,6 +583,9 @@ public struct DynamicBlockPatchPlanner: Sendable {
                     operation: .insert,
                     generatedMarkdown: generated,
                     replacementMarkdown: region,
+                    existingRegionHash: nil,
+                    commandLineRange: commandLineRange,
+                    changesMarkdown: true,
                     startLineIndex: regionStart,
                     endLineIndex: regionStart
                 ))

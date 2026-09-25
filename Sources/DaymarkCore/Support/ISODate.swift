@@ -1,9 +1,9 @@
 import Foundation
 
 /// One `yyyy-MM-dd` formatter for the whole app, pinned to the POSIX locale and the given
-/// calendar's time zone so formatting and validation share a single convention. The previous
-/// copies disagreed (some pinned UTC, some used the calendar's zone), which let date
-/// validation drift from date parsing. Pass the calendar already in hand at each call site.
+/// calendar's time zone so formatting and validation share a single convention. A formatter
+/// pinned to another zone would let date validation drift from date parsing. Pass the calendar
+/// already in hand at each call site.
 public enum ISODate {
     public static func formatter(calendar: Calendar = Calendar(identifier: .gregorian)) -> DateFormatter {
         let formatter = DateFormatter()

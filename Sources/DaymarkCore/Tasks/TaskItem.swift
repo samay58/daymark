@@ -42,41 +42,9 @@ public struct TaskItem: Equatable, Sendable {
                 return "Tomorrow"
             case .date(let iso):
                 guard let date = ISODate.date(from: iso, calendar: calendar) else { return iso }
-                return Self.monthDayFormatter(for: calendar).string(from: date)
+                let style = Date.FormatStyle(locale: Locale(identifier: "en_US_POSIX"), calendar: calendar, timeZone: calendar.timeZone)
+                return date.formatted(style.month(.abbreviated).day())
             }
-        }
-
-        // Cached per (calendar identifier, time zone), since those are the only inputs that
-        // change the formatter's output; DateFormatter is thread-safe for concurrent reads
-        // once its properties are set, so a shared cached instance is safe to format from here.
-        private struct FormatterCacheKey: Hashable {
-            let calendarIdentifier: Calendar.Identifier
-            let timeZoneIdentifier: String
-        }
-
-        private static let formatterCacheLock = NSLock()
-        nonisolated(unsafe) private static var formatterCache: [FormatterCacheKey: DateFormatter] = [:]
-
-        private static func monthDayFormatter(for calendar: Calendar) -> DateFormatter {
-            let key = FormatterCacheKey(calendarIdentifier: calendar.identifier, timeZoneIdentifier: calendar.timeZone.identifier)
-
-            formatterCacheLock.lock()
-            if let cached = formatterCache[key] {
-                formatterCacheLock.unlock()
-                return cached
-            }
-            formatterCacheLock.unlock()
-
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.calendar = calendar
-            formatter.timeZone = calendar.timeZone
-            formatter.dateFormat = "MMM d"
-
-            formatterCacheLock.lock()
-            formatterCache[key] = formatter
-            formatterCacheLock.unlock()
-            return formatter
         }
     }
 

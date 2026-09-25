@@ -11,7 +11,7 @@ struct CommandPaletteView: View {
 
     private var availableCommands: [PaletteCommand] {
         SampleData.paletteCommands.filter { command in
-            command.action != .refreshDynamicBlocks || appState.canRefreshDynamicBlocks
+            command.action != .refreshDynamicBlocks || appState.dynamicBlocks.canRefresh
         }
     }
 
@@ -33,8 +33,7 @@ struct CommandPaletteView: View {
             resultsList
         }
         .frame(width: 520)
-        .glassSurface()
-        .shadow(color: .black.opacity(0.14), radius: 24, y: 12)
+        .glassSurface(.overlay)
         .onAppear {
             isFocused = true
             if let prefill = appState.commandPalettePrefill, !prefill.isEmpty {
@@ -51,11 +50,11 @@ struct CommandPaletteView: View {
     private var searchField: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 14))
+                .font(DesignType.icon)
                 .foregroundStyle(DesignTokens.textSecondary)
             TextField("Search notes and commands", text: $query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 15))
+                .font(DesignType.paletteQuery)
                 .foregroundStyle(DesignTokens.textPrimary)
                 .focused($isFocused)
                 .onSubmit { executeSelectedCommand() }
@@ -125,7 +124,7 @@ struct CommandPaletteView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 11, weight: .medium))
+            .font(DesignType.fieldLabel)
             .foregroundStyle(DesignTokens.textTertiary)
             .accessibilityAddTraits(.isHeader)
             .padding(.horizontal, 16)
@@ -162,7 +161,7 @@ struct CommandPaletteView: View {
         case .createCodexTask:
             appState.previewCodexTaskFromSelection()
         case .refreshDynamicBlocks:
-            Task { await appState.previewDynamicBlocksRefresh() }
+            Task { await appState.dynamicBlocks.preview() }
         case .openWorkspaceInFinder:
             NSWorkspace.shared.open(appState.workspaceRoot.expandedURL)
         }
@@ -177,7 +176,7 @@ private struct CommandRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: command.symbol)
-                .font(.system(size: 14))
+                .font(DesignType.icon)
                 .frame(width: 18)
                 .foregroundStyle(isSelected ? DesignTokens.accent : DesignTokens.textSecondary)
             Text(command.title)
@@ -211,7 +210,7 @@ private struct NoteResultRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "doc.text")
-                .font(.system(size: 14))
+                .font(DesignType.icon)
                 .frame(width: 18)
                 .foregroundStyle(isHovering ? DesignTokens.accent : DesignTokens.textSecondary)
             VStack(alignment: .leading, spacing: 2) {

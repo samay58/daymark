@@ -7,6 +7,8 @@ import DaymarkCore
 // controller against a 5k-line note (run it against a scratch workspace only). Every buffer edit
 // it makes to time the sync path is a matched insert and remove that restores the buffer.
 extension LiveRenderController {
+    /// Silences the per-keystroke timing log while the benchmark runs, since that log sits inside
+    /// the timed path.
     static var benchmarkRunning = false
 
     func runBenchmarkIfRequested() {
@@ -67,9 +69,7 @@ extension LiveRenderController {
         var reconcileTimes: [Double] = []
         for i in 0..<300 {
             textView.setSelectedRange(i % 2 == 0 ? a : b)
-            // setSelectedRange fires the delegate reconcile synchronously and advances the
-            // baseline, so force a real diff here to measure the per-caret-move cost.
-            lastConcealmentSelection = i % 2 == 0 ? b : a
+            resetConcealmentBaseline(to: i % 2 == 0 ? b : a)
             let t = CFAbsoluteTimeGetCurrent()
             reconcileConcealment()
             reconcileTimes.append((CFAbsoluteTimeGetCurrent() - t) * 1000)

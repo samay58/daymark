@@ -31,10 +31,10 @@ struct MenuCommands: Commands {
             .keyboardShortcut("c", modifiers: [.command, .shift])
 
             Button("Refresh Dynamic Blocks…") {
-                Task { await appState.previewDynamicBlocksRefresh() }
+                Task { await appState.dynamicBlocks.preview() }
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
-            .disabled(!appState.canRefreshDynamicBlocks)
+            .disabled(!appState.dynamicBlocks.canRefresh)
         }
     }
 }

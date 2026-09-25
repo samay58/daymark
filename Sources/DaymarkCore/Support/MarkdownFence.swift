@@ -3,8 +3,8 @@ import Foundation
 /// Tracks fenced code block state across Markdown lines using CommonMark-style fence
 /// matching. A fence opens on a run of at least three backticks or tildes and closes
 /// only on a line that is a run of the same fence character, at least as long as the
-/// opener, with no other content. A different or shorter fence marker inside the block
-/// is treated as content, so it can no longer prematurely end the block.
+/// opener, with nothing after it but spaces or tabs. A different or shorter fence marker
+/// inside the block is treated as content, so it cannot end the block early.
 public struct MarkdownFenceScanner: Sendable {
     private var openCharacter: Character?
     private var openLength = 0
@@ -13,7 +13,7 @@ public struct MarkdownFenceScanner: Sendable {
 
     public var isInsideFence: Bool { openCharacter != nil }
 
-    /// Feeds the next line (trimmed of surrounding whitespace) and updates fence state.
+    /// Feeds the next line, trimmed of at least its leading whitespace, and updates fence state.
     /// Returns true when the line is a fence delimiter (an opener or a matching closer),
     /// which callers skip the same way they skip lines inside a fence.
     public mutating func consume(trimmedLine: String) -> Bool {
@@ -40,9 +40,13 @@ public struct MarkdownFenceScanner: Sendable {
         return (first, run)
     }
 
+    // Trailing spaces and tabs are allowed after a closing run, as in CommonMark. Callers that
+    // trim only the leading side (the editor's scanner) then agree with callers that trim both.
     private static func isClosingFence(_ trimmed: String, character: Character, minimumLength: Int) -> Bool {
-        guard !trimmed.isEmpty, trimmed.count >= minimumLength else { return false }
-        return trimmed.allSatisfy { $0 == character }
+        var run = Substring(trimmed)
+        while let last = run.last, last == " " || last == "\t" { run = run.dropLast() }
+        guard !run.isEmpty, run.count >= minimumLength else { return false }
+        return run.allSatisfy { $0 == character }
     }
 }
 

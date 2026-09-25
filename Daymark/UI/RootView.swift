@@ -43,7 +43,7 @@ struct RootView: View {
         .animation(reduceMotion ? nil : DesignMotion.slip, value: appState.isSlipPresented)
         .animation(reduceMotion ? nil : DesignMotion.commandPalette, value: appState.isCommandPalettePresented)
         .animation(reduceMotion ? nil : DesignMotion.panel, value: appState.isOpenLoopsOverlayPresented)
-        .animation(reduceMotion ? nil : DesignMotion.stateChange, value: appState.codexReceipt != nil)
+        .animation(reduceMotion ? nil : DesignMotion.stateChange, value: appState.codex.receipt != nil)
         .task { await appState.prepareWorkspace() }
         .onChange(of: appState.todayText) { _, _ in
             appState.handleTodayTextChange()
@@ -78,7 +78,6 @@ private struct OpenLoopsOverlay: View {
                 OpenLoopsView()
                     .frame(width: 560)
                     .frame(maxHeight: proxy.size.height * 0.7)
-                    .shadow(color: .black.opacity(0.14), radius: 24, y: 12)
                     .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
             }
             .frame(width: proxy.size.width, height: proxy.size.height)

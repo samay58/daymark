@@ -18,12 +18,9 @@ struct CardIslandContext {
 typealias CardIslandContentProvider = (CardIslandContext) -> AnyView
 
 enum CardIslandCommand {
-    /// The command named on a `/daymark <command> [args]` line, split the way the parser splits.
+    /// The command named on a `/daymark <command> [args]` line.
     static func parse(_ line: String?) -> DynamicBlockCommand? {
-        guard let line else { return nil }
-        let parts = line.split { $0 == " " || $0 == "\t" }
-        guard parts.first == "/daymark", parts.count >= 2 else { return nil }
-        return DynamicBlockCommand(rawValue: String(parts[1]))
+        line.flatMap(DynamicBlockParser.knownCommand(onLine:))
     }
 
     /// "Generated" covers a region with no adjacent command line, or one naming an unknown command.

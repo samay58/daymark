@@ -56,9 +56,8 @@ final class NoteTokenScannerPerfTests: XCTestCase {
         XCTAssertEqual(tokens.lines.count, 5000)
 
         // Every line is "- [ ] task N due:2026-07-08 #work [[Ref N]] https://ex.com/N", so a
-        // correct dense scan must find exactly one of each inline token kind per line, not just
-        // the right line count (a scanner that dropped inline scanning entirely would still
-        // pass the line-count-only assertion this replaces).
+        // correct dense scan finds exactly one of each inline token kind per line. Counting only
+        // lines would let a scanner that skipped inline scanning pass.
         let taskLines = tokens.lines.filter { if case .task = $0.kind { return true } else { return false } }
         XCTAssertEqual(taskLines.count, 5000)
         let dueTokens = tokens.inlineTokens.filter { if case .dueDate = $0.kind { return true } else { return false } }
@@ -69,8 +68,8 @@ final class NoteTokenScannerPerfTests: XCTestCase {
     }
 
     // This is the app's real sync-paragraph-restyle keystroke path (LiveRenderController):
-    // fence state comes from the controller's cache, not a document walk, via the
-    // fence-supplied scanLines overload. Budget: 1ms per the keystroke path requirement.
+    // fence state comes from the controller's cache, not a document walk. Budget: 1ms per the
+    // keystroke path requirement.
     func testParagraphScanIsCheapOn5kLines() {
         let text = representativeNote(lines: 5000)
         let ns = text as NSString
@@ -88,37 +87,6 @@ final class NoteTokenScannerPerfTests: XCTestCase {
         NSLog("[perf] paragraph scanLines (fence-supplied, cached path) on 5k-line note (worst of 200): %.4f ms", worst)
         if perfGateEnabled {
             XCTAssertLessThan(worst, 1)
-        }
-    }
-
-    // The default scanLines overload derives fence state by walking from the document start.
-    // That path stays correct for generic callers, but it is not the editor's per-keystroke path.
-    func testFenceSuppliedScanAvoidsPrefixWalkAtDocumentEnd() {
-        let text = representativeNote(lines: 5000)
-        let ns = text as NSString
-        let lastLine = ns.lineRange(for: NSRange(location: ns.length - 1, length: 0))
-        let fence = MarkdownFenceScanner()
-
-        var defaultBest = Double.greatestFiniteMagnitude
-        var suppliedBest = Double.greatestFiniteMagnitude
-        for _ in 0..<10 {
-            var started = CFAbsoluteTimeGetCurrent()
-            _ = NoteTokenScanner.scanLines(text, in: lastLine)
-            defaultBest = min(defaultBest, (CFAbsoluteTimeGetCurrent() - started) * 1000)
-
-            started = CFAbsoluteTimeGetCurrent()
-            _ = NoteTokenScanner.scanLines(text, in: lastLine, fence: fence)
-            suppliedBest = min(suppliedBest, (CFAbsoluteTimeGetCurrent() - started) * 1000)
-        }
-
-        NSLog(
-            "[perf] document-end scanLines default best %.4f ms; fence-supplied best %.4f ms",
-            defaultBest,
-            suppliedBest
-        )
-        if perfGateEnabled {
-            XCTAssertLessThan(suppliedBest, defaultBest * 0.5)
-            XCTAssertLessThan(suppliedBest, 1)
         }
     }
 }
