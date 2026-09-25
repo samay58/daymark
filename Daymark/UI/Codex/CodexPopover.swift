@@ -51,7 +51,7 @@ struct CodexPopoverHost: NSViewRepresentable {
             guard let appState = appStateRef, appState.isCodexPopoverPresented else { return }
             guard let host = hostRef, let window = host.window else { return }
 
-            let screenRect = appState.codexAnchorScreenRect ?? window.frame
+            let screenRect = appState.rectForCharacterRange?(appState.editorSelection.selectedRange) ?? window.frame
             let localRect = host.convert(window.convertFromScreen(screenRect), from: nil)
 
             let created = NSPopover()

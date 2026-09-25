@@ -16,19 +16,27 @@ final class LiveRenderController {
     /// Bumped every time `cachedTokens` changes, so callers can detect a stale read across an
     /// await boundary without re-diffing the tokens themselves.
     private(set) var textVersion = 0
-    /// Fence state entering each line, sorted by line start. Same-line edits look up this cached
-    /// state in O(log n); edits that can affect fence structure take the full-pass path.
+    /// Fence state entering each line, sorted by line start, so an edit can rescan its own lines
+    /// without walking the note from the top to find out whether they sit inside a fence.
     private var lineFenceStates: [NoteTokenCacheReducer.LineFenceState] = []
+
+    /// Character edits the text storage reported since `cachedTokens` last matched its text,
+    /// folded into one replacement in the cached text's coordinates. Several storage edits can
+    /// land before one `textDidChange` (undo groups, IME marked text), and the cache must be
+    /// patched with all of them at once.
+    private var pendingEdit: NoteTokenCacheReducer.Edit?
+    private var storageEditObserver: StorageEditObserver?
 
     /// The selection the concealment attributes were last reconciled against. A caret move only
     /// flips the reveal state of tokens the caret entered or left, so `reconcileConcealment`
     /// diffs against this instead of rewriting concealment for every token on the note.
-    private var lastConcealmentSelection = NSRange(location: 0, length: 0)
+    /// Not private so the debug benchmark can force a real diff.
+    var lastConcealmentSelection = NSRange(location: 0, length: 0)
 
     /// In-flight reveal crossfades, keyed by token start location. A caret entering or leaving a
     /// concealed checkbox, due pill, or machine-text run fades its literal text in or out and its
-    /// drawn overlay out or in over ~110ms rather than snapping. Reduce Motion bypasses this and
-    /// swaps instantly. An edit is authoritative and clears any fade for its range.
+    /// drawn overlay out or in over `revealFadeDuration` rather than snapping. Reduce Motion
+    /// bypasses this and swaps instantly. An edit is authoritative and clears any fade for its range.
     private struct RevealFade {
         var progress: CGFloat
         var target: CGFloat
@@ -38,6 +46,7 @@ final class LiveRenderController {
     }
     private var revealFades: [Int: RevealFade] = [:]
     private var revealFadeTask: Task<Void, Never>?
+    private static let revealFadeDuration: CFTimeInterval = 0.11
 
     private static let concealTextPrimary = NSColor(DesignTokens.textPrimary)
     private static let concealTextSecondary = NSColor(DesignTokens.textSecondary)
@@ -46,6 +55,9 @@ final class LiveRenderController {
     func attach(_ textView: LiveTextView) {
         self.textView = textView
         textView.controller = self
+        storageEditObserver = textView.textStorage.map { storage in
+            StorageEditObserver(storage: storage) { [weak self] edit in self?.recordEdit(edit) }
+        }
     }
 
     static func baseFont() -> NSFont { .systemFont(ofSize: bodySize) }
@@ -65,25 +77,29 @@ final class LiveRenderController {
         ]
     }
 
-    func styleAll() {
+    /// Rescans the whole note and re-applies attributes when the scan differs from the cache.
+    /// Pass `force` after the text was replaced wholesale (`textView.string = ...`): that gives
+    /// the entire storage the first character's attributes, so a scan that happens to match the
+    /// cache still needs every attribute re-applied.
+    func styleAll(force: Bool = false) {
         guard let storage = textView?.textStorage else { return }
         let text = storage.string
         let full = NSRange(location: 0, length: (text as NSString).length)
         let started = CFAbsoluteTimeGetCurrent()
         let tokens = NoteTokenScanner.scan(text)
+        // A pending edit means the storage changed without an incremental restyle, so the
+        // attributes around it were never applied even if the tokens came out the same.
+        let storageChanged = pendingEdit != nil
+        pendingEdit = nil
 
-        // The incremental paragraph pass already keeps the cache and the applied attributes in
-        // sync line by line. This debounced full scan exists to catch cross-line drift (a fence
-        // or region marker opened or closed, a multi-line paste). When the fresh scan matches the
-        // cache, none of that happened, so the whole-document re-apply is pure waste and
-        // reflows nothing new.
-        // The scan still runs every debounce, so the reconcile contract is intact; only the
-        // redundant re-styling is skipped.
-        if tokens == cachedTokens {
+        // The debounced pass runs after every burst of typing. When the incremental path kept
+        // the cache exact, the scan matches and a whole-document re-apply would only reflow.
+        if !force, !storageChanged, tokens == cachedTokens {
             logFull(CFAbsoluteTimeGetCurrent() - started, lineCount: tokens.lines.count)
             return
         }
 
+        if force { revealFades.removeAll() }
         apply(tokens, to: storage, in: full)
         applyEmphasis(storage, tokens: tokens, in: full)
         applyConcealment(tokens: tokens, selection: currentSelection(), storage: storage)
@@ -95,52 +111,56 @@ final class LiveRenderController {
         cardController?.regionsDidChange()
     }
 
+    /// Restyles the lines the pending edit touched and schedules the debounced full pass.
     func styleEditedParagraph() {
-        guard let textView, let storage = textView.textStorage else { return }
-        let text = storage.string
-        let ns = text as NSString
-        let caret = min(textView.selectedRange().location, ns.length)
-        let paragraph = ns.lineRange(for: NSRange(location: caret, length: 0))
-
-        // Opening or closing a fence reclassifies every line after it. Correct immediately
-        // (a full pass) instead of waiting out the debounce, so there is no visible window
-        // where stale checkbox/pill/tag decorations show up inside (or outside) the fence.
-        if !NoteTokenCacheReducer.canMergeIncrementally(text: text, editedRange: paragraph) {
-            styleAll()
-            return
-        }
-
-        let started = CFAbsoluteTimeGetCurrent()
-        let fence = fenceStateEntering(paragraph.location)
-        let tokens = NoteTokenScanner.scanLines(text, in: paragraph, fence: fence)
-        apply(tokens, to: storage, in: paragraph)
-        applyEmphasis(storage, tokens: tokens, in: paragraph)
-        applyConcealment(tokens: tokens, selection: textView.selectedRange(), storage: storage)
-        mergeIntoCache(tokens, editedRange: paragraph)
-        logSync(CFAbsoluteTimeGetCurrent() - started)
-        textView.needsDisplay = true
+        guard restyleForPendingEdit() else { return }
         scheduleFullPass()
     }
 
-    /// Restyles exactly the paragraph a checkbox toggle changed, and nothing else. A toggle is
-    /// a bounded, same-length `[ ]`/`[x]` edit that cannot open or close a fence and cannot
-    /// start or end a generated region (the toggler refuses lines inside a region), so there is
-    /// no need for the whole-document `styleAll()` a normal edit schedules. Skipping it removes
-    /// the debounced full-document `setAttributes` + card reposition that reflows the note under
-    /// the toggled line. It also targets the toggled line directly instead of the caret's line,
-    /// since a click toggle leaves the caret where it was.
-    func styleToggledLine(at location: Int) {
+    /// Restyles the line a checkbox toggle changed without scheduling the full pass. A toggle is
+    /// a same-length `[ ]`/`[x]` replace that cannot move a fence or a region marker, so the
+    /// whole-document pass would only reflow the note under the toggled line.
+    func styleToggledLine() {
+        _ = restyleForPendingEdit()
+    }
+
+    /// Returns false when there was nothing to restyle incrementally, either because no
+    /// character edit is pending or because the edit forced a full pass instead.
+    private func restyleForPendingEdit() -> Bool {
+        guard let storage = textView?.textStorage else { return false }
+        guard let edit = pendingEdit else {
+            styleAll()
+            return false
+        }
+        pendingEdit = nil
+        let started = CFAbsoluteTimeGetCurrent()
+        let text = storage.string
+        let state = NoteTokenCacheReducer.State(tokens: cachedTokens, lineFenceStates: lineFenceStates)
+        guard let result = NoteTokenCacheReducer.merge(state: state, text: text, edit: edit) else {
+            // A fence delimiter or region marker moved, which can reclassify lines far from the
+            // edit. Correct it now rather than after the debounce, so no stale decoration shows.
+            styleAll(force: true)
+            return false
+        }
+        cachedTokens = result.state.tokens
+        lineFenceStates = result.state.lineFenceStates
+        textVersion += 1
+        shiftRevealFades(across: result.span)
+        restyle(paragraph: result.span.newRange, tokens: result.rescanned)
+        logSync(CFAbsoluteTimeGetCurrent() - started)
+        return true
+    }
+
+    private func restyle(paragraph: NSRange, tokens: NoteTokens) {
         guard let textView, let storage = textView.textStorage else { return }
-        let ns = storage.string as NSString
-        let clamped = min(max(0, location), ns.length)
-        let paragraph = ns.lineRange(for: NSRange(location: clamped, length: 0))
-        let fence = fenceStateEntering(paragraph.location)
-        let tokens = NoteTokenScanner.scanLines(storage.string, in: paragraph, fence: fence)
         apply(tokens, to: storage, in: paragraph)
         applyEmphasis(storage, tokens: tokens, in: paragraph)
         applyConcealment(tokens: tokens, selection: textView.selectedRange(), storage: storage)
-        mergeIntoCache(tokens, editedRange: paragraph)
         textView.needsDisplay = true
+    }
+
+    private func recordEdit(_ edit: NoteTokenCacheReducer.Edit) {
+        pendingEdit = pendingEdit.map { $0.followed(by: edit) } ?? edit
     }
 
     func reconcileConcealment() {
@@ -173,7 +193,7 @@ final class LiveRenderController {
     /// the overlay in step with the literal text fading in. Read by `LiveTextView.draw`.
     func overlayAlpha(forRangeAt location: Int, revealedAtRest: Bool) -> CGFloat {
         if let fade = revealFades[location] {
-            return 1 - Self.easeInOut(fade.progress)
+            return 1 - EditorMotion.easeInOut(fade.progress)
         }
         return revealedAtRest ? 0 : 1
     }
@@ -217,18 +237,20 @@ final class LiveRenderController {
     private func startRevealFadeTaskIfNeeded() {
         guard revealFadeTask == nil else { return }
         revealFadeTask = Task { @MainActor [weak self] in
-            while let self, !self.revealFades.isEmpty {
-                self.stepRevealFades()
-                try? await Task.sleep(nanoseconds: 16_000_000)
-                if Task.isCancelled { break }
+            var previous: CFTimeInterval = 0
+            await EditorMotion.runFrames { elapsed in
+                guard let self, !self.revealFades.isEmpty else { return false }
+                self.stepRevealFades(by: CGFloat((elapsed - previous) / Self.revealFadeDuration))
+                previous = elapsed
+                return !self.revealFades.isEmpty
             }
             self?.revealFadeTask = nil
         }
     }
 
-    private func stepRevealFades() {
+    private func stepRevealFades(by step: CGFloat) {
         guard let textView, let storage = textView.textStorage else { revealFades.removeAll(); return }
-        let step: CGFloat = 0.16
+        guard step > 0 else { return }
         storage.beginEditing()
         for key in Array(revealFades.keys) {
             guard var fade = revealFades[key] else { continue }
@@ -242,7 +264,7 @@ final class LiveRenderController {
                 storage.addAttribute(.foregroundColor, value: fade.target >= 1 ? fade.revealedColor : NSColor.clear, range: clamped)
                 revealFades[key] = nil
             } else {
-                storage.addAttribute(.foregroundColor, value: fade.revealedColor.withAlphaComponent(Self.easeInOut(fade.progress)), range: clamped)
+                storage.addAttribute(.foregroundColor, value: fade.revealedColor.withAlphaComponent(EditorMotion.easeInOut(fade.progress)), range: clamped)
                 revealFades[key] = fade
             }
         }
@@ -250,62 +272,18 @@ final class LiveRenderController {
         textView.needsDisplay = true
     }
 
-    static func easeInOut(_ t: CGFloat) -> CGFloat {
-        let clamped = max(0, min(1, t))
-        return clamped < 0.5 ? 2 * clamped * clamped : 1 - pow(-2 * clamped + 2, 2) / 2
-    }
-
     // MARK: - Cache maintenance
 
-    /// Fence state entering `location`, found by binary search over `lineFenceStates` (the
-    /// largest recorded line-start at or before `location`). O(log n), never walks the document.
-    private func fenceStateEntering(_ location: Int) -> MarkdownFenceScanner {
-        guard !lineFenceStates.isEmpty else { return MarkdownFenceScanner() }
-        var low = 0
-        var high = lineFenceStates.count - 1
-        var best = MarkdownFenceScanner()
-        while low <= high {
-            let mid = (low + high) / 2
-            if lineFenceStates[mid].location <= location {
-                best = lineFenceStates[mid].fence
-                low = mid + 1
-            } else {
-                high = mid - 1
-            }
-        }
-        return best
-    }
-
-    /// Delegates pure token, region, and fence-state range maintenance to Core. The controller
-    /// keeps ownership of AppKit attributes, reveal fades, and the debounced full-pass reconcile.
-    private func mergeIntoCache(_ tokens: NoteTokens, editedRange: NSRange) {
-        let result = NoteTokenCacheReducer.merge(
-            state: NoteTokenCacheReducer.State(tokens: cachedTokens, lineFenceStates: lineFenceStates),
-            rescanned: tokens,
-            editedRange: editedRange
-        )
-        cachedTokens = result.state.tokens
-        lineFenceStates = result.state.lineFenceStates
-        shiftRevealFades(editStart: editedRange.location, oldParagraphEnd: result.oldParagraphEnd, delta: result.delta)
-        textVersion += 1
-    }
-
-    private func shiftRevealFades(editStart: Int, oldParagraphEnd: Int, delta: Int) {
+    /// Moves in-flight fades to their post-edit locations and drops the ones on replaced lines;
+    /// the restyle that follows resolves those lines' concealment directly.
+    private func shiftRevealFades(across span: NoteTokenCacheReducer.Span) {
         guard !revealFades.isEmpty else { return }
-        let ranges = revealFades.map { NoteTokenCacheReducer.KeyedRange(key: $0.key, range: $0.value.range) }
-        let shifted = NoteTokenCacheReducer.shiftKeyedRanges(
-            ranges,
-            editStart: editStart,
-            oldParagraphEnd: oldParagraphEnd,
-            delta: delta
-        )
         var next: [Int: RevealFade] = [:]
-        next.reserveCapacity(shifted.count)
-        for item in shifted {
-            let originalKey = item.key >= oldParagraphEnd + delta ? item.key - delta : item.key
-            guard var fade = revealFades[originalKey] else { continue }
-            fade.range = item.range
-            next[item.key] = fade
+        next.reserveCapacity(revealFades.count)
+        for var fade in revealFades.values {
+            guard let range = NoteTokenCacheReducer.shifted(fade.range, across: span) else { continue }
+            fade.range = range
+            next[range.location] = fade
         }
         revealFades = next
     }
@@ -489,12 +467,11 @@ final class LiveRenderController {
         let trait: UInt
     }
 
-    nonisolated(unsafe) private static var traitCache: [FontTraitKey: NSFont] = [:]
+    private static var traitCache: [FontTraitKey: NSFont] = [:]
 
-    /// `NSFontManager.convert` is the dominant cost of the full-document emphasis pass (measured
-    /// at hundreds of ms on a 5k-line note): it was called once per bold/italic match. The set of
-    /// distinct input fonts is tiny (body plus three heading weights), so memoize the conversions.
-    /// Main-actor only, so the unguarded static is safe.
+    /// `NSFontManager.convert` is the dominant cost of the full-document emphasis pass (hundreds
+    /// of ms on a 5k-line note when called once per bold/italic match). The set of distinct
+    /// input fonts is tiny (body plus three heading weights), so memoize the conversions.
     private static func trait(_ font: NSFont, _ trait: NSFontTraitMask) -> NSFont {
         let key = FontTraitKey(name: font.fontName, size: font.pointSize, trait: trait.rawValue)
         if let hit = traitCache[key] { return hit }
@@ -553,94 +530,29 @@ final class LiveRenderController {
         NSLog("[Daymark] live full restyle: %.3f ms (%d lines)", seconds * 1000, lineCount)
         #endif
     }
+}
 
-    // A debug-only latency harness for the keystroke, concealment, and card-reposition paths.
-    // It is compiled out of release builds and does nothing unless DAYMARK_BENCH=1. It drives the
-    // controller against a 5k-line note (run against a scratch workspace only), and every buffer
-    // edit it makes to time the sync path is a matched insert/remove that restores the buffer, so
-    // it is a measurement harness, not a render-path mutation of the document.
-    #if DEBUG
-    nonisolated(unsafe) static var benchmarkRunning = false
+/// Forwards character edits reported by a text storage. Observing the notification, rather
+/// than taking the storage's delegate, leaves the delegate free for TextKit. Attribute-only
+/// edits, which every styling pass makes, are ignored.
+private final class StorageEditObserver {
+    private let token: NSObjectProtocol
 
-    func runBenchmarkIfRequested() {
-        guard ProcessInfo.processInfo.environment["DAYMARK_BENCH"] == "1" else { return }
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 900_000_000)
-            Self.benchmarkRunning = true
-            self?.runBenchmark()
-            Self.benchmarkRunning = false
+    @MainActor
+    init(storage: NSTextStorage, onEdit: @escaping @MainActor (NoteTokenCacheReducer.Edit) -> Void) {
+        token = NotificationCenter.default.addObserver(
+            forName: NSTextStorage.didProcessEditingNotification,
+            object: storage,
+            queue: nil
+        ) { notification in
+            guard let storage = notification.object as? NSTextStorage,
+                  storage.editedMask.contains(.editedCharacters) else { return }
+            let edit = NoteTokenCacheReducer.Edit(editedRange: storage.editedRange, changeInLength: storage.changeInLength)
+            MainActor.assumeIsolated { onEdit(edit) }
         }
     }
 
-    private func runBenchmark() {
-        guard let textView, let storage = textView.textStorage else { return }
-        let ns = storage.string as NSString
-        guard ns.length > 200 else { return }
-
-        var probe = ns.length / 2
-        while probe < ns.length {
-            let line = ns.lineRange(for: NSRange(location: probe, length: 0))
-            if ns.range(of: "due:", options: [], range: line).location != NSNotFound { probe = line.location; break }
-            probe = line.location + max(1, line.length)
-        }
-        let line = ns.lineRange(for: NSRange(location: probe, length: 0))
-        let insertLoc = line.location + min(6, max(0, line.length - 1))
-
-        func stats(_ times: [Double]) -> (median: Double, p95: Double) {
-            let sorted = times.sorted()
-            return (sorted[sorted.count / 2], sorted[Int(Double(sorted.count) * 0.95)])
-        }
-
-        // Incremental cache correctness: after a net-zero edit the cache must still equal a fresh
-        // full scan, or a decoration is stale until the next debounced pass.
-        storage.replaceCharacters(in: NSRange(location: insertLoc, length: 0), with: "Z")
-        textView.setSelectedRange(NSRange(location: insertLoc + 1, length: 0))
-        styleEditedParagraph()
-        storage.replaceCharacters(in: NSRange(location: insertLoc, length: 1), with: "")
-        textView.setSelectedRange(NSRange(location: insertLoc, length: 0))
-        styleEditedParagraph()
-        NSLog("[Daymark][BENCH] incremental cache equals fresh scan after edit: %@", (NoteTokenScanner.scan(storage.string) == cachedTokens) ? "yes" : "no")
-
-        var syncTimes: [Double] = []
-        for _ in 0..<300 {
-            textView.setSelectedRange(NSRange(location: insertLoc, length: 0))
-            storage.replaceCharacters(in: NSRange(location: insertLoc, length: 0), with: "x")
-            textView.setSelectedRange(NSRange(location: insertLoc + 1, length: 0))
-            let t = CFAbsoluteTimeGetCurrent()
-            styleEditedParagraph()
-            syncTimes.append((CFAbsoluteTimeGetCurrent() - t) * 1000)
-            storage.replaceCharacters(in: NSRange(location: insertLoc, length: 1), with: "")
-            styleEditedParagraph()
-        }
-        let sync = stats(syncTimes)
-        NSLog("[Daymark][BENCH] sync keystroke: median %.3f ms  p95 %.3f ms  (%d lines)", sync.median, sync.p95, cachedTokens.lines.count)
-
-        let a = NSRange(location: insertLoc, length: 0)
-        let b = NSRange(location: line.location + line.length + 1, length: 0)
-        var reconcileTimes: [Double] = []
-        for i in 0..<300 {
-            textView.setSelectedRange(i % 2 == 0 ? a : b)
-            // setSelectedRange fires the delegate reconcile synchronously and advances the
-            // baseline, so force a real diff here to measure the per-caret-move cost.
-            lastConcealmentSelection = i % 2 == 0 ? b : a
-            let t = CFAbsoluteTimeGetCurrent()
-            reconcileConcealment()
-            reconcileTimes.append((CFAbsoluteTimeGetCurrent() - t) * 1000)
-        }
-        let reconcile = stats(reconcileTimes)
-        NSLog("[Daymark][BENCH] reconcileConcealment: median %.3f ms  p95 %.3f ms", reconcile.median, reconcile.p95)
-
-        if let cardController {
-            var repoTimes: [Double] = []
-            for _ in 0..<100 {
-                let t = CFAbsoluteTimeGetCurrent()
-                cardController.repositionCards()
-                repoTimes.append((CFAbsoluteTimeGetCurrent() - t) * 1000)
-            }
-            let repo = stats(repoTimes)
-            NSLog("[Daymark][BENCH] repositionCards: median %.3f ms  p95 %.3f ms", repo.median, repo.p95)
-        }
-        NSLog("[Daymark][BENCH] done")
+    deinit {
+        NotificationCenter.default.removeObserver(token)
     }
-    #endif
 }

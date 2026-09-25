@@ -11,14 +11,13 @@ final class LiveTextView: NSTextView {
     private var animationTask: Task<Void, Never>?
     private var hoveredWikilinkRange: NSRange?
 
-    /// Set on the toggled line's start location just before a toggle fires `didChangeText`, so
-    /// the delegate routes the change to a targeted single-line restyle instead of the caret's
-    /// paragraph plus a full-document pass. Consumed and cleared by the coordinator.
-    private(set) var pendingToggleLocation: Int?
+    /// Set just before a checkbox toggle fires `didChangeText`, so the delegate restyles the
+    /// toggled line without scheduling the full-document pass. Consumed by the coordinator.
+    private var pendingToggle = false
 
-    func consumePendingToggleLocation() -> Int? {
-        defer { pendingToggleLocation = nil }
-        return pendingToggleLocation
+    func consumePendingToggle() -> Bool {
+        defer { pendingToggle = false }
+        return pendingToggle
     }
 
     // MARK: - Geometry
@@ -91,7 +90,7 @@ final class LiveTextView: NSTextView {
 
         for token in controller.cachedTokens.inlineTokens {
             guard case .dueDate(let display) = token.kind else { continue }
-            guard NSIntersectionRange(token.range, visible).length > 0 else { continue }
+            guard NSIntersectionRange(token.range, visible).length > 0, Self.isValid(token.range, in: ns) else { continue }
             let alpha = controller.overlayAlpha(forRangeAt: token.range.location, revealedAtRest: LiveRenderController.shouldReveal(token.range, selection: selection))
             guard alpha > 0.01 else { continue }
             guard let glyphRect = boundingRect(for: token.range) else { continue }
@@ -113,52 +112,70 @@ final class LiveTextView: NSTextView {
         return false
     }
 
+    // MARK: - Hit testing
+
+    private enum Hit {
+        case checkbox(index: Int)
+        case tag(NSRange)
+        case wikilink(NSRange)
+        case url(NSRange)
+    }
+
+    /// The interactive token under `point`, read from the controller's cache. Every cached range
+    /// is checked against the current text before use: the cache can trail the buffer briefly,
+    /// and reading a stale range out of bounds raises, which would lose unsaved typing.
+    private func hit(at point: NSPoint) -> Hit? {
+        guard let controller else { return nil }
+        let index = characterIndexForInsertion(at: point)
+        let ns = string as NSString
+        guard index >= 0, index <= ns.length else { return nil }
+        let tokens = controller.cachedTokens
+        for line in tokens.lines {
+            guard case .task(_, _, let boxRange, _) = line.kind else { continue }
+            if NSLocationInRange(index, boxRange), Self.isValid(boxRange, in: ns) { return .checkbox(index: index) }
+        }
+        for token in tokens.inlineTokens where NSLocationInRange(index, token.range) {
+            guard Self.isValid(token.range, in: ns) else { continue }
+            switch token.kind {
+            case .tag: return .tag(token.range)
+            case .wikilink: return .wikilink(token.range)
+            case .url: return .url(token.range)
+            default: continue
+            }
+        }
+        return nil
+    }
+
+    private static func isValid(_ range: NSRange, in ns: NSString) -> Bool {
+        range.location >= 0 && range.length >= 0 && NSMaxRange(range) <= ns.length
+    }
+
     // MARK: - Clicks
 
     override func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        let index = characterIndexForInsertion(at: point)
-        let text = string
-        let ns = text as NSString
-        guard index >= 0, index <= ns.length, let controller else {
-            super.mouseDown(with: event)
-            return
-        }
-        let tokens = controller.cachedTokens
-
-        for line in tokens.lines {
-            guard case .task(_, _, let boxRange, _) = line.kind else { continue }
-            guard index >= boxRange.location, index < boxRange.location + boxRange.length else { continue }
-            // Hit a checkbox glyph target. Only steal the click (skip caret placement) if a
-            // toggle actually happens; otherwise this falls through to super.mouseDown below
-            // so a fence task-lookalike with no real checkbox does not eat the click.
-            if let edit = TaskCheckboxToggler.toggleEdit(in: text, atLineContaining: index) {
+        let ns = string as NSString
+        switch hit(at: convert(event.locationInWindow, from: nil)) {
+        case .checkbox(let index):
+            // Only take the click from caret placement if a toggle happens, so a task
+            // lookalike inside a fence does not swallow it.
+            if let edit = TaskCheckboxToggler.toggleEdit(in: string, atLineContaining: index) {
                 applyToggle(edit)
                 return
             }
+        case .tag(let range):
+            onOpenPalette?(ns.substring(with: range))
+            return
+        case .wikilink(let range):
+            onOpenPalette?(wikilinkName(ns.substring(with: range)))
+            return
+        case .url(let range):
+            if let url = URL(string: ns.substring(with: range)) {
+                NSWorkspace.shared.open(url)
+                return
+            }
+        case nil:
             break
         }
-
-        tokenLoop: for token in tokens.inlineTokens {
-            guard index >= token.range.location, index < token.range.location + token.range.length else { continue }
-            switch token.kind {
-            case .tag:
-                onOpenPalette?(ns.substring(with: token.range))
-                return
-            case .wikilink:
-                onOpenPalette?(wikilinkName(ns.substring(with: token.range)))
-                return
-            case .url:
-                if let url = URL(string: ns.substring(with: token.range)) {
-                    NSWorkspace.shared.open(url)
-                    return
-                }
-                break tokenLoop
-            default:
-                break tokenLoop
-            }
-        }
-
         super.mouseDown(with: event)
     }
 
@@ -183,11 +200,10 @@ final class LiveTextView: NSTextView {
         let range = edit.range
         guard shouldChangeText(in: range, replacementString: edit.replacement) else { return }
         let becomingDone = edit.replacement == "x"
-        // The box interior sits at boxRange.location + 1, so the box (and the line) start one
-        // character earlier. The delegate uses this to restyle just the toggled line.
-        pendingToggleLocation = range.location - 1
+        pendingToggle = true
         textStorage?.replaceCharacters(in: range, with: edit.replacement)
         didChangeText()
+        // The toggled character is the box interior, one past the box's start.
         if becomingDone {
             startCheckAnimation(atBoxLocation: range.location - 1)
         } else {
@@ -205,16 +221,14 @@ final class LiveTextView: NSTextView {
         animatingBoxLocation = location
         animationProgress = 0
         animationTask = Task { @MainActor [weak self] in
-            let start = CACurrentMediaTime()
-            let duration = 0.14
-            while !Task.isCancelled {
-                let elapsed = CACurrentMediaTime() - start
-                let fraction = min(1, elapsed / duration)
-                self?.animationProgress = LiveTextView.easeOut(CGFloat(fraction))
+            await EditorMotion.runFrames { elapsed in
+                let fraction = min(1, elapsed / 0.14)
+                self?.animationProgress = EditorMotion.easeOut(CGFloat(fraction))
                 self?.invalidateBox(location)
-                if fraction >= 1 { break }
-                try? await Task.sleep(nanoseconds: 16_000_000)
+                return fraction < 1
             }
+            // A cancelled run must not reset state that a newer animation now owns.
+            if Task.isCancelled { return }
             self?.animationProgress = 1
             self?.animatingBoxLocation = nil
             self?.invalidateBox(location)
@@ -237,10 +251,6 @@ final class LiveTextView: NSTextView {
         }
     }
 
-    private static func easeOut(_ t: CGFloat) -> CGFloat {
-        1 - pow(1 - t, 3)
-    }
-
     // MARK: - Hover
 
     override func updateTrackingAreas() {
@@ -258,40 +268,18 @@ final class LiveTextView: NSTextView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-        let point = convert(event.locationInWindow, from: nil)
-        let index = characterIndexForInsertion(at: point)
-        let ns = string as NSString
-        guard index >= 0, index <= ns.length, let controller else {
-            clearHover()
-            NSCursor.iBeam.set()
-            return
-        }
-        // The checkbox glyph is an interactive toggle target like pills and links, so the
-        // pointer becomes a pointing hand over its box range.
-        for line in controller.cachedTokens.lines {
-            guard case .task(_, _, let boxRange, _) = line.kind else { continue }
-            guard index >= boxRange.location, index < boxRange.location + boxRange.length else { continue }
+        switch hit(at: convert(event.locationInWindow, from: nil)) {
+        case .checkbox, .tag, .url:
+            // The checkbox is a toggle target like pills and links, so it gets the hand too.
             clearHover()
             NSCursor.pointingHand.set()
-            return
+        case .wikilink(let range):
+            setWikilinkHover(range)
+            NSCursor.pointingHand.set()
+        case nil:
+            clearHover()
+            NSCursor.iBeam.set()
         }
-        for token in controller.cachedTokens.inlineTokens {
-            guard index >= token.range.location, index < token.range.location + token.range.length else { continue }
-            switch token.kind {
-            case .tag, .url:
-                clearHover()
-                NSCursor.pointingHand.set()
-                return
-            case .wikilink:
-                setWikilinkHover(token.range)
-                NSCursor.pointingHand.set()
-                return
-            default:
-                break
-            }
-        }
-        clearHover()
-        NSCursor.iBeam.set()
     }
 
     override func mouseExited(with event: NSEvent) {

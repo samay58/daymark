@@ -40,11 +40,8 @@ final class AppState {
     private(set) var notice: String?
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
     let codex: CodexFlowModel
-    /// The current selection's (or caret's) screen rect, published by the editor so the Codex
-    /// popover can anchor itself. Nil before the editor has reported a selection.
-    var codexAnchorScreenRect: CGRect?
     /// Screen rect for a character range in the editor, installed by the editor so a popover can
-    /// anchor to a line. Called only when a popover is presented, never while typing.
+    /// anchor to a selection or a line. Called only when a popover opens, never while typing.
     @ObservationIgnored var rectForCharacterRange: ((NSRange) -> NSRect?)?
 
     /// The pending refresh preview, if any. Cards and the new-block popover read their own part.

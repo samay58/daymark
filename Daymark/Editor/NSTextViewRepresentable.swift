@@ -54,7 +54,11 @@ struct NSTextViewRepresentable: NSViewRepresentable {
         context.coordinator.cardController.contentProvider = { cardContext in
             AnyView(DynamicBlockCardView(context: cardContext, appState: appState))
         }
-        context.coordinator.controller.styleAll()
+        // Called only when a popover opens, so caret moves never pay for a layout query.
+        appState.rectForCharacterRange = { [weak textView] range in
+            textView?.firstRect(forCharacterRange: range, actualRange: nil)
+        }
+        context.coordinator.controller.styleAll(force: true)
         #if DEBUG
         context.coordinator.controller.runBenchmarkIfRequested()
         #endif
@@ -81,7 +85,7 @@ struct NSTextViewRepresentable: NSViewRepresentable {
 
         let previousSelection = textView.selectedRange()
         textView.string = text
-        context.coordinator.controller.styleAll()
+        context.coordinator.controller.styleAll(force: true)
         let clamped = min(previousSelection.location, (text as NSString).length)
         let range = NSRange(location: clamped, length: 0)
         textView.setSelectedRange(range)
@@ -89,7 +93,7 @@ struct NSTextViewRepresentable: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, selection: $selection, sourcePath: sourcePath, appState: appState)
+        Coordinator(text: $text, selection: $selection, sourcePath: sourcePath)
     }
 
     @MainActor
@@ -99,13 +103,11 @@ struct NSTextViewRepresentable: NSViewRepresentable {
         var sourcePath: String
         let controller = LiveRenderController()
         let cardController = CardIslandController()
-        private let appState: AppState
 
-        init(text: Binding<String>, selection: Binding<SelectionModel>, sourcePath: String, appState: AppState) {
+        init(text: Binding<String>, selection: Binding<SelectionModel>, sourcePath: String) {
             self._text = text
             self._selection = selection
             self.sourcePath = sourcePath
-            self.appState = appState
         }
 
         func textDidChange(_ notification: Notification) {
@@ -114,9 +116,8 @@ struct NSTextViewRepresentable: NSViewRepresentable {
             updateSelection(from: textView, range: textView.selectedRange())
             // A checkbox toggle restyles only its own line and skips the debounced full pass;
             // every other edit takes the normal edited-paragraph path.
-            if let liveTextView = textView as? LiveTextView,
-               let toggledLocation = liveTextView.consumePendingToggleLocation() {
-                controller.styleToggledLine(at: toggledLocation)
+            if let liveTextView = textView as? LiveTextView, liveTextView.consumePendingToggle() {
+                controller.styleToggledLine()
             } else {
                 controller.styleEditedParagraph()
             }
@@ -129,18 +130,19 @@ struct NSTextViewRepresentable: NSViewRepresentable {
             cardController.selectionDidChange()
         }
 
+        /// Runs on every keystroke and caret move (often twice per keystroke), so it returns
+        /// before copying the selected text or publishing to SwiftUI when nothing changed.
         func updateSelection(from textView: NSTextView, range: NSRange) {
+            if range.length == 0, range == selection.selectedRange, sourcePath == selection.sourcePath { return }
             let selected = range.length > 0 ? (textView.string as NSString).substring(with: range) : ""
-            selection = SelectionModel(
+            let next = SelectionModel(
                 selectedText: selected,
                 sourcePath: sourcePath,
                 selectedRange: range,
                 cursorLocation: range.location
             )
-            // Published for the Codex popover to anchor at the selection (or caret when
-            // empty). firstRect(forCharacterRange:) is the sanctioned exception to the
-            // no-layoutManager rule, for this one purpose only (packet contract, P3-codex).
-            appState.codexAnchorScreenRect = textView.firstRect(forCharacterRange: range, actualRange: nil)
+            guard next != selection else { return }
+            selection = next
         }
     }
 }
