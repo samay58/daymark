@@ -79,6 +79,9 @@ struct AnchoredPopoverHost<Content: View>: NSViewRepresentable {
             popover = nil
             if !wasProgrammatic {
                 parent.onUserClose()
+            } else if parent.isPresented {
+                // Presented again while the close animation ran; attemptPresent skipped it then.
+                attemptPresent()
             }
         }
     }

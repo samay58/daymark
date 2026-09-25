@@ -42,6 +42,7 @@ final class DynamicBlockRefreshModel {
 
     private struct PlanningRun {
         var generation: Int
+        var epoch: Int
         var sourcePath: String
         var task: Task<Result<DynamicBlockRefreshSession, any Error>, Never>
     }
@@ -210,7 +211,7 @@ final class DynamicBlockRefreshModel {
             }
         }
         planningTask = task
-        return PlanningRun(generation: generation, sourcePath: sourcePath, task: task)
+        return PlanningRun(generation: generation, epoch: workspaceEpoch, sourcePath: sourcePath, task: task)
     }
 
     /// Nil when the run was cancelled or superseded, or planned a note that is no longer today's;
@@ -218,7 +219,7 @@ final class DynamicBlockRefreshModel {
     private func finishPlanning(_ run: PlanningRun) async -> Result<DynamicBlockRefreshSession, any Error>? {
         let result = await run.task.value
         guard run.generation == generation, !run.task.isCancelled else { return nil }
-        guard run.sourcePath == hooks.sourcePath() else {
+        guard run.epoch == workspaceEpoch, run.sourcePath == hooks.sourcePath() else {
             dismiss()
             return nil
         }
@@ -242,7 +243,7 @@ final class DynamicBlockRefreshModel {
     }
 
     private func apply(_ patches: [DynamicBlockPatch], origin: Origin) async {
-        guard let session, !isApplying, !isPlanning else { return }
+        guard let session, isNoteLoaded, !isApplying, !isPlanning else { return }
         guard !isPreviewStale else {
             report(DynamicBlockCopy.stale, origin: origin)
             return
@@ -363,6 +364,8 @@ final class DynamicBlockRefreshModel {
     /// writing: that apply sees the bumped epoch when it returns and discards its result.
     func workspaceWillChange() {
         workspaceEpoch += 1
+        // Until the new note loads, the buffer still holds the old workspace's note.
+        isNoteLoaded = false
         cancelPlanning()
         cardErrors = [:]
         newBlocksError = nil
