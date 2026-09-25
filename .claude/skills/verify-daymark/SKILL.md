@@ -20,12 +20,12 @@ Run `python3 ~/.claude/scripts/slopcheck.py <changed .md/prose files>` on every 
 `DaymarkCLITests` subprocess-launch a prebuilt `daymark` binary; `swift test --filter` alone will not rebuild it. `CLAUDE.md`: "`swift test --filter SomeCommandTests` does not rebuild `daymark` first and runs against a stale or missing binary."
 
 1. `swift build --build-tests`
-2. `swift build --product daymark`, must run last. `docs/PROGRESS.md` "Required Checks": "build the CLI LAST ... so it wins the `Daymark`/`daymark` case-insensitive collision."
+2. `swift build --product daymark`, so the prebuilt bundle has a current CLI to launch.
 3. `xcrun xctest .build/arm64-apple-macosx/debug/DaymarkPackageTests.xctest` (scope with `-XCTest DaymarkCLITests.<Class>,...` for a focused filter)
 
 ## 4. Product builds
 
-`swift build --product daymark` and `swift build --product Daymark`. `docs/PROGRESS.md` "Required Checks" lists both.
+`swift build --product daymark` and `swift build --product DaymarkApp`. `scripts/test.sh` runs steps 2 and 3 in order.
 
 ## 5. Read-only health check
 

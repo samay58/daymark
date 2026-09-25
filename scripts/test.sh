@@ -4,8 +4,7 @@ cd "$(dirname "$0")/.."
 source scripts/toolchain.sh
 
 # Library tests, then the CLI tests from the prebuilt bundle. The CLI tests launch the
-# daymark binary as a subprocess, so it must be built last to win the Daymark/daymark
-# case-insensitive name collision.
+# daymark binary as a subprocess and do not depend on its target, so build it explicitly.
 swift test "${SWIFT_BUILD_FLAGS[@]}" --skip CommandTests
 swift build "${SWIFT_BUILD_FLAGS[@]}" --build-tests
 swift build "${SWIFT_BUILD_FLAGS[@]}" --product daymark

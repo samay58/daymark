@@ -18,7 +18,7 @@ scripts/install_app.sh      # build a release Daymark.app and install it to /App
 
 The scripts pin the Xcode toolchain this package needs (`scripts/toolchain.sh`); plain `swift` commands need the same `DEVELOPER_DIR` and `--build-system native`.
 
-The package builds two executables whose names differ only by case: the app `Daymark` and the CLI `daymark`. On a case-insensitive filesystem (macOS default) they share one path in `.build/`, so build or run one product at a time. `swift run Daymark` and `swift run daymark <command>` each relink the right one.
+The package builds two executables: the app `DaymarkApp` (installed as `Daymark.app`) and the CLI `daymark`. Run them with `swift run DaymarkApp` and `swift run daymark <command>`.
 
 ## Capture from the CLI
 

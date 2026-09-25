@@ -22,7 +22,6 @@ Good ideas that are not part of the current milestone belong here.
 ## Milestone 2 follow-ups (known limitations, deferred by scope)
 
 - Global hotkey from anywhere: still deferred. Needs a signed app bundle plus accessibility or Carbon hotkey registration. In-app Option+Space (focused) and the `daymark capture` CLI cover capture for now. Gate the real hotkey behind an app-bundle ADR before building it.
-- Executable name collision: the app product `Daymark` and the CLI product `daymark` differ only by case, so on a case-insensitive filesystem (macOS default) they resolve to one file in `.build/debug/`; whichever links last wins. `swift run Daymark` and `swift run daymark` each work because they relink, but the two binaries cannot coexist as build artifacts. The app-bundle milestone (`Daymark.app/Contents/MacOS/Daymark`) resolves this. Until then, build a single product at a time when running directly.
 - Capture vs concurrent external edits: `SlipStore.save` and `DailyNoteStore.appendCapture/appendTask` do a read-modify-write that is not transactional. The write itself is atomic, and the app reconciles external daily-note edits through the watcher, but a capture racing an external write to the same file in the read-write window can lose one side. A future hardening could re-read on an mtime change and retry.
 - Multiline capture fidelity: `CaptureFormatter` trims each line and re-indents continuations by two spaces, so pasted code loses its original indentation. Acceptable for quick text; revisit if captures need to preserve code blocks verbatim.
 
@@ -39,7 +38,6 @@ Good ideas that are not part of the current milestone belong here.
 - Existing task-file bundle picker: the app can create a bundle after it creates a task file in the composer. It does not yet open an arbitrary existing task file from `specs/tasks/` for bundle creation.
 - Strong duplicate detection: repeated approvals create `-2`, `-3`, and later suffixes instead of overwriting. A future source-indexed duplicate warning can be added after the basic flow is used.
 - Created-task receipt as one value: done (2026-06-29 hardening pass). `AppState` now holds a single `CreatedCodexTask` value (relative path plus the exact draft) instead of two parallel optionals, so the both-or-neither state is unrepresentable. Button enable-state moved to `CodexTaskDraft.isWritable` / `CodexContextBundle.isWritable` so the views no longer instantiate file writers just to validate.
-- CLI test harness survives the dual-`@main` relink: `swift test --filter CommandTests` corrupts the `daymark` binary and every spawned-process test times out, so the only reliable run is `xcrun xctest` against the prebuilt bundle. Options to make the standard `swift test` invocation safe: have `runDaymark` fail fast when the binary is not a working CLI, or restructure so the two executables do not collide on `@main` during the test link.
 
 ## Milestone 5 follow-ups
 

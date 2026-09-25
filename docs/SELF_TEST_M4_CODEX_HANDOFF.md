@@ -89,7 +89,7 @@ Use this to test the first Codex Handoff slice without touching your real `~/pho
 1. Build and run the app:
 
    ```bash
-   swift run Daymark
+   swift run DaymarkApp
    ```
 
 2. Use a safe workspace in Settings if you do not want to test against `~/phoenix`.

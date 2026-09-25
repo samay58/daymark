@@ -102,6 +102,32 @@ final class DynamicBlockPatchLocationTests: XCTestCase {
         }
     }
 
+    func testApplyingOneBlockKeepsEveryOtherLineEndingInAMixedNote() throws {
+        // CRLF, lone CR, and LF lines around two blocks: applying only the source list must
+        // leave every byte outside its region exactly as written.
+        let seeded = try plan("Top\n/daymark open-loops\nMid\n/daymark source-list #project/x\nEnd")
+            .apply(to: "Top\n/daymark open-loops\nMid\n/daymark source-list #project/x\nEnd")
+        var mixed = seeded.replacingOccurrences(of: "Top\n", with: "Top\r\n")
+        mixed = mixed.replacingOccurrences(of: "Mid\n", with: "Mid\r")
+        let region = try XCTUnwrap(mixed.range(of: "<!-- daymark:block-begin", options: .backwards))
+        let before = String(mixed[..<region.lowerBound])
+
+        var stale = mixed.replacingOccurrences(of: "Project (`projects/x.md`)", with: "Old")
+        var list = try patch(try plan(stale), .sourceList)
+        XCTAssertTrue(list.changesMarkdown)
+        let applied = try DynamicBlockPatchPlan(targetFilePath: "daily/today.md", patches: [list]).apply(to: stale)
+        XCTAssertEqual(applied, mixed)
+        XCTAssertTrue(applied.hasPrefix(before))
+
+        // A block inserted under a CRLF line takes CRLF, and a note without a trailing newline
+        // still ends without one.
+        stale = "Top\r\n/daymark open-loops\r\nEnd"
+        list = try patch(try plan(stale), .openLoops)
+        let inserted = try DynamicBlockPatchPlan(targetFilePath: "daily/today.md", patches: [list]).apply(to: stale)
+        XCTAssertFalse(inserted.replacingOccurrences(of: "\r\n", with: "").contains("\n"))
+        XCTAssertTrue(inserted.hasSuffix("End"))
+    }
+
     func testLineRangesMatchNormalizedSplit() {
         let markdown = "a\r\nb\rc\nd\u{2028}e\r\r\nf\n"
         let normalizedLines = markdown.normalizedNewlines.components(separatedBy: "\n")

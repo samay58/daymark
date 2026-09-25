@@ -1175,7 +1175,7 @@ Ledger: `docs/orchestration/LEDGER.md`.
 
 1. Use the installed build daily and log friction. The three unchecked items from the 2026-09-25 carryover (Open Loops Escape, Codex popover height, Goal field height) are the first things to confirm.
 2. The card mechanism is settled: custom TextKit 2 layout fragments. Never touch NSTextView.layoutManager anywhere; that trips the TextKit 1 fallback. Reveal uses live flags on persistent fragments, never class swaps. Never force full-document layout on interactive paths.
-3. Toolchain: use `scripts/*.sh`, which pin `DEVELOPER_DIR` and `--build-system native`. `Daymark` and `daymark` share one path on this case-insensitive disk; build `daymark` last before running the CLI binary directly, or `swift run daymark`.
+3. Toolchain: use `scripts/*.sh`, which pin `DEVELOPER_DIR` and `--build-system native`. The app product is `DaymarkApp` so it no longer shares a `.build/` path with the `daymark` CLI.
 4. Accepted debt: app rollover still auto-applies on launch (parked, intentional). No test target covers the app shell.
 5. Builders never commit; the orchestrator commits per packet after each gate.
 
@@ -1211,7 +1211,7 @@ Ledger: `docs/orchestration/LEDGER.md`.
 ### Required Checks
 
 - `git status --short`
-- `swift test --skip CommandTests` for the library tests. Run the CLI command tests from the prebuilt bundle, not `swift test --filter`: build the test bundle (`swift build --build-tests`), then build the CLI LAST (`swift build --product daymark`) so it wins the `Daymark`/`daymark` case-insensitive collision, then `xcrun xctest .build/arm64-apple-macosx/debug/DaymarkPackageTests.xctest` with no build in between. If a CLI test hangs to its timeout, the spawned binary is the GUI app, not the CLI; rebuild `daymark` last and re-run.
-- `swift build --product daymark` and `swift build --product Daymark`.
+- `swift test --skip CommandTests` for the library tests. Run the CLI command tests from the prebuilt bundle, not `swift test --filter`: build the test bundle (`swift build --build-tests`), then build the CLI (`swift build --product daymark`), then `xcrun xctest .build/arm64-apple-macosx/debug/DaymarkPackageTests.xctest`. `scripts/test.sh` runs this whole sequence.
+- `swift build --product daymark` and `swift build --product DaymarkApp`.
 - Temp-workspace Dynamic Blocks check: create prior and current daily notes, add a tagged project note, add a task spec and context bundle referencing that source, put `/daymark open-loops`, `/daymark source-list #tag`, `/daymark codex-context #tag`, and `/daymark weekly-review` in the current note, run dry-run and confirm no note or cache write, run apply and confirm one marker pair per command plus `.daymark/dynamic-blocks.json`, run repeat apply and confirm no duplicate output, edit text outside generated regions and confirm it is preserved, inject a generated checkbox inside a region and confirm it does not feed back through rebuild/open-loops/weekly-review, delete `.daymark`, and confirm refresh remains idempotent and recreates cache metadata.
 - `daymark doctor` (read-only).

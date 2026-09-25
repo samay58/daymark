@@ -10,12 +10,12 @@ source scripts/toolchain.sh
 DEST="${1:-/Applications}/Daymark.app"
 VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 
-swift build "${SWIFT_BUILD_FLAGS[@]}" -c release --product Daymark
+swift build "${SWIFT_BUILD_FLAGS[@]}" -c release --product DaymarkApp
 BIN_DIR="$(swift build "${SWIFT_BUILD_FLAGS[@]}" -c release --show-bin-path)"
 
 STAGE="$(mktemp -d)/Daymark.app"
 mkdir -p "$STAGE/Contents/MacOS" "$STAGE/Contents/Resources"
-cp "$BIN_DIR/Daymark" "$STAGE/Contents/MacOS/Daymark"
+cp "$BIN_DIR/DaymarkApp" "$STAGE/Contents/MacOS/Daymark"
 cp Daymark/Resources/AppIcon.icns "$STAGE/Contents/Resources/AppIcon.icns"
 cp -R "$BIN_DIR/Daymark_DaymarkAppShell.bundle" "$STAGE/Contents/Resources/"
 

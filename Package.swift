@@ -8,7 +8,7 @@ let package = Package(
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "Daymark", targets: ["DaymarkAppShell"]),
+        .executable(name: "DaymarkApp", targets: ["DaymarkAppShell"]),
         .executable(name: "daymark", targets: ["DaymarkCLI"]),
         .library(name: "DaymarkCore", targets: ["DaymarkCore"]),
         .library(name: "DaymarkStore", targets: ["DaymarkStore"]),

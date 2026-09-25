@@ -32,7 +32,7 @@ struct DaymarkApp: App {
 
 // Running from SwiftPM (no app bundle) leaves the process without a regular activation
 // policy, so the window can launch unfocused or behind other apps. Promoting it on launch
-// gives `swift run Daymark` a focused Today window; the installed bundle is unaffected.
+// gives `swift run DaymarkApp` a focused Today window; the installed bundle is unaffected.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didEnforceLaunchFrame = false
     private var keyObserver: NSObjectProtocol?

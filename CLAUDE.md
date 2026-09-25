@@ -17,7 +17,7 @@ swift build                 # build all targets
 swift test                  # run the SwiftPM test suite
 swift test --filter TaskParserTests          # one test class
 swift test --filter DaymarkCoreTests.TaskParserTests/testParsesOpenAndCompletedTasks  # one method
-swift run Daymark           # launch the SwiftUI app shell
+swift run DaymarkApp        # launch the SwiftUI app shell
 swift run daymark doctor    # read-only workspace + index health check
 swift run daymark today     # print today's note from disk (or the template it would use)
 swift run daymark init      # create workspace dirs and today's note (additive only)
@@ -38,7 +38,7 @@ CLI subcommands live in `Sources/daymark/DaymarkCLI.swift`; run `swift run dayma
 
 In-app Dynamic Blocks refresh routes through `DynamicBlockRefreshService`, the same planner path used by the CLI. The app previews from the current editor buffer, disables stale applies if the buffer changes, and writes only on approval: a card's Apply writes that card's patch alone, and new `/daymark` lines get an anchored Insert/Cancel popover that writes nothing until Insert.
 
-The `scripts/*.sh` wrappers (`build.sh`, `test.sh`, `build_and_run.sh`, `doctor.sh`, `run_app.sh`) call the commands above with the toolchain pinned by `scripts/toolchain.sh`. `scripts/test.sh` runs the full canonical test flow. `scripts/install_app.sh` builds a release `Daymark.app` and replaces `/Applications/Daymark.app`, the ad hoc-signed daily-use build ADR-002 allows.
+The `scripts/*.sh` wrappers (`build.sh`, `test.sh`, `build_and_run.sh`, `doctor.sh`) call the commands above with the toolchain pinned by `scripts/toolchain.sh`. `scripts/test.sh` runs the full canonical test flow. `scripts/install_app.sh` builds a release `Daymark.app` and replaces `/Applications/Daymark.app`, the ad hoc-signed daily-use build ADR-002 allows.
 
 Build note (observed in this environment): after editing a source file, an incremental `swift test` can fail to relink the `@main` executables (`Undefined symbols: _DaymarkAppShell_main` / `_DaymarkCLI_main`). Run `swift package clean` before `swift test` when that happens. `swift build` links the executables fine; only the test build hits it.
 
@@ -50,11 +50,11 @@ CLI test harness: the `DaymarkCLITests` classes (all named `*CommandTests`) do n
 
 This is a SwiftPM package (`Package.swift`), not an Xcode project. Two source trees, mapped explicitly via `path:` in the manifest:
 
-- `Daymark/`: the SwiftUI app shell (target `DaymarkAppShell`, product executable named `Daymark`). Uses an Xcode-style folder layout (`App/`, `Editor/`, `UI/`).
+- `Daymark/`: the SwiftUI app shell (target `DaymarkAppShell`, product executable named `DaymarkApp`, installed as `Daymark.app`). Uses an Xcode-style folder layout (`App/`, `Editor/`, `UI/`).
 - `Sources/`: the shared libraries and the CLI.
 - `Tests/`: the actual test targets run by `swift test`.
 
-Two executables: `Daymark` (app shell) and `daymark` (CLI, source in `Sources/daymark`).
+Two executables: `DaymarkApp` (app shell) and `daymark` (CLI, source in `Sources/daymark`). The app product is not named `Daymark` because it would share one `.build/` path with `daymark` on the case-insensitive disk.
 
 ## Module boundaries (enforce the dependency direction)
 

@@ -121,13 +121,22 @@ final class DynamicBlockRefreshModel {
 
     // MARK: - Buffer changes
 
-    /// Called on every buffer change, so it does no whole-note work: one string comparison while
-    /// a fresh preview is pending, and a debounced command scan off the main actor.
+    /// Called on every buffer change, so it does no whole-note work: while a preview is pending
+    /// it compares against the previewed text (a length check first, then bytes only when the
+    /// lengths match, as when an undo returns to the previewed note), and the command scan is
+    /// debounced off the main actor.
     func bufferDidChange() {
-        if let session, !isPreviewStale, hooks.buffer() != session.sourceMarkdown {
-            isPreviewStale = true
+        if let session {
+            let stale = !Self.sameBytes(hooks.buffer(), session.sourceMarkdown)
+            if stale != isPreviewStale { isPreviewStale = stale }
         }
         scheduleCommandDetection()
+    }
+
+    /// Byte equality, not Swift's canonical equivalence: the apply service checks a byte hash,
+    /// so "not stale" must mean the same bytes.
+    private static func sameBytes(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.utf8.count == rhs.utf8.count && lhs.utf8.elementsEqual(rhs.utf8)
     }
 
     private func scheduleCommandDetection() {
@@ -406,7 +415,7 @@ final class DynamicBlockRefreshModel {
 
     private func setSession(_ session: DynamicBlockRefreshSession?) {
         self.session = session
-        let stale = session.map { hooks.buffer() != $0.sourceMarkdown } ?? false
+        let stale = session.map { !Self.sameBytes(hooks.buffer(), $0.sourceMarkdown) } ?? false
         if stale != isPreviewStale { isPreviewStale = stale }
     }
 

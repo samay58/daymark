@@ -492,24 +492,58 @@ public struct DynamicBlockPatchPlan: Equatable, Sendable {
     public var patches: [DynamicBlockPatch]
 
     public func apply(to markdown: String) throws -> String {
-        // Patch on LF internally, but re-emit with the file's dominant line ending so
-        // untouched lines outside the generated region keep their bytes (a mostly-CRLF
-        // note stays CRLF, a mostly-LF note stays LF). Ties favor LF. Mixed-ending notes
-        // are rare enough that per-line terminator tracking is not worth the complexity.
-        let crlfCount = markdown.components(separatedBy: "\r\n").count - 1
-        let bareLFCount = (markdown.components(separatedBy: "\n").count - 1) - crlfCount
-        let lineEnding = crlfCount > bareLFCount ? "\r\n" : "\n"
-        var lines = DynamicBlockParser.normalized(markdown).components(separatedBy: "\n")
+        // Every untouched line keeps its own terminator, so applying one block never rewrites
+        // line endings elsewhere in a mixed-ending note. New lines take the ending of the line
+        // they sit under, falling back to the file's dominant ending.
+        var lines = Self.splitKeepingTerminators(markdown)
+        let fallback = Self.dominantLineEnding(in: markdown)
         for patch in patches.sorted(by: { $0.startLineIndex > $1.startLineIndex }) {
-            let replacementLines = patch.replacementMarkdown.components(separatedBy: "\n")
+            let contents = patch.replacementMarkdown.components(separatedBy: "\n")
             switch patch.operation {
             case .insert:
-                lines.insert(contentsOf: replacementLines, at: patch.startLineIndex)
+                let above = patch.startLineIndex - 1
+                let ending = lines[above].terminator.isEmpty ? fallback : lines[above].terminator
+                // Inserting after a final line with no newline: that line gains one and the
+                // block's last line inherits the missing newline, keeping the file's tail shape.
+                let tail = lines[above].terminator
+                lines[above].terminator = ending
+                var inserted = contents.map { (content: $0, terminator: ending) }
+                inserted[inserted.count - 1].terminator = tail
+                lines.insert(contentsOf: inserted, at: patch.startLineIndex)
             case .replacement:
-                lines.replaceSubrange(patch.startLineIndex...patch.endLineIndex, with: replacementLines)
+                let first = lines[patch.startLineIndex].terminator
+                let ending = first.isEmpty ? fallback : first
+                var replaced = contents.map { (content: $0, terminator: ending) }
+                replaced[replaced.count - 1].terminator = lines[patch.endLineIndex].terminator
+                lines.replaceSubrange(patch.startLineIndex...patch.endLineIndex, with: replaced)
             }
         }
-        return lines.joined(separator: lineEnding)
+        return lines.map { $0.content + $0.terminator }.joined()
+    }
+
+    /// Lines of `markdown` as written, split on exactly LF, CRLF, and lone CR, so index `i`
+    /// matches line `i` of the normalized text the planner indexed.
+    static func splitKeepingTerminators(_ markdown: String) -> [(content: String, terminator: String)] {
+        let ns = markdown as NSString
+        let ranges = MarkdownLineRanges.utf16Ranges(in: markdown)
+        return ranges.indices.map { index in
+            let range = ranges[index]
+            let terminatorEnd = index + 1 < ranges.count ? ranges[index + 1].location : ns.length
+            let terminatorStart = NSMaxRange(range)
+            return (
+                ns.substring(with: range),
+                ns.substring(with: NSRange(location: terminatorStart, length: terminatorEnd - terminatorStart))
+            )
+        }
+    }
+
+    static func dominantLineEnding(in markdown: String) -> String {
+        let crlf = markdown.components(separatedBy: "\r\n").count - 1
+        let lf = markdown.components(separatedBy: "\n").count - 1 - crlf
+        let cr = markdown.components(separatedBy: "\r").count - 1 - crlf
+        if crlf > lf && crlf >= cr { return "\r\n" }
+        if cr > lf && cr > crlf { return "\r" }
+        return "\n"
     }
 }
 
