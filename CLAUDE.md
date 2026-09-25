@@ -38,7 +38,7 @@ CLI subcommands live in `Sources/daymark/DaymarkCLI.swift`; run `swift run dayma
 
 In-app Dynamic Blocks refresh routes through `DynamicBlockRefreshService`, the same planner path used by the CLI. The app previews from the current editor buffer, disables stale applies if the buffer changes, and writes only after `Apply Refresh`.
 
-The `scripts/*.sh` wrappers (`build.sh`, `test.sh`, `build_and_run.sh`, `doctor.sh`) just call the commands above.
+The `scripts/*.sh` wrappers (`build.sh`, `test.sh`, `build_and_run.sh`, `doctor.sh`, `run_app.sh`) call the commands above with the toolchain pinned by `scripts/toolchain.sh`. `scripts/test.sh` runs the full canonical test flow. `scripts/install_app.sh` builds a release `Daymark.app` and replaces `/Applications/Daymark.app`, the ad hoc-signed daily-use build ADR-002 allows.
 
 Build note (observed in this environment): after editing a source file, an incremental `swift test` can fail to relink the `@main` executables (`Undefined symbols: _DaymarkAppShell_main` / `_DaymarkCLI_main`). Run `swift package clean` before `swift test` when that happens. `swift build` links the executables fine; only the test build hits it.
 
@@ -53,7 +53,6 @@ This is a SwiftPM package (`Package.swift`), not an Xcode project. Two source tr
 - `Daymark/`: the SwiftUI app shell (target `DaymarkAppShell`, product executable named `Daymark`). Uses an Xcode-style folder layout (`App/`, `Editor/`, `UI/`).
 - `Sources/`: the shared libraries and the CLI.
 - `Tests/`: the actual test targets run by `swift test`.
-- `DaymarkTests/` and `DaymarkUITests/` at the repo root are **placeholders** for a future Xcode app-test layout. They are not referenced by `Package.swift` and do not run under `swift test`. Real tests go in `Tests/`.
 
 Two executables: `Daymark` (app shell) and `daymark` (CLI, source in `Sources/daymark`).
 

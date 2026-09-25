@@ -1,8 +1,8 @@
 [environment]
 name = "daymark"
-description = "Native macOS Daymark scaffold. Start with swift build and swift test."
+description = "Native macOS Daymark app and CLI. The scripts pin the Xcode-beta toolchain this package needs."
 
 [commands]
-build = "swift build"
-test = "swift test"
-doctor = "swift run daymark doctor"
+build = "scripts/build.sh"
+test = "scripts/test.sh"
+doctor = "scripts/doctor.sh"

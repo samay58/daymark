@@ -7,8 +7,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-swift build
-BIN_DIR="$(swift build --show-bin-path)"
+source scripts/toolchain.sh
+swift build "${SWIFT_BUILD_FLAGS[@]}"
+BIN_DIR="$(swift build "${SWIFT_BUILD_FLAGS[@]}" --show-bin-path)"
 APP="$BIN_DIR/Daymark.app"
 
 pkill -x Daymark 2>/dev/null || true
