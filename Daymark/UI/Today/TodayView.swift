@@ -7,6 +7,7 @@ struct TodayView: View {
     @State private var isScrolled = false
     @State private var headerHeight: CGFloat = 0
     @State private var reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -71,14 +72,17 @@ struct TodayView: View {
                 Spacer(minLength: 12)
 
                 HStack(spacing: 6) {
-                    ToolbarIcon(symbol: "square.and.pencil") { appState.isSlipPresented = true }
-                    ToolbarIcon(symbol: "magnifyingglass") { appState.showCommandPalette(prefill: nil) }
-                    ToolbarIcon(symbol: "circle.dashed") { appState.toggleOpenLoopsOverlay() }
+                    ToolbarIcon(symbol: "square.and.pencil", label: "Capture to Slip") { appState.isSlipPresented = true }
+                    ToolbarIcon(symbol: "magnifyingglass", label: "Search") { appState.showCommandPalette(prefill: nil) }
+                    ToolbarIcon(symbol: "circle.dashed", label: "Open Loops") { appState.toggleOpenLoopsOverlay() }
                 }
             }
 
             briefStrip
         }
+        // Anchor for the new-block popover. It points at the command line when the editor can
+        // report one, and at this header otherwise.
+        .background(NewDynamicBlocksPopoverHost(appState: appState).allowsHitTesting(false))
         .padding(.horizontal, 40)
         .padding(.top, DesignMetrics.editorTopPadding)
         .padding(.bottom, 14)
@@ -109,22 +113,42 @@ struct TodayView: View {
         }
     }
 
+    /// A notice replaces the strip's text for a few seconds, then the strip returns.
     private var briefStrip: some View {
-        BriefStripText(segments: briefStripSegments)
-            .contentShape(Rectangle())
-            .onTapGesture { appState.toggleOpenLoopsOverlay() }
+        BriefStripText(
+            text: appState.notice ?? Self.briefStripText(
+                carriedOver: appState.rolledOverCount,
+                openLoops: appState.openLoopCount,
+                isSaving: appState.isSaving
+            )
+        )
+        .contentTransition(.opacity)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: appState.notice)
+        .contentShape(Rectangle())
+        .onTapGesture { appState.toggleOpenLoopsOverlay() }
+        .onChange(of: appState.notice) { _, notice in
+            guard let notice else { return }
+            NSAccessibility.post(
+                element: NSApp as Any,
+                notification: .announcementRequested,
+                userInfo: [
+                    .announcement: notice,
+                    .priority: NSAccessibilityPriorityLevel.medium.rawValue
+                ]
+            )
+        }
     }
 
-    private var briefStripSegments: [String] {
+    static func briefStripText(carriedOver: Int, openLoops: Int, isSaving: Bool) -> String {
         var segments: [String] = []
-        if appState.rolledOverCount > 0 {
-            segments.append("\(appState.rolledOverCount) from yesterday")
+        if carriedOver > 0 {
+            segments.append("\(carriedOver) carried over")
         }
-        if appState.openLoopCount > 0 {
-            segments.append("\(appState.openLoopCount) open loops")
+        if openLoops > 0 {
+            segments.append("\(openLoops) open \(openLoops == 1 ? "loop" : "loops")")
         }
-        segments.append(appState.isSaving ? "Saving" : "Saved")
-        return segments
+        segments.append(isSaving ? "Saving" : "Saved")
+        return segments.joined(separator: " · ")
     }
 
     private var conflictBanner: some View {
@@ -192,11 +216,10 @@ private struct HeaderVisualEffectView: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
-// Reaches into the window's view hierarchy to give the editor's NSScrollView a top
-// content inset equal to the floating header's height, and to report scroll position back
-// to the header for the scroll-edge hairline. This lives in chrome only: it never touches
-// NSTextViewRepresentable or LiveTextView, it only adjusts standard NSScrollView properties
-// from outside, the same way a host would react to a floating toolbar.
+// Gives the editor's NSScrollView a top content inset equal to the floating header's height,
+// and reports scroll position back to the header for the scroll-edge hairline. It finds the
+// scroll view by walking the window's hierarchy and sets only standard NSScrollView
+// properties, the way a host reacts to a floating toolbar.
 private struct ScrollChromeAdapter: NSViewRepresentable {
     var topInset: CGFloat
     var onScrolledChange: (Bool) -> Void
@@ -288,11 +311,11 @@ private struct ScrollChromeAdapter: NSViewRepresentable {
 }
 
 private struct BriefStripText: View {
-    let segments: [String]
+    let text: String
     @State private var isHovering = false
 
     var body: some View {
-        Text(segments.joined(separator: " · "))
+        Text(text)
             .font(.system(size: 13, weight: .regular))
             .foregroundStyle(isHovering ? DesignTokens.textPrimary : DesignTokens.textSecondary)
             .onHover { hovering in
@@ -303,6 +326,7 @@ private struct BriefStripText: View {
 
 private struct ToolbarIcon: View {
     let symbol: String
+    let label: String
     var action: (() -> Void)?
 
     @State private var isHovering = false
@@ -320,6 +344,8 @@ private struct ToolbarIcon: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
         .onHover { hovering in
             withAnimation(DesignMotion.hover) { isHovering = hovering }
         }

@@ -3,7 +3,7 @@ import DaymarkCore
 
 struct CardIslandContext {
     let region: NoteTokens.GeneratedRegion
-    let command: String?
+    let command: DynamicBlockCommand?
     let innerText: String
     /// Composite reveal state (caret intersecting the region, or the view-source toggle
     /// switched on). Drives which chrome a provider shows; the caller does not need to track
@@ -18,20 +18,16 @@ struct CardIslandContext {
 typealias CardIslandContentProvider = (CardIslandContext) -> AnyView
 
 enum CardIslandCommand {
-    static func parse(_ line: String?) -> String? {
+    /// The command named on a `/daymark <command> [args]` line, split the way the parser splits.
+    static func parse(_ line: String?) -> DynamicBlockCommand? {
         guard let line else { return nil }
-        let parts = line.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ")
+        let parts = line.split { $0 == " " || $0 == "\t" }
         guard parts.first == "/daymark", parts.count >= 2 else { return nil }
-        return String(parts[1])
+        return DynamicBlockCommand(rawValue: String(parts[1]))
     }
 
-    static func title(for command: String?) -> String {
-        switch command {
-        case "open-loops": return "Open Loops"
-        case "source-list": return "Sources"
-        case "codex-context": return "Codex Context"
-        case "weekly-review": return "Weekly Review"
-        default: return "Generated"
-        }
+    /// "Generated" covers a region with no adjacent command line, or one naming an unknown command.
+    static func title(for command: DynamicBlockCommand?) -> String {
+        command?.blockTitle ?? "Generated"
     }
 }

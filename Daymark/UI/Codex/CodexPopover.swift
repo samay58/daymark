@@ -3,9 +3,8 @@ import SwiftUI
 import DaymarkCore
 
 /// Hosts the Codex composer as an `NSPopover` anchored at the current selection's screen
-/// rect (spec "Codex composer and receipts"). Mounted once, invisibly, in `RootView`;
-/// presentation is entirely driven by `AppState.isCodexPopoverPresented` so no other view
-/// needs to know about the popover's lifecycle.
+/// rect. Mounted once, invisibly, in `RootView`; presentation follows
+/// `AppState.isCodexPopoverPresented`, so no other view manages the popover's lifecycle.
 struct CodexPopoverHost: NSViewRepresentable {
     let appState: AppState
 
@@ -88,51 +87,51 @@ final class PopoverAnchorView: NSView {
     }
 }
 
-/// The Codex composer field set, restyled from the retired margin composer into the
-/// selection-anchored popover. Same field set (Title, Goal, Constraints, Acceptance, source,
-/// Markdown) and the same collision-safe `AppState` create path. Default state shows only
-/// Title, Goal, a compact source chip, and Create/Cancel; Constraints, Acceptance, the full
-/// source, and the Markdown preview sit behind the collapsed "Details" disclosure so the fast
-/// path stays two fields, not fewer approvals (spec "Codex popover, calmer and faster").
+/// The Codex composer. Title, Goal, a compact source chip, and Create/Cancel by default;
+/// Constraints, Acceptance, the full source, and the Markdown preview sit behind a collapsed
+/// Details disclosure. Every field stays bound to the same draft either way, so the short form
+/// writes exactly what the expanded form would.
 private struct CodexComposerForm: View {
     let appState: AppState
+
+    private var codex: CodexFlowModel { appState.codex }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Create Codex Task")
+                Text("Create Codex task")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(DesignTokens.textPrimary)
 
                 Rectangle().fill(DesignTokens.hairline).frame(height: 1)
 
-                if let draft = appState.codexTaskDraft {
+                if let composer = codex.composer {
                     CodexDraftFields(
-                        draft: draft,
-                        onTitleChange: { appState.updateCodexTaskDraftTitle($0) },
-                        onGoalChange: { appState.updateCodexTaskDraftGoal($0) },
-                        onConstraintsChange: { appState.updateCodexTaskDraftConstraints($0) },
-                        onAcceptanceChange: { appState.updateCodexTaskDraftAcceptanceCriteria($0) }
+                        draft: composer.draft,
+                        onTitleChange: { codex.updateTitle($0) },
+                        onGoalChange: { codex.updateGoal($0) },
+                        onConstraintsChange: { codex.updateConstraints($0) },
+                        onAcceptanceChange: { codex.updateAcceptanceCriteria($0) }
                     )
-                    .id(fieldsIdentity(for: draft))
-                }
+                    .id(fieldsIdentity(for: composer.draft))
 
-                if let message = appState.codexTaskMessage {
-                    Text(message)
-                        .font(DesignType.metadata)
-                        .foregroundStyle(DesignTokens.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if let error = composer.error {
+                        Text(error)
+                            .font(DesignType.metadata)
+                            .foregroundStyle(DesignTokens.warning)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
                 Rectangle().fill(DesignTokens.hairline).frame(height: 1)
 
                 HStack(spacing: 8) {
-                    Button("Create") { appState.createCodexTaskFile() }
+                    Button("Create") { codex.createTask() }
                         .buttonStyle(PrimaryButtonStyle())
-                        .disabled(!appState.canCreateCodexTaskFile)
-                        .opacity(appState.canCreateCodexTaskFile ? 1 : 0.55)
+                        .disabled(!codex.canCreateTask)
+                        .opacity(codex.canCreateTask ? 1 : 0.55)
                         .keyboardShortcut(.return, modifiers: .command)
-                    Button("Cancel") { appState.dismissCodexTaskDraft() }
+                    Button("Cancel") { codex.dismissComposer() }
                         .buttonStyle(QuietButtonStyle())
                 }
             }
@@ -187,7 +186,7 @@ private struct CodexDraftFields: View {
         DisclosureGroup(isExpanded: $isDetailsExpanded) {
             VStack(alignment: .leading, spacing: 14) {
                 area("Constraints", text: $constraintsText, lines: 3, onChange: onConstraintsChange)
-                area("Acceptance Criteria", text: $acceptanceText, lines: 4, onChange: onAcceptanceChange)
+                area("Acceptance criteria", text: $acceptanceText, lines: 4, onChange: onAcceptanceChange)
                 ReadOnlyField(label: "Source", value: sourceLabel(for: draft), mono: true)
                 ReadOnlyField(label: "Excerpt", value: draft.sourceExcerpt, lines: 3, mono: true)
                 ReadOnlyField(label: "Markdown", value: draft.markdown(), lines: 6, mono: true)

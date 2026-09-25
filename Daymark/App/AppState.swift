@@ -7,33 +7,21 @@ import DaymarkStore
 import DaymarkIndexer
 import DaymarkAgents
 
-/// A Codex task file that has been written, paired with the exact draft it came from.
-/// Bundling the two makes the "task created" phase a single value, so the path and draft
-/// can never disagree.
-struct CreatedCodexTask: Equatable {
-    var relativePath: String
-    var draft: CodexTaskDraft
-}
-
-/// The receipt card's data, per spec "Codex composer and receipts". Placed as a stub
-/// ahead of P3-codex, which wires it to the Codex create flow.
-struct CodexReceiptState: Equatable {
-    var taskTitle: String
-    var relativePath: String
-}
-
-/// A dynamic block card's preview-pending state: the one-line change summary and the
-/// incoming Markdown body the card shows in place of the current region content.
+/// A dynamic block card's pending change: the one-line summary, the incoming Markdown the card
+/// shows in place of its current body, and whether Apply is allowed right now.
 struct DynamicBlockCardPreview: Equatable {
     var summaryText: String
     var incomingMarkdown: String
     var canApply: Bool
+    var isStale: Bool
 }
 
 @MainActor
 @Observable
 final class AppState {
-    var workspaceRoot: WorkspaceRoot
+    var workspaceRoot: WorkspaceRoot {
+        didSet { codex.workspaceRoot = workspaceRoot }
+    }
     var todayText: String {
         didSet { recomputeBufferDerivations() }
     }
@@ -47,52 +35,46 @@ final class AppState {
     var commandPalettePrefill: String?
     var isSlipPresented = false
     var editorSelection = SelectionModel()
-    var codexTaskDraft: CodexTaskDraft?
-    var codexTaskMessage: String?
-    var codexContextBundle: CodexContextBundle?
-    var codexContextBundleMessage: String?
-    /// Whether the Codex popover (spec "Codex composer and receipts") is on screen. The popover
-    /// host in `Daymark/UI/Codex/CodexPopover.swift` is the only reader/writer of this besides
-    /// the flows below; it is a plain flag rather than being derived from `codexTaskDraft` so
-    /// the draft can keep living after Create (for the context bundle offer) without the
-    /// popover reopening.
-    var isCodexPopoverPresented = false
+    /// A short message that stands in for the brief strip for a few seconds, for outcomes with
+    /// no surface of their own (nothing to refresh, no selection for Codex).
+    private(set) var notice: String?
+    @ObservationIgnored private var noticeTask: Task<Void, Never>?
+    let codex: CodexFlowModel
     /// The current selection's (or caret's) screen rect, published by the editor so the Codex
     /// popover can anchor itself. Nil before the editor has reported a selection.
     var codexAnchorScreenRect: CGRect?
-    /// Whether the receipt card is showing the context-bundle preview in place of its default
-    /// actions row.
-    var isCodexBundleExpanded = false
-    var dynamicBlockPreview: DynamicBlockRefreshPreview?
-    var dynamicBlockMessage: String?
-    var isPlanningDynamicBlocks = false
-    var isApplyingDynamicBlocks = false
+    /// Screen rect for a character range in the editor, installed by the editor so a popover can
+    /// anchor to a line. Called only when a popover is presented, never while typing.
+    @ObservationIgnored var rectForCharacterRange: ((NSRange) -> NSRect?)?
+
+    /// The pending refresh preview, if any. Cards and the new-block popover read their own part.
+    private(set) var dynamicBlockSession: DynamicBlockRefreshSession?
+    /// Flips only when the buffer diverges from (or returns to) the previewed Markdown, so card
+    /// bodies observe one bool instead of the per-keystroke content hash.
+    private(set) var isDynamicBlockPreviewStale = false
+    private(set) var isPlanningDynamicBlocks = false
+    private(set) var isApplyingDynamicBlocks = false
+    /// Failures scoped to one card, keyed by region hash, shown in that card's footer.
+    private(set) var dynamicBlockCardErrors: [String: String] = [:]
+    /// Failure shown inside the new-block popover.
+    private(set) var newDynamicBlocksError: String?
+    /// Every planning run bumps this; a result from an older run (cancelled or superseded) is
+    /// ignored, since the detached planner itself cannot be interrupted.
+    @ObservationIgnored private var dynamicBlockGeneration = 0
+    @ObservationIgnored private var dynamicBlockPlanningTask: Task<Result<DynamicBlockRefreshSession, any Error>, Never>?
     /// Cache records for today's note, keyed by command hash, backing each card's
     /// "generated <relative time>" label. Reloaded after workspace load and after apply.
     private var dynamicBlockCacheRecords: [String: DynamicBlockCacheRecord] = [:]
-    /// The receipt card's state, set once `createCodexTaskFile()` succeeds and cleared by
-    /// `dismissCodexReceipt()`. Persists across a Codex composer's popover closing.
-    var codexReceipt: CodexReceiptState?
-    private var codexTaskPathBasis: Set<String> = []
-    private var codexTaskDateBasis: Date?
-    /// The created task file and the exact draft it was written from, kept together so the
-    /// "task created" phase cannot be half-set (both-or-neither is unrepresentable).
-    private var createdCodexTask: CreatedCodexTask?
 
-    /// Whether the current draft / bundle can be written. The views read these instead of
-    /// constructing a file writer just to evaluate button enable state (the predicate is the
-    /// single source of truth, shared with the writers' `validate`).
-    var canCreateCodexTaskFile: Bool { codexTaskDraft?.isWritable ?? false }
-    var canCreateCodexContextBundle: Bool { codexContextBundle?.isWritable ?? false }
     var canRefreshDynamicBlocks: Bool {
         didLoadToday && todayHasDynamicBlockCommand
     }
-    var canApplyDynamicBlocks: Bool {
-        guard let preview = dynamicBlockPreview else { return false }
-        return todayContentHash == preview.sourceContentHash
-            && !isPlanningDynamicBlocks
-            && !isApplyingDynamicBlocks
+    var isNewDynamicBlocksPopoverPresented: Bool {
+        !(dynamicBlockSession?.newBlocks.isEmpty ?? true)
     }
+    /// The composer popover is open exactly while a draft exists.
+    var isCodexPopoverPresented: Bool { codex.composer != nil }
+    var codexReceipt: CodexFlowModel.Receipt? { codex.receipt }
     /// Local full-text search results for the current command-palette query.
     var searchResults: [SearchHit] = []
     var openLoopGroups: [OpenLoopGroup] = []
@@ -144,6 +126,7 @@ final class AppState {
         calendar: Calendar = .current
     ) {
         self.workspaceRoot = workspaceRoot
+        self.codex = CodexFlowModel(workspaceRoot: workspaceRoot)
         self.calendar = calendar
         self.todayText = SampleData.todayDocument
         self.lastSavedText = SampleData.todayDocument
@@ -254,6 +237,8 @@ final class AppState {
         hasLoaded = false
         didLoadToday = false
         rolledOverCount = 0
+        // A pending preview was planned against the old root's note.
+        dismissDynamicBlocksRefresh()
 
         workspaceRoot = .resolve(override: SettingsStore.workspaceRootOverride())
         await prepareWorkspace()
@@ -320,6 +305,7 @@ final class AppState {
     private func recomputeBufferDerivations() {
         todayContentHash = ContentHasher.hash(todayText)
         todayHasDynamicBlockCommand = DynamicBlockParser().containsKnownCommand(in: todayText)
+        updateDynamicBlockStaleness()
     }
 
     // MARK: - External edits and conflict resolution
@@ -431,158 +417,285 @@ final class AppState {
         isRefreshingOpenLoops = false
     }
 
+    // MARK: - Notices
+
+    private static let noticeDuration: Duration = .seconds(4)
+
+    func showNotice(_ text: String) {
+        noticeTask?.cancel()
+        notice = text
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.noticeDuration)
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
+        }
+    }
+
     // MARK: - Dynamic Blocks
 
+    /// Where a refresh or apply started, which decides where its failure is reported.
+    private enum DynamicBlockOrigin: Equatable {
+        case global
+        case card(String)
+        case newBlocks
+    }
+
+    private typealias PlanningRun = (generation: Int, task: Task<Result<DynamicBlockRefreshSession, any Error>, Never>)
+
+    /// Menu, palette, and shortcut refresh. Failures and "nothing to do" go to the notice.
     func previewDynamicBlocksRefresh() async {
+        await previewDynamicBlocks(origin: .global)
+    }
+
+    /// A card's own refresh button. Failures show in that card's footer.
+    func previewDynamicBlocksRefresh(fromCard regionHash: String) async {
+        await previewDynamicBlocks(origin: .card(regionHash))
+    }
+
+    private func previewDynamicBlocks(origin: DynamicBlockOrigin) async {
+        guard !isApplyingDynamicBlocks else { return }
         guard didLoadToday else {
-            dynamicBlockPreview = nil
-            dynamicBlockMessage = "Load today's note before refreshing dynamic blocks."
+            report(DynamicBlockCopy.notLoaded, origin: origin)
             return
         }
         guard todayHasDynamicBlockCommand else {
-            dynamicBlockPreview = nil
-            dynamicBlockMessage = "No dynamic block commands in this note."
+            setDynamicBlockSession(nil)
+            showNotice(DynamicBlockCopy.noCommands)
             return
         }
+        if case .card(let hash) = origin { dynamicBlockCardErrors[hash] = nil }
 
+        let run = startDynamicBlockPlanning()
+        guard let result = await finishDynamicBlockPlanning(run) else { return }
+        switch result {
+        case .success(let session):
+            dynamicBlockCardErrors = [:]
+            newDynamicBlocksError = nil
+            if session.isEmpty {
+                setDynamicBlockSession(nil)
+                showNotice(DynamicBlockCopy.upToDate)
+            } else {
+                setDynamicBlockSession(session)
+            }
+        case .failure(let error):
+            setDynamicBlockSession(nil)
+            report(DynamicBlockCopy.message(for: error), origin: origin)
+        }
+    }
+
+    /// Starts a planning run against the current buffer. Synchronous up to the detached work, so
+    /// `isPlanningDynamicBlocks` is already true (and Apply disabled) when this returns.
+    private func startDynamicBlockPlanning() -> PlanningRun {
+        dynamicBlockPlanningTask?.cancel()
+        dynamicBlockGeneration += 1
         isPlanningDynamicBlocks = true
-        dynamicBlockMessage = nil
         let root = workspaceRoot
         let sourcePath = todayRelativePath
         let markdown = todayText
         let calendar = calendar
-
-        let result = await Task.detached(priority: .userInitiated) {
+        let task = Task.detached(priority: .userInitiated) { () -> Result<DynamicBlockRefreshSession, any Error> in
             Result {
-                try DynamicBlockRefreshService().preview(
+                let preview = try DynamicBlockRefreshService().preview(
                     markdown: markdown,
                     sourcePath: sourcePath,
                     root: root,
                     referenceDate: Date(),
                     calendar: calendar
                 )
+                return DynamicBlockRefreshSession.make(preview: preview, markdown: markdown)
             }
-        }.value
-
-        isPlanningDynamicBlocks = false
-        switch result {
-        case .success(let preview):
-            if preview.plan.patches.isEmpty {
-                dynamicBlockPreview = nil
-                dynamicBlockMessage = "No dynamic block commands in this note."
-            } else {
-                dynamicBlockPreview = preview
-                dynamicBlockMessage = nil
-            }
-        case .failure(let error):
-            dynamicBlockPreview = nil
-            dynamicBlockMessage = Self.message(for: error)
         }
+        dynamicBlockPlanningTask = task
+        return (dynamicBlockGeneration, task)
     }
 
-    func applyDynamicBlocksRefresh() async {
-        guard let preview = dynamicBlockPreview else {
-            dynamicBlockMessage = "Preview dynamic blocks before applying."
+    /// Nil when the run was cancelled or superseded; its result must not land.
+    private func finishDynamicBlockPlanning(_ run: PlanningRun) async -> Result<DynamicBlockRefreshSession, any Error>? {
+        let result = await run.task.value
+        guard run.generation == dynamicBlockGeneration, !run.task.isCancelled else { return nil }
+        isPlanningDynamicBlocks = false
+        dynamicBlockPlanningTask = nil
+        return result
+    }
+
+    /// Applies exactly the patch the card showed.
+    func applyDynamicBlockCard(regionHash: String) async {
+        guard let patch = dynamicBlockSession?.cardPatches[regionHash] else { return }
+        await applyDynamicBlockPatches([patch], origin: .card(regionHash))
+    }
+
+    /// Applies exactly the inserts the new-block popover showed.
+    func insertNewDynamicBlocks() async {
+        guard let blocks = dynamicBlockSession?.newBlocks, !blocks.isEmpty else { return }
+        await applyDynamicBlockPatches(blocks.map(\.patch), origin: .newBlocks)
+    }
+
+    private func applyDynamicBlockPatches(_ patches: [DynamicBlockPatch], origin: DynamicBlockOrigin) async {
+        guard let session = dynamicBlockSession, !isApplyingDynamicBlocks, !isPlanningDynamicBlocks else { return }
+        guard !isDynamicBlockPreviewStale else {
+            report(DynamicBlockCopy.stale, origin: origin)
             return
         }
-        guard todayContentHash == preview.sourceContentHash else {
-            dynamicBlockMessage = "Preview is stale. Refresh the preview before applying."
-            return
-        }
+        clearError(for: origin)
+        let preview = session.scopedPreview(patches)
 
         autosaveTask?.cancel()
         isApplyingDynamicBlocks = true
-        dynamicBlockMessage = nil
         let root = workspaceRoot
         let markdown = todayText
 
-        // Compute the applied Markdown on the main actor and record it as our own write before
-        // the disk write, matching scheduleAutosave's echo-guard ordering so a watcher event
-        // racing the write is recognized as an echo. The detached task runs the same
-        // deterministic apply() and performs the workspace-confined write.
+        // Compute the applied Markdown here and record it as our own write before the disk write,
+        // matching scheduleAutosave's echo-guard ordering so a watcher event racing the write is
+        // recognized as an echo. The detached task runs the same deterministic apply() and
+        // performs the workspace-confined write.
         let updated: String
         do {
             updated = try preview.plan.apply(to: markdown)
         } catch {
             isApplyingDynamicBlocks = false
-            dynamicBlockMessage = Self.message(for: error)
+            report(DynamicBlockCopy.message(for: error), origin: origin)
             return
         }
         recordSelfWrite(updated)
 
         let result = await Task.detached(priority: .userInitiated) {
             Result {
-                try DynamicBlockRefreshService().apply(
-                    preview: preview,
-                    currentMarkdown: markdown,
-                    root: root
-                )
+                try DynamicBlockRefreshService().apply(preview: preview, currentMarkdown: markdown, root: root)
             }
         }.value
 
         isApplyingDynamicBlocks = false
         switch result {
-        case .success(let result):
-            dynamicBlockPreview = nil
-            // A keystroke may have landed between the snapshot above and here. Adopt the
-            // applied Markdown only if the buffer still matches what was previewed; otherwise
-            // the user has unsaved edits and the freshly-written disk version is a conflict to
-            // resolve, not a buffer to clobber.
+        case .success(let applied):
+            // A keystroke may have landed between the snapshot above and here. Adopt the applied
+            // Markdown only if the buffer still matches what was previewed; otherwise the user
+            // has unsaved edits and the written disk version is a conflict to resolve, not a
+            // buffer to clobber.
             if todayContentHash == preview.sourceContentHash {
-                lastSavedText = result.updatedMarkdown
-                todayText = result.updatedMarkdown
-                dynamicBlockMessage = result.cacheWarning == nil
-                    ? "Updated dynamic blocks."
-                    : "Updated dynamic blocks. Cache metadata will rebuild later."
+                let remaining = remainingDynamicBlocks(after: origin, appliedMarkdown: applied.updatedMarkdown)
+                setDynamicBlockSession(remaining)
+                lastSavedText = applied.updatedMarkdown
+                todayText = applied.updatedMarkdown
                 reloadDynamicBlockCache()
+                if remaining != nil { replanRemainingDynamicBlocks() }
             } else {
-                externalDiskVersion = result.updatedMarkdown
+                externalDiskVersion = applied.updatedMarkdown
                 hasExternalConflict = true
-                dynamicBlockMessage = "Note changed during refresh. Resolve the conflict to keep the update."
+                setDynamicBlockSession(nil)
+                // The popover closes with the session, so its failure moves to the notice.
+                report(DynamicBlockCopy.changedDuringApply, origin: origin == .newBlocks ? .global : origin)
             }
             if let indexer {
                 try? await indexer.indexToday()
             }
             await refreshOpenLoops()
         case .failure(let error):
-            dynamicBlockMessage = Self.message(for: error)
+            report(DynamicBlockCopy.message(for: error), origin: origin)
         }
     }
 
-    func dismissDynamicBlocksRefresh() {
-        dynamicBlockPreview = nil
-        dynamicBlockMessage = nil
-        isPlanningDynamicBlocks = false
-        isApplyingDynamicBlocks = false
+    /// The blocks still awaiting approval after `origin` was applied, rebased onto the applied
+    /// Markdown. Their line indexes are now wrong, so this is display-only until
+    /// `replanRemainingDynamicBlocks` replaces it; Apply stays disabled while that runs.
+    private func remainingDynamicBlocks(after origin: DynamicBlockOrigin, appliedMarkdown: String) -> DynamicBlockRefreshSession? {
+        guard var session = dynamicBlockSession else { return nil }
+        switch origin {
+        case .card(let hash): session.cardPatches[hash] = nil
+        case .newBlocks: session.newBlocks = []
+        case .global: return nil
+        }
+        guard !session.isEmpty else { return nil }
+        session.preview.sourceContentHash = ContentHasher.hash(appliedMarkdown)
+        return session
     }
 
-    /// The pending preview for the card whose region currently carries `regionHash`, or nil
-    /// when that region has no matching patch (idle) or no refresh has run.
-    ///
-    /// Matching is by command hash: a region's marker hash and its patch's `commandHash` are
-    /// computed from the same (source path, ordinal, command text) as long as the command
-    /// line itself is unedited between preview and apply, which is the steady-state refresh
-    /// flow. A patch cannot be matched positionally instead, because `DynamicBlockPatch`'s
-    /// line-range fields are internal to DaymarkCore.
+    private func replanRemainingDynamicBlocks() {
+        let run = startDynamicBlockPlanning()
+        Task { [weak self] in
+            guard let self, let result = await self.finishDynamicBlockPlanning(run) else { return }
+            let fresh: DynamicBlockRefreshSession
+            switch result {
+            case .success(let session):
+                fresh = session
+            case .failure(let error):
+                self.setDynamicBlockSession(nil)
+                self.showNotice(DynamicBlockCopy.message(for: error))
+                return
+            }
+            guard let pending = self.dynamicBlockSession else { return }
+            // Read the pending set now, not at start: a card cancelled during the run stays gone.
+            let narrowed = fresh.keeping(
+                cards: Set(pending.cardPatches.keys),
+                newBlocks: Set(pending.newBlocks.map(\.id))
+            )
+            self.setDynamicBlockSession(narrowed.isEmpty ? nil : narrowed)
+        }
+    }
+
+    /// Cancels every pending preview and any planning run in flight. An apply already writing
+    /// is left to finish, since its file write cannot be taken back.
+    func dismissDynamicBlocksRefresh() {
+        guard !isApplyingDynamicBlocks else { return }
+        dynamicBlockPlanningTask?.cancel()
+        dynamicBlockPlanningTask = nil
+        dynamicBlockGeneration += 1
+        isPlanningDynamicBlocks = false
+        dynamicBlockCardErrors = [:]
+        newDynamicBlocksError = nil
+        setDynamicBlockSession(nil)
+    }
+
+    /// A card's Cancel: drops only that card's pending change and any error it shows.
+    func cancelDynamicBlockCard(regionHash: String) {
+        guard !isApplyingDynamicBlocks else { return }
+        dynamicBlockCardErrors[regionHash] = nil
+        guard var session = dynamicBlockSession, session.cardPatches[regionHash] != nil else { return }
+        session.cardPatches[regionHash] = nil
+        if session.isEmpty { dismissDynamicBlocksRefresh() } else { setDynamicBlockSession(session) }
+    }
+
+    /// The new-block popover's Cancel, or any close the user started: drops the inserts.
+    func cancelNewDynamicBlocks() {
+        guard !isApplyingDynamicBlocks else { return }
+        newDynamicBlocksError = nil
+        guard var session = dynamicBlockSession, !session.newBlocks.isEmpty else { return }
+        session.newBlocks = []
+        if session.isEmpty { dismissDynamicBlocksRefresh() } else { setDynamicBlockSession(session) }
+    }
+
+    func dismissDynamicBlockCardError(regionHash: String) {
+        dynamicBlockCardErrors[regionHash] = nil
+    }
+
     func dynamicBlockCardPreview(forRegionHash regionHash: String) -> DynamicBlockCardPreview? {
-        guard let preview = dynamicBlockPreview,
-              let patch = preview.plan.patches.first(where: { $0.commandHash == regionHash }) else {
+        guard let patch = dynamicBlockSession?.cardPatches[regionHash] else { return nil }
+        let stale = isDynamicBlockPreviewStale
+        return DynamicBlockCardPreview(
+            summaryText: stale ? DynamicBlockCopy.stale : DynamicBlockCopy.summary(for: patch),
+            incomingMarkdown: patch.generatedMarkdown,
+            canApply: !stale && !isPlanningDynamicBlocks && !isApplyingDynamicBlocks,
+            isStale: stale
+        )
+    }
+
+    var canInsertNewDynamicBlocks: Bool {
+        isNewDynamicBlocksPopoverPresented
+            && !isDynamicBlockPreviewStale
+            && !isPlanningDynamicBlocks
+            && !isApplyingDynamicBlocks
+    }
+
+    /// Screen rect of the first new command line, for anchoring the new-block popover. Nil when
+    /// the editor has not installed `rectForCharacterRange` or the range no longer fits.
+    func newDynamicBlocksAnchorScreenRect() -> NSRect? {
+        guard let range = dynamicBlockSession?.newBlocks.first?.commandLineRange,
+              let rectForCharacterRange,
+              NSMaxRange(range) <= (todayText as NSString).length,
+              let rect = rectForCharacterRange(range),
+              rect.width > 0 || rect.height > 0 else {
             return nil
         }
-        let stale = todayContentHash != preview.sourceContentHash
-        let summary: String
-        if stale {
-            summary = "Note changed; preview again"
-        } else {
-            let lineCount = patch.replacementMarkdown.components(separatedBy: "\n").count
-            let verb = patch.operation == .insert ? "add" : "replace"
-            summary = "Will \(verb) \(lineCount) line\(lineCount == 1 ? "" : "s")."
-        }
-        return DynamicBlockCardPreview(
-            summaryText: summary,
-            incomingMarkdown: patch.generatedMarkdown,
-            canApply: !stale && canApplyDynamicBlocks
-        )
+        return rect
     }
 
     /// When the region last recorded a refresh in `.daymark/dynamic-blocks.json`, for the
@@ -590,6 +703,32 @@ final class AppState {
     func dynamicBlockGeneratedAt(forRegionHash regionHash: String) -> Date? {
         guard let stamp = dynamicBlockCacheRecords[regionHash]?.refreshedAt else { return nil }
         return Self.cacheDateFormatter.date(from: stamp)
+    }
+
+    private func setDynamicBlockSession(_ session: DynamicBlockRefreshSession?) {
+        dynamicBlockSession = session
+        updateDynamicBlockStaleness()
+    }
+
+    private func updateDynamicBlockStaleness() {
+        let stale = dynamicBlockSession.map { $0.preview.sourceContentHash != todayContentHash } ?? false
+        if stale != isDynamicBlockPreviewStale { isDynamicBlockPreviewStale = stale }
+    }
+
+    private func report(_ message: String, origin: DynamicBlockOrigin) {
+        switch origin {
+        case .global: showNotice(message)
+        case .card(let hash): dynamicBlockCardErrors[hash] = message
+        case .newBlocks: newDynamicBlocksError = message
+        }
+    }
+
+    private func clearError(for origin: DynamicBlockOrigin) {
+        switch origin {
+        case .global: break
+        case .card(let hash): dynamicBlockCardErrors[hash] = nil
+        case .newBlocks: newDynamicBlocksError = nil
+        }
     }
 
     private func reloadDynamicBlockCache() {
@@ -610,172 +749,21 @@ final class AppState {
 
     // MARK: - Codex task handoff
 
+    /// Opens the Codex composer for the selection, or the block under the caret.
     func previewCodexTaskFromSelection() {
-        do {
-            let sourcePath = editorSelection.sourcePath ?? todayRelativePath
-            let selection = try SourceSelector().select(
-                text: todayText,
-                selectedRange: editorSelection.selectedRange,
-                cursorLocation: editorSelection.cursorLocation,
-                sourcePath: sourcePath
-            )
-            let existingPaths = workspaceRoot.existingMarkdownRelativePaths(under: "specs/tasks")
-            let previewDate = Date()
-            codexTaskPathBasis = existingPaths
-            codexTaskDateBasis = previewDate
-            clearCodexContextBundleState()
-            codexTaskDraft = try PreviewBuilder().codexTaskPreview(
-                source: selection,
-                date: previewDate,
-                existingRelativePaths: existingPaths
-            )
-            codexTaskMessage = nil
-            isCodexPopoverPresented = true
-        } catch {
-            codexTaskDraft = nil
-            clearCodexContextBundleState()
-            codexTaskMessage = "Select text or place the cursor inside a note block first."
-            isCodexPopoverPresented = false
-        }
-    }
-
-    func updateCodexTaskDraftTitle(_ title: String) { editCodexTaskDraftFields(title: title) }
-    func updateCodexTaskDraftGoal(_ goal: String) { editCodexTaskDraftFields(goal: goal) }
-    func updateCodexTaskDraftConstraints(_ text: String) {
-        editCodexTaskDraftFields(constraints: Self.lines(from: text))
-    }
-    func updateCodexTaskDraftAcceptanceCriteria(_ text: String) {
-        editCodexTaskDraftFields(acceptanceCriteria: Self.lines(from: text))
-    }
-
-    /// Threads the date and path basis once and rewrites only the supplied field(s); a nil
-    /// field keeps the draft's current value. Swift default args cannot reference the runtime
-    /// draft, so each unset field resolves against the draft inside the edit closure.
-    private func editCodexTaskDraftFields(
-        title: String? = nil,
-        goal: String? = nil,
-        constraints: [String]? = nil,
-        acceptanceCriteria: [String]? = nil
-    ) {
-        updateCodexTaskDraft { draft in
-            draft.withEditedFields(
-                title: title ?? draft.title,
-                goal: goal ?? draft.goal,
-                constraints: constraints ?? draft.constraints,
-                acceptanceCriteria: acceptanceCriteria ?? draft.acceptanceCriteria,
-                date: codexTaskDateBasis ?? Date(),
-                existingRelativePaths: codexTaskPathBasis
-            )
-        }
-    }
-
-    private func updateCodexTaskDraft(_ edit: (CodexTaskDraft) -> CodexTaskDraft) {
-        guard let codexTaskDraft else { return }
-        self.codexTaskDraft = edit(codexTaskDraft)
-        codexTaskMessage = nil
-        clearCodexContextBundleState()
-    }
-
-    func createCodexTaskFile() {
-        guard let codexTaskDraft else {
-            codexTaskMessage = "Create a preview before writing a task file."
-            return
-        }
-        do {
-            let result = try CodexTaskFileWriter().write(codexTaskDraft, root: workspaceRoot)
-            codexTaskPathBasis.insert(result.relativePath)
-            let writtenDraft = codexTaskDraft.withSuggestedFilePath(result.relativePath)
-            self.codexTaskDraft = writtenDraft
-            createdCodexTask = CreatedCodexTask(relativePath: result.relativePath, draft: writtenDraft)
-            codexContextBundle = nil
-            codexContextBundleMessage = nil
-            codexTaskMessage = "Created \(result.relativePath)"
-            codexReceipt = CodexReceiptState(taskTitle: writtenDraft.title, relativePath: result.relativePath)
-            isCodexPopoverPresented = false
-            isCodexBundleExpanded = false
-        } catch CodexTaskFileWriter.Error.blankDraft {
-            codexTaskMessage = "Fill in a title, goal, source, and excerpt before creating the file."
-        } catch CodexTaskFileWriter.Error.invalidPath {
-            codexTaskMessage = "The task file path must stay under specs/tasks."
-        } catch {
-            codexTaskMessage = "Could not create the task file."
-        }
-    }
-
-    func dismissCodexTaskDraft() {
-        codexTaskDraft = nil
-        codexTaskMessage = nil
-        clearCodexContextBundleState()
-        codexTaskPathBasis = []
-        codexTaskDateBasis = nil
-        isCodexPopoverPresented = false
-    }
-
-    private func clearCodexContextBundleState() {
-        createdCodexTask = nil
-        codexContextBundle = nil
-        codexContextBundleMessage = nil
-    }
-
-    func previewCodexContextBundle() {
-        guard let createdCodexTask else {
-            codexContextBundle = nil
-            codexContextBundleMessage = "Create a task file before previewing a context bundle."
-            return
-        }
-        let existingPaths = workspaceRoot.existingMarkdownRelativePaths(under: "artifacts/context-bundles")
-        codexContextBundle = CodexContextBundle.from(
-            draft: createdCodexTask.draft,
-            taskRelativePath: createdCodexTask.relativePath,
-            date: Date(),
-            existingRelativePaths: existingPaths
+        let started = codex.startDraft(
+            text: todayText,
+            selection: editorSelection,
+            fallbackSourcePath: todayRelativePath
         )
-        codexContextBundleMessage = nil
-    }
-
-    func createCodexContextBundle() {
-        guard let codexContextBundle else {
-            codexContextBundleMessage = "Preview a context bundle before creating it."
-            return
-        }
-        do {
-            let result = try CodexContextBundleWriter().write(codexContextBundle, root: workspaceRoot)
-            self.codexContextBundle = codexContextBundle.withSuggestedFilePath(result.relativePath)
-            codexContextBundleMessage = "Created \(result.relativePath)"
-        } catch CodexContextBundleWriter.Error.blankBundle {
-            codexContextBundleMessage = "The bundle needs a task, goal, source, and excerpt before writing."
-        } catch CodexContextBundleWriter.Error.invalidPath {
-            codexContextBundleMessage = "The bundle file path must stay under artifacts/context-bundles."
-        } catch {
-            codexContextBundleMessage = "Could not create the context bundle."
+        if !started {
+            showNotice("Select text or place the cursor in a block first")
         }
     }
 
-    func dismissCodexContextBundle() {
-        codexContextBundle = nil
-        codexContextBundleMessage = nil
-    }
-
-    /// Expands the receipt card into the context-bundle preview, deriving it from the exact
-    /// draft the receipt's task file was written from.
-    func expandCodexReceiptToBundle() {
-        guard codexReceipt != nil else { return }
-        isCodexBundleExpanded = true
-        previewCodexContextBundle()
-    }
-
-    /// Collapses the receipt card's bundle preview back to its default actions row, without
-    /// dismissing the receipt itself.
-    func cancelCodexBundlePreview() {
-        isCodexBundleExpanded = false
-        dismissCodexContextBundle()
-    }
-
-    /// Dismisses the receipt card ("Done"), clearing it and any bundle offer it was showing.
-    func dismissCodexReceipt() {
-        codexReceipt = nil
-        isCodexBundleExpanded = false
-        clearCodexContextBundleState()
+    /// Called when the composer popover closes without Create.
+    func dismissCodexTaskDraft() {
+        codex.dismissComposer()
     }
 
     // MARK: - Capture
@@ -855,17 +843,5 @@ final class AppState {
         let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
         guard filePath.hasPrefix(prefix) else { return nil }
         return String(filePath.dropFirst(prefix.count))
-    }
-
-    private static func lines(from text: String) -> [String] {
-        text.components(separatedBy: CharacterSet.newlines)
-    }
-
-    private static func message(for error: Error) -> String {
-        if let localized = error as? LocalizedError,
-           let description = localized.errorDescription {
-            return description
-        }
-        return "Could not refresh dynamic blocks."
     }
 }

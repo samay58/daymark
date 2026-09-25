@@ -1,14 +1,10 @@
 import SwiftUI
 import DaymarkCore
 
-/// The dynamic-block card hosted inside a collapsed generated region. Renders the
-/// idle / preview-pending / stale states from the spec's card-states table. Reveal is
-/// two-way and tracked separately from the caret in `CardIslandController` (caret reveal and
-/// the view-source toggle each hold their own bit; the region is revealed while either is
-/// set). While revealed this view swaps to `stripView`, the thin header-only chrome the spec
-/// calls for; the literal region text renders below it in the editor itself (see
-/// `CardLayoutFragment`), and tapping the toggle again in the strip is how the user
-/// re-collapses without moving the caret.
+/// The card shown in place of a collapsed generated region: idle, preview pending, stale, or
+/// showing an error. While the region is revealed (caret inside, or the view-source toggle on)
+/// it shrinks to `stripView`, a header-only strip above the literal region text the editor
+/// draws; the toggle in the strip re-collapses it without moving the caret.
 struct DynamicBlockCardView: View {
     let context: CardIslandContext
     let appState: AppState
@@ -19,35 +15,32 @@ struct DynamicBlockCardView: View {
 
     private var regionHash: String { context.region.hash }
 
-    private var pendingPreview: DynamicBlockCardPreview? {
-        appState.dynamicBlockCardPreview(forRegionHash: regionHash)
+    private var footer: Footer? {
+        let preview = appState.dynamicBlockCardPreview(forRegionHash: regionHash)
+        let error = appState.dynamicBlockCardErrors[regionHash]
+        guard preview != nil || error != nil else { return nil }
+        return Footer(preview: preview, error: error, isApplying: appState.isApplyingDynamicBlocks)
     }
 
-    /// The quiet state indicator. Idle reads as tertiary (resting), a pending preview as the
-    /// sage accent (an action is offered), and a stale preview as the warning tone (the note
-    /// moved out from under it). Dot-color-per-state is the one granted latitude; every value is
-    /// an existing token.
-    private enum DotState { case idle, pending, stale }
+    /// What the footer shows. One value so a single `onChange` catches every height change.
+    private struct Footer: Equatable {
+        var preview: DynamicBlockCardPreview?
+        var error: String?
+        var isApplying: Bool
 
-    private var dotState: DotState {
-        guard let preview = pendingPreview else { return .idle }
-        return preview.canApply ? .pending : .stale
+        var message: String { error ?? preview?.summaryText ?? "" }
+        var needsAttention: Bool { error != nil || preview?.isStale == true }
     }
 
-    private var dotColor: Color {
-        switch dotState {
-        case .idle: return DesignTokens.textTertiary
-        case .pending: return DesignTokens.accent
-        case .stale: return DesignTokens.warning
-        }
-    }
+    private enum DotState { case idle, pending, attention }
 
     var body: some View {
+        let footer = footer
         Group {
             if context.isRevealed {
-                stripView
+                stripView(footer: footer)
             } else {
-                fullCardView
+                fullCardView(footer: footer)
             }
         }
         .onHover { hovering in
@@ -60,12 +53,15 @@ struct DynamicBlockCardView: View {
         }
     }
 
-    private var fullCardView: some View {
+    private func fullCardView(footer: Footer?) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            header
-            bodyContent
-            if let preview = pendingPreview {
-                footer(for: preview)
+            header(footer: footer)
+            CardMarkdownText(markdown: footer?.preview?.incomingMarkdown ?? context.innerText)
+                .equatable()
+                .id(footer?.preview == nil ? "current" : "incoming")
+                .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 2)))
+            if let footer {
+                footerView(footer)
             }
         }
         .padding(14)
@@ -76,15 +72,15 @@ struct DynamicBlockCardView: View {
             RoundedRectangle(cornerRadius: DesignTokens.panelRadius, style: .continuous)
                 .stroke(DesignTokens.hairline, lineWidth: 1)
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: pendingPreview)
-        .onChange(of: pendingPreview) { _, _ in context.notifyHeightChanged() }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: footer)
+        .onChange(of: footer) { _, _ in context.notifyHeightChanged() }
     }
 
-    /// Thin strip chrome shown while the region is revealed: the status dot and title, with the
+    /// Thin strip shown while the region is revealed: the status dot and title, with the
     /// view-source toggle fading in on hover. The literal region text renders below it.
-    private var stripView: some View {
+    private func stripView(footer: Footer?) -> some View {
         HStack(alignment: .center, spacing: 8) {
-            statusDot
+            statusDot(footer: footer)
             titleText
             Spacer(minLength: 8)
             sourceToggleButton
@@ -100,22 +96,35 @@ struct DynamicBlockCardView: View {
         }
     }
 
-    private var header: some View {
+    private func header(footer: Footer?) -> some View {
         HStack(alignment: .center, spacing: 8) {
-            statusDot
+            statusDot(footer: footer)
             titleText
             Spacer(minLength: 8)
-            trailingControls
+            trailingControls(footer: footer)
                 .opacity(isHovering ? 1 : 0)
                 .allowsHitTesting(isHovering)
         }
     }
 
-    private var statusDot: some View {
-        Circle()
-            .fill(dotColor)
+    /// Tertiary at rest, accent while a change is offered, warning once the preview is stale or
+    /// the last action failed. Every value is an existing token.
+    private func statusDot(footer: Footer?) -> some View {
+        let color: Color
+        switch dotState(footer) {
+        case .idle: color = DesignTokens.textTertiary
+        case .pending: color = DesignTokens.accent
+        case .attention: color = DesignTokens.warning
+        }
+        return Circle()
+            .fill(color)
             .frame(width: 6, height: 6)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: dotColor)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: color)
+    }
+
+    private func dotState(_ footer: Footer?) -> DotState {
+        guard let footer else { return .idle }
+        return footer.needsAttention ? .attention : .pending
     }
 
     private var titleText: some View {
@@ -125,10 +134,10 @@ struct DynamicBlockCardView: View {
     }
 
     /// Generated-at label, refresh, and view-source; all quiet until the card is hovered.
-    private var trailingControls: some View {
+    private func trailingControls(footer: Footer?) -> some View {
         HStack(spacing: 10) {
-            if pendingPreview == nil, let generatedAt = appState.dynamicBlockGeneratedAt(forRegionHash: regionHash) {
-                Text("generated \(Self.relativeFormatter.localizedString(for: generatedAt, relativeTo: Date()))")
+            if footer == nil, let generatedAt = appState.dynamicBlockGeneratedAt(forRegionHash: regionHash) {
+                Text("Generated \(Self.relativeFormatter.localizedString(for: generatedAt, relativeTo: Date()))")
                     .font(DesignType.metadata)
                     .foregroundStyle(DesignTokens.textTertiary)
             }
@@ -144,7 +153,7 @@ struct DynamicBlockCardView: View {
             if !reduceMotion {
                 withAnimation(.easeInOut(duration: 0.11)) { refreshAngle += 360 }
             }
-            Task { await appState.previewDynamicBlocksRefresh() }
+            Task { await appState.previewDynamicBlocksRefresh(fromCard: regionHash) }
         } label: {
             Image(systemName: "arrow.clockwise")
                 .font(.system(size: 12, weight: .medium))
@@ -153,11 +162,11 @@ struct DynamicBlockCardView: View {
         }
         .buttonStyle(.plain)
         .help("Refresh dynamic blocks")
+        .accessibilityLabel("Refresh dynamic blocks")
     }
 
-    /// Always reflects the composite reveal state (spec requirement). Toggling it off clears
-    /// only the user-driven half in the controller; if the caret is still inside the region
-    /// this button stays active and the strip stays up, which is correct, not a bug.
+    /// Shows the composite reveal state. Toggling it off clears only the user-driven half, so
+    /// with the caret still inside the region the strip stays up and the toggle stays active.
     private var sourceToggleButton: some View {
         Button {
             context.setSourceRevealed(!context.isRevealed)
@@ -168,41 +177,35 @@ struct DynamicBlockCardView: View {
                 .foregroundStyle(context.isRevealed ? DesignTokens.accentDeep : DesignTokens.textTertiary)
         }
         .buttonStyle(.plain)
-        .help("View source")
+        .help(context.isRevealed ? "Hide source" : "View source")
+        .accessibilityLabel(context.isRevealed ? "Hide source" : "View source")
     }
 
-    @ViewBuilder
-    private var bodyContent: some View {
-        if let preview = pendingPreview {
-            Text(CardMarkdownRenderer.attributedText(for: preview.incomingMarkdown))
-                .lineSpacing(8)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 2)))
-        } else {
-            Text(CardMarkdownRenderer.attributedText(for: context.innerText))
-                .lineSpacing(8)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func footer(for preview: DynamicBlockCardPreview) -> some View {
+    private func footerView(_ footer: Footer) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(preview.summaryText)
+            Text(footer.message)
                 .font(DesignType.metadata)
-                .foregroundStyle(preview.canApply ? DesignTokens.textSecondary : DesignTokens.warning)
+                .foregroundStyle(footer.needsAttention ? DesignTokens.warning : DesignTokens.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                Button("Apply") {
-                    Task { await appState.applyDynamicBlocksRefresh() }
+                if let preview = footer.preview {
+                    Button("Apply") {
+                        Task { await appState.applyDynamicBlockCard(regionHash: regionHash) }
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(!preview.canApply)
+                    .opacity(preview.canApply ? 1 : 0.55)
+                    Button("Cancel") {
+                        appState.cancelDynamicBlockCard(regionHash: regionHash)
+                    }
+                    .buttonStyle(QuietButtonStyle())
+                    .disabled(footer.isApplying)
+                } else {
+                    Button("Dismiss") {
+                        appState.dismissDynamicBlockCardError(regionHash: regionHash)
+                    }
+                    .buttonStyle(QuietButtonStyle())
                 }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(!preview.canApply)
-                .opacity(preview.canApply ? 1 : 0.55)
-                Button("Cancel") {
-                    appState.dismissDynamicBlocksRefresh()
-                }
-                .buttonStyle(QuietButtonStyle())
             }
         }
         .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 2)))
@@ -213,154 +216,4 @@ struct DynamicBlockCardView: View {
         formatter.unitsStyle = .full
         return formatter
     }()
-}
-
-/// Derives a read-only styled `AttributedString` for a card body from `NoteTokenScanner`'s
-/// output, mirroring the live editor's token catalog (headings, bullets, quotes, command
-/// lines, tags, wikilinks, urls, due dates). Checkboxes render as static `☐`/`☑` glyphs
-/// instead of the editor's interactive drawn control; generated content never round-trips
-/// back into the buffer from here, so there is nothing to keep literal. Inline emphasis
-/// (bold, italic, code spans) is not reproduced: `NoteTokenScanner` itself does not emit
-/// those token kinds today (the live editor applies them via a separate regex pass that is
-/// outside the Interface Registry), so there is no scanner output to derive them from.
-enum CardMarkdownRenderer {
-    static func attributedText(for markdown: String) -> AttributedString {
-        guard !markdown.isEmpty else { return AttributedString("") }
-        let ns = markdown as NSString
-        let tokens = NoteTokenScanner.scan(markdown)
-        var result = AttributedString()
-        for (index, line) in tokens.lines.enumerated() {
-            if index > 0 { result += AttributedString("\n") }
-            let inlineForLine = tokens.inlineTokens.filter { NSIntersectionRange($0.range, line.range).length > 0 }
-            result += renderLine(line, inlineTokens: inlineForLine, text: ns)
-        }
-        return result
-    }
-
-    private enum Op {
-        case checkbox(done: Bool)
-        case strike
-        case tag
-        case wikilink
-        case url
-        case due(display: String)
-        /// Machine text (rollover marker, provenance) is stripped from card bodies entirely:
-        /// nothing that looks like code renders inside a card.
-        case remove
-    }
-
-    private static func renderLine(_ line: NoteTokens.Line, inlineTokens: [NoteTokens.InlineToken], text: NSString) -> AttributedString {
-        let lineLocation = line.range.location
-        let originalPlain = text.substring(with: line.range) as NSString
-
-        var ops: [(range: NSRange, op: Op)] = []
-        if case .task(let done, _, let boxRange, let textRange) = line.kind {
-            ops.append((relative(boxRange, to: lineLocation), .checkbox(done: done)))
-            if done {
-                ops.append((relative(textRange, to: lineLocation), .strike))
-            }
-        }
-        for token in inlineTokens {
-            let range = relative(token.range, to: lineLocation)
-            switch token.kind {
-            case .tag: ops.append((range, .tag))
-            case .wikilink: ops.append((range, .wikilink))
-            case .url: ops.append((range, .url))
-            case .dueDate(let display): ops.append((range, .due(display: display)))
-            case .rolloverMarker, .provenance: ops.append((range, .remove))
-            case .codeSpan, .bold, .italic: break
-            }
-        }
-        ops.sort { $0.range.location < $1.range.location }
-
-        var plain = ""
-        var runs: [(range: NSRange, op: Op)] = []
-        var cursor = 0
-        for entry in ops {
-            guard entry.range.location >= cursor, entry.range.location + entry.range.length <= originalPlain.length else { continue }
-            if entry.range.location > cursor {
-                plain += originalPlain.substring(with: NSRange(location: cursor, length: entry.range.location - cursor))
-            }
-            let start = (plain as NSString).length
-            let replacement: String
-            switch entry.op {
-            case .checkbox(let done): replacement = done ? "\u{2611}" : "\u{2610}"
-            case .due(let display): replacement = "\u{1F550} \(display)"
-            case .remove: replacement = ""
-            case .strike, .tag, .wikilink, .url: replacement = originalPlain.substring(with: entry.range)
-            }
-            plain += replacement
-            runs.append((NSRange(location: start, length: (replacement as NSString).length), entry.op))
-            cursor = entry.range.location + entry.range.length
-        }
-        if cursor < originalPlain.length {
-            plain += originalPlain.substring(with: NSRange(location: cursor, length: originalPlain.length - cursor))
-        }
-
-        var attributed = AttributedString(plain)
-        attributed.font = DesignType.body
-        attributed.foregroundColor = DesignTokens.textPrimary
-        applyLineKindStyle(line.kind, to: &attributed)
-
-        for run in runs {
-            guard let attrRange = attributedRange(for: run.range, in: plain, attributed: attributed) else { continue }
-            switch run.op {
-            case .checkbox(let done):
-                attributed[attrRange].foregroundColor = done ? DesignTokens.accent : DesignTokens.checkboxBorder
-            case .strike:
-                attributed[attrRange].strikethroughStyle = .single
-                attributed[attrRange].foregroundColor = DesignTokens.textSecondary
-            case .tag:
-                attributed[attrRange].foregroundColor = DesignTokens.accentDeep
-            case .wikilink:
-                attributed[attrRange].foregroundColor = DesignTokens.accent
-            case .url:
-                attributed[attrRange].foregroundColor = DesignTokens.accent
-                attributed[attrRange].underlineStyle = .single
-            case .due:
-                attributed[attrRange].foregroundColor = DesignTokens.textSecondary
-                attributed[attrRange].backgroundColor = DesignTokens.pillDueFill
-            case .remove:
-                break
-            }
-        }
-        return attributed
-    }
-
-    private static func applyLineKindStyle(_ kind: NoteTokens.LineKind, to attributed: inout AttributedString) {
-        switch kind {
-        case .heading(let level, _):
-            attributed.font = headingFont(level: level)
-        case .quote:
-            attributed.foregroundColor = DesignTokens.textSecondary
-            attributed.font = DesignType.body.italic()
-        case .commandLine:
-            attributed.font = DesignType.code
-            attributed.foregroundColor = DesignTokens.accent
-        case .task, .bullet, .fence, .body, .blank:
-            break
-        }
-    }
-
-    private static func headingFont(level: Int) -> Font {
-        switch level {
-        case 1: return .system(size: 24, weight: .semibold)
-        case 2: return .system(size: 19, weight: .semibold)
-        case 3: return .system(size: 17, weight: .semibold)
-        default: return .system(size: 16, weight: .semibold)
-        }
-    }
-
-    private static func relative(_ range: NSRange, to lineLocation: Int) -> NSRange {
-        NSRange(location: range.location - lineLocation, length: range.length)
-    }
-
-    private static func attributedRange(for nsRange: NSRange, in plain: String, attributed: AttributedString) -> Range<AttributedString.Index>? {
-        guard let stringRange = Range(nsRange, in: plain),
-              let lower = AttributedString.Index(stringRange.lowerBound, within: attributed),
-              let upper = AttributedString.Index(stringRange.upperBound, within: attributed) else {
-            return nil
-        }
-        return lower..<upper
-    }
 }

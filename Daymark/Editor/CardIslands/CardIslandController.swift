@@ -17,7 +17,13 @@ final class CardIslandController: NSObject, @preconcurrency NSTextLayoutManagerD
     private var userRevealedHashes: Set<String> = []
     private var cardHeights: [String: CGFloat] = [:]
     private var hosts: [String: CardIslandHost] = [:]
+    /// The text each host last rendered. An Apply (or an external `blocks refresh --apply`) can
+    /// rewrite a region's body under the same hash, so hosts are compared against this, not
+    /// keyed on the hash alone.
+    private var hostSignatures: [String: HostSignature] = [:]
     private var scrollObserver: NSObjectProtocol?
+    private var storageObserver: NSObjectProtocol?
+    private var isSignatureCheckScheduled = false
     private var isReconciling = false
 
     private let defaultHeight: CGFloat = 64
@@ -30,11 +36,47 @@ final class CardIslandController: NSObject, @preconcurrency NSTextLayoutManagerD
         layoutManager.delegate = self
         textView.cardController = self
         renderController.cardController = self
+        observeWholeDocumentReplacement(textView.textStorage)
     }
 
     deinit {
         if let scrollObserver {
             NotificationCenter.default.removeObserver(scrollObserver)
+        }
+        if let storageObserver {
+            NotificationCenter.default.removeObserver(storageObserver)
+        }
+    }
+
+    /// Replacing the whole buffer (an Apply, an external reload) can change a region's body while
+    /// its line structure, and so the token cache, stays identical; `regionsDidChange` never fires
+    /// then. A whole-document edit is the only case that needs this, so keystrokes cost one range
+    /// comparison here and nothing more.
+    private func observeWholeDocumentReplacement(_ storage: NSTextStorage?) {
+        guard storageObserver == nil, let storage else { return }
+        storageObserver = NotificationCenter.default.addObserver(
+            forName: NSTextStorage.didProcessEditingNotification,
+            object: storage,
+            queue: nil
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let storage = notification.object as? NSTextStorage,
+                      storage.editedMask.contains(.editedCharacters),
+                      storage.editedRange.location == 0,
+                      storage.editedRange.length == storage.length else { return }
+                self?.scheduleSignatureCheck()
+            }
+        }
+    }
+
+    /// Runs after the current edit finishes, once the render controller has rescanned regions.
+    private func scheduleSignatureCheck() {
+        guard !isSignatureCheckScheduled, !hosts.isEmpty else { return }
+        isSignatureCheckScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isSignatureCheckScheduled = false
+            self.refreshChangedHosts()
         }
     }
 
@@ -78,12 +120,25 @@ final class CardIslandController: NSObject, @preconcurrency NSTextLayoutManagerD
     // MARK: - Region and selection changes
 
     func regionsDidChange() {
-        let live = Set(currentRegions.map(\.hash))
+        let regions = currentRegions
+        let live = Set(regions.map(\.hash))
         for hash in Array(hosts.keys) where !live.contains(hash) { removeHost(hash) }
         caretRevealedHashes.formIntersection(live)
         userRevealedHashes.formIntersection(live)
         for hash in Array(cardHeights.keys) where !live.contains(hash) { cardHeights[hash] = nil }
+        refreshChangedHosts()
         repositionCards()
+    }
+
+    /// Rebuilds only hosts whose region text differs from what they last rendered. Existing hosts
+    /// are the visible few, and each check is two substring comparisons.
+    private func refreshChangedHosts() {
+        let ns = textView?.string as NSString?
+        for region in currentRegions where hosts[region.hash] != nil {
+            if signature(for: region, in: ns) != hostSignatures[region.hash] {
+                refreshHostContent(region.hash)
+            }
+        }
     }
 
     func selectionDidChange() {
@@ -240,6 +295,7 @@ final class CardIslandController: NSObject, @preconcurrency NSTextLayoutManagerD
         }
         textView?.addSubview(host)
         hosts[regionHash] = host
+        recordSignature(for: regionHash)
         #if DEBUG
         NSLog("[Daymark] card island host created: %@", regionHash)
         #endif
@@ -249,22 +305,42 @@ final class CardIslandController: NSObject, @preconcurrency NSTextLayoutManagerD
     private func removeHost(_ hash: String) {
         hosts[hash]?.removeFromSuperview()
         hosts[hash] = nil
+        hostSignatures[hash] = nil
     }
 
-    /// Re-renders an existing host's content with fresh `CardIslandContext` (in particular a
-    /// changed `isRevealed`), preserving its current width. Called on reveal transitions;
-    /// `repositionCards` only creates or repositions hosts, it does not refresh their content.
+    /// Re-renders an existing host's content with fresh `CardIslandContext` (a changed
+    /// `isRevealed`, or new region text), preserving its current width. `repositionCards` only
+    /// creates or repositions hosts; it never refreshes their content.
     private func refreshHostContent(_ hash: String) {
         guard let host = hosts[hash] else { return }
         let width = host.frame.width > 0 ? host.frame.width : 1
         host.update(rootView: contentProvider(context(for: hash)), width: width)
+        recordSignature(for: hash)
+    }
+
+    private struct HostSignature: Equatable {
+        var innerText: String
+        var commandLine: String?
+    }
+
+    private func signature(for region: NoteTokens.GeneratedRegion, in ns: NSString?) -> HostSignature {
+        HostSignature(
+            innerText: substring(ns, region.innerRange) ?? "",
+            commandLine: region.commandLineRange.flatMap { substring(ns, $0) }
+        )
+    }
+
+    private func recordSignature(for hash: String) {
+        guard let region = currentRegions.first(where: { $0.hash == hash }) else {
+            hostSignatures[hash] = nil
+            return
+        }
+        hostSignatures[hash] = signature(for: region, in: textView?.string as NSString?)
     }
 
     private func context(for hash: String) -> CardIslandContext {
         let region = currentRegions.first { $0.hash == hash }
-        let ns = textView?.string as NSString?
-        let inner = region.flatMap { substring(ns, $0.innerRange) } ?? ""
-        let commandLine = region?.commandLineRange.flatMap { substring(ns, $0) }
+        let signature = region.map { self.signature(for: $0, in: textView?.string as NSString?) }
         let fallback = region ?? NoteTokens.GeneratedRegion(
             hash: hash,
             range: NSRange(location: 0, length: 0),
@@ -273,8 +349,8 @@ final class CardIslandController: NSObject, @preconcurrency NSTextLayoutManagerD
         )
         return CardIslandContext(
             region: fallback,
-            command: CardIslandCommand.parse(commandLine),
-            innerText: inner,
+            command: CardIslandCommand.parse(signature?.commandLine),
+            innerText: signature?.innerText ?? "",
             isRevealed: isRevealed(hash),
             setSourceRevealed: { [weak self] revealed in self?.setSourceRevealed(hash, revealed: revealed) },
             notifyHeightChanged: { [weak self] in

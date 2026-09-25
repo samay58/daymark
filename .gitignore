@@ -16,3 +16,4 @@ DerivedData/
 
 # Session transcripts (local only)
 .specstory/
+.claude/worktrees/
